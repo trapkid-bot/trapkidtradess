@@ -105,7 +105,9 @@ export default Engine =>
                 },
             });
 
-            globalObserver.emit('ui.log.success',
+            globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
+            globalObserver.emit(
+                'ui.log.success',
                 `TrapKid Analyzer: locked digit ${bestDigit} on ${symbol} for 30 seconds using the latest ${recentTicks.length} ticks.`
             );
 
@@ -128,5 +130,6 @@ export default Engine =>
                     remainingMs: 0,
                 },
             });
+            globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
         }
     };
