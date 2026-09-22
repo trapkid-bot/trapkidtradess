@@ -16,6 +16,17 @@ export default Engine =>
                 return Promise.resolve();
             }
 
+            // Refresh the TrapKid analyzer lock when its 30-second window has expired.
+            // This is intentionally done before the native Match buy so the barrier
+            // sent to Deriv is always the currently locked digit.
+            if (
+                !this.is_proposal_subscription_required &&
+                this.isAnalyzerEnabledForTrade?.() &&
+                !this.analyzerPredictionIsValid?.()
+            ) {
+                return this.prepareAnalyzerPrediction(true).then(() => this.purchase(contract_type));
+            }
+
             const onSuccess = response => {
                 // Don't unnecessarily send a forget request for a purchased contract.
                 const { buy } = response;
