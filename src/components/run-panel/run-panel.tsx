@@ -13,6 +13,7 @@ import Summary from '@/components/summary';
 import TradeAnimation from '@/components/trade-animation';
 import Transactions from '@/components/transactions';
 import { DBOT_TABS } from '@/constants/bot-contents';
+import { observer as globalObserver } from '@/external/bot-skeleton/utils/observer';
 import { popover_zindex } from '@/constants/z-indexes';
 import { useStore } from '@/hooks/useStore';
 import { Localize, localize } from '@deriv-com/translations';
@@ -59,6 +60,63 @@ type TStatisticsInfoModal = {
     is_mobile: boolean;
     is_statistics_info_modal_open: boolean;
     toggleStatisticsInfoModal: () => void;
+};
+
+const TrapKidAnalyzerStatus = () => {
+    const getInitialState = () =>
+        globalObserver.getState('trapkid_analyzer') || {
+            status: 'IDLE',
+            symbol: null,
+            lockedDigit: null,
+            expiresAt: null,
+            sampleSize: 0,
+        };
+
+    const [state, setState] = React.useState(getInitialState);
+    const [remaining, setRemaining] = React.useState(0);
+
+    React.useEffect(() => {
+        const handleUpdate = nextState => setState(nextState || getInitialState());
+        globalObserver.register('trapkid.analyzer.updated', handleUpdate);
+
+        return () => globalObserver.unregister('trapkid.analyzer.updated', handleUpdate);
+    }, []);
+
+    React.useEffect(() => {
+        const updateRemaining = () => {
+            const expiresAt = Number(state?.expiresAt || 0);
+            setRemaining(Math.max(0, Math.ceil((expiresAt - Date.now()) / 1000)));
+        };
+
+        updateRemaining();
+        const timer = window.setInterval(updateRemaining, 250);
+        return () => window.clearInterval(timer);
+    }, [state?.expiresAt]);
+
+    if (state?.status !== 'LOCKED') return null;
+
+    return (
+        <div
+            style={{
+                margin: '8px 12px',
+                padding: '10px 12px',
+                borderRadius: 8,
+                background: 'var(--general-section-1)',
+                border: '1px solid var(--general-section-3)',
+            }}
+        >
+            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>TRAPKID ANALYZER</div>
+            <div style={{ fontSize: 12 }}>
+                {state.symbol || '—'} · locked digit <strong>{state.lockedDigit}</strong>
+            </div>
+            <div style={{ fontSize: 11, marginTop: 3 }}>
+                {remaining > 0 ? 'Lock expires in ' + remaining + 's' : 'Lock expired — next Match trade will refresh it'}
+            </div>
+            <div style={{ fontSize: 10, marginTop: 3, opacity: 0.7 }}>
+                {state.sampleSize || 0} recent ticks · frequency lock
+            </div>
+        </div>
+    );
 };
 
 const StatisticsTile = ({ content, contentClassName, title }: TStatisticsTile) => (
@@ -283,7 +341,9 @@ const RunPanel = observer(() => {
     }, []);
 
     const content = (
-        <DrawerContent
+        <>
+            <TrapKidAnalyzerStatus />
+            <DrawerContent
             active_index={active_index}
             currency={currency}
             is_drawer_open={is_drawer_open}
@@ -298,6 +358,7 @@ const RunPanel = observer(() => {
             won_contracts={won_contracts}
             active_tour={active_tour}
         />
+        </>
     );
 
     const footer = <DrawerFooter is_clear_stat_disabled={is_clear_stat_disabled} onClearStatClick={onClearStatClick} />;
