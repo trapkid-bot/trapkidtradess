@@ -22,7 +22,8 @@ type Trade = {
     holdTicks: number;
 };
 
-const ANALYZER_WS = 'ws://localhost:5000/ws/ticks';
+const ANALYZER_WS =
+    (process.env.NEXT_PUBLIC_ANALYZER_WS_URL || 'ws://localhost:5000/ws/ticks').trim();
 
 const lastDigit = (quote: number, pipSize = 2) => {
     const fixed = Number(quote).toFixed(Math.max(0, pipSize));
