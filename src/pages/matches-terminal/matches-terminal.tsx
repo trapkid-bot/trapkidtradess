@@ -22,7 +22,7 @@ type Trade = {
     holdTicks: number;
 };
 
-const PUBLIC_WS = 'wss://api.derivws.com/trading/v1/options/ws/public';
+const ANALYZER_WS = 'ws://localhost:5000/ws/ticks';
 
 const lastDigit = (quote: number, pipSize = 2) => {
     const fixed = Number(quote).toFixed(Math.max(0, pipSize));
@@ -84,14 +84,14 @@ const buildSparkline = (prices: number[], width = 900, height = 520) => {
 };
 
 const MatchesTerminal = () => {
-    const publicSocket = useRef<WebSocket | null>(null);
+    const analyzerSocket = useRef<WebSocket | null>(null);
     const authSubscription = useRef<{ unsubscribe: () => void } | null>(null);
     const reqIdRef = useRef(1);
     const tradeRef = useRef<Trade | null>(null);
     const sellingRef = useRef(false);
 
     const [markets, setMarkets] = useState<Market[]>([]);
-    const [symbol, setSymbol] = useState('1HZ100V');
+    const [symbol, setSymbol] = useState('R_100');
     const [prices, setPrices] = useState<number[]>([]);
     const [tick, setTick] = useState<number | null>(null);
     const [digit, setDigit] = useState<number | null>(null);
@@ -135,9 +135,7 @@ const MatchesTerminal = () => {
     }, []);
 
     const subscribeMarket = useCallback((nextSymbol: string) => {
-        const ws = publicSocket.current;
-        if (!ws || ws.readyState !== WebSocket.OPEN) return;
-        setStatus(`Loading ${nextSymbol}…`);
+        setStatus(`Waiting for ${nextSymbol} from TrapKid Analyzer…`);
         setError('');
         setPrices([]);
         setHistoryDigits([]);
@@ -146,96 +144,92 @@ const MatchesTerminal = () => {
         setPayout(null);
         setProposalId(null);
 
-        ws.send(JSON.stringify({ ticks_history: nextSymbol, end: 'latest', count: 100, style: 'ticks', subscribe: 0, req_id: ++reqIdRef.current }));
-        ws.send(JSON.stringify({ contracts_for: nextSymbol, req_id: ++reqIdRef.current }));
-        ws.send(JSON.stringify({ ticks: nextSymbol, subscribe: 1, req_id: ++reqIdRef.current }));
     }, []);
 
     useEffect(() => {
-        const ws = new WebSocket(PUBLIC_WS);
-        publicSocket.current = ws;
+        const ws = new WebSocket(ANALYZER_WS);
+        analyzerSocket.current = ws;
 
         ws.onopen = () => {
-            setStatus('Live market feed connected');
-            ws.send(JSON.stringify({ active_symbols: 'brief', req_id: 1 }));
+            setStatus('TrapKid Analyzer feed connected');
+            setError('');
+            ws.send(JSON.stringify({ type: 'STATUS' }));
         };
 
         ws.onmessage = event => {
-            const data = JSON.parse(event.data);
+            try {
+                const data = JSON.parse(event.data);
 
-            if (data.msg_type === 'active_symbols') {
-                const next = (data.active_symbols || [])
-                    .filter((m: any) => {
-                        const type = String(m.underlying_symbol_type || m.symbol_type || '').toLowerCase();
-                        const market = String(m.market || '').toLowerCase();
-                        return type.includes('synthetic') || market.includes('synthetic');
-                    })
-                    .map((m: any) => ({
-                        symbol: m.underlying_symbol || m.symbol,
-                        name: m.underlying_symbol_name || m.display_name || m.underlying_symbol || m.symbol,
-                        type: m.underlying_symbol_type || m.symbol_type || '',
-                        pipSize: Number(m.pip_size ?? m.pip ?? 2),
-                    }))
-                    .filter((m: Market) => m.symbol);
+                if (data.type === 'TICK') {
+                    const quote = Number(data.quote);
+                    const d = Number(data.digit);
+                    const nextSymbol = String(data.symbol || symbol);
+                    if (!Number.isFinite(quote) || !Number.isInteger(d)) return;
 
-                setMarkets(next);
-                const initial = next.find(m => m.symbol === symbol) || next[0];
-                if (initial) {
-                    setSymbol(initial.symbol);
-                    subscribeMarket(initial.symbol);
+                    if (nextSymbol !== symbol) setSymbol(nextSymbol);
+                    setTick(quote);
+                    setDigit(d);
+                    setPrices(prev => [...prev.slice(-99), quote]);
+                    setHistoryDigits(prev => {
+                        const next = [...prev.slice(-99), d];
+                        analyze(next);
+                        return next;
+                    });
+
+                    setStatus('Analyzer live • ' + nextSymbol);
+
+                    const active = tradeRef.current;
+                    if (active && !sellingRef.current && d === active.prediction) {
+                        sellingRef.current = true;
+                        void exitOnHit(active, quote, d);
+                    }
                 }
-            }
 
-            if (data.msg_type === 'history' && data.history?.prices) {
-                const nextPrices = data.history.prices.map(Number).filter(Number.isFinite);
-                setPrices(nextPrices);
-                const pip = selectedMarket?.pipSize ?? 2;
-                const digits = nextPrices.map(p => lastDigit(p, pip));
-                setHistoryDigits(digits);
-                analyze(digits);
-                setStatus('Live history loaded');
-            }
-
-            if (data.msg_type === 'tick' && data.tick?.quote !== undefined) {
-                const quote = Number(data.tick.quote);
-                const pip = selectedMarket?.pipSize ?? 2;
-                const d = lastDigit(quote, pip);
-                setTick(quote);
-                setDigit(d);
-                setPrices(prev => [...prev.slice(-99), quote]);
-                setHistoryDigits(prev => {
-                    const next = [...prev.slice(-99), d];
-                    analyze(next);
-                    return next;
-                });
-
-                const active = tradeRef.current;
-                if (active && !sellingRef.current && d === active.prediction) {
-                    sellingRef.current = true;
-                    void exitOnHit(active, quote, d);
+                if (data.type === 'ANALYZER_UPDATE' && data.analysis) {
+                    const analysis = data.analysis;
+                    const nextSymbol = String(data.symbol || analysis.symbol || symbol);
+                    if (nextSymbol !== symbol) setSymbol(nextSymbol);
+                    if (Array.isArray(analysis.recent)) setHistoryDigits(analysis.recent.map(Number).filter(Number.isInteger));
+                    if (Number.isInteger(analysis.candidateDigit)) setAiDigit(analysis.candidateDigit);
+                    if (Number.isFinite(Number(analysis.candidateScore))) setAiScore(Math.round(Number(analysis.candidateScore)));
+                    if (Number.isInteger(analysis.candidateDigit)) {
+                        setAiReason('TrapKid Analyzer candidate: digit ' + analysis.candidateDigit + ', weighted score ' + Number(analysis.candidateScore ?? 0).toFixed(3) + '.');
+                    }
                 }
-            }
 
-            if (data.msg_type === 'contracts_for') {
-                const available = data.contracts_for?.available || [];
-                const ok = available.some((c: any) => String(c.contract_type || c.contract_category || '').toUpperCase() === 'DIGITMATCH');
-                setContractAvailable(ok || available.length === 0);
-            }
+                if (data.type === 'SIGNAL_LOCKED') {
+                    const locked = Number(data.lockedDigit);
+                    if (Number.isInteger(locked) && locked >= 0 && locked <= 9) {
+                        setPrediction(locked);
+                        setAiDigit(locked);
+                        if (Number.isFinite(Number(data.score))) setAiScore(Math.round(Number(data.score)));
+                        setAiReason('Analyzer locked digit ' + locked + ' (' + (data.signalId || 'no signal id') + ').');
+                        setStatus('Analyzer locked digit ' + locked + ' — ready for Match execution');
+                    }
+                }
 
-            if (data.error) {
-                setError(data.error.message || 'Market-data error');
+                if (data.type === 'DIGIT_MATCH') {
+                    setStatus('Analyzer detected locked digit ' + data.digit + ' at ' + Number(data.quote).toFixed(2));
+                }
+
+                if (data.type === 'SIGNAL_UNLOCKED') {
+                    setStatus('Analyzer unlocked the previous signal; waiting for the next lock.');
+                }
+            } catch (e) {
+                console.warn('[MatchesTerminal] analyzer message:', e);
             }
         };
 
-        ws.onerror = () => setError('Live market feed error. Retrying on reload.');
-        ws.onclose = () => setStatus('Market feed disconnected');
+        ws.onerror = () => setError('Cannot connect to TrapKid Live Analyzer at localhost:5000. Start the analyzer first.');
+        ws.onclose = () => setStatus('TrapKid Analyzer feed disconnected');
 
         return () => {
             ws.close();
-            publicSocket.current = null;
+            analyzerSocket.current = null;
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
+
 
     useEffect(() => {
         const active = localStorage.getItem('active_loginid');
@@ -429,7 +423,7 @@ const MatchesTerminal = () => {
                     <button className='tk-add'>＋</button>
                     <div className='tk-market-title'>MATCH MARKETS</div>
                     <div className='tk-market-list'>
-                        {markets.map(m => (
+                        {(markets.length ? markets : [{ symbol: 'R_100', name: 'Volatility 100 Index', type: 'synthetic', pipSize: 2 }]).map(m => (
                             <button
                                 key={m.symbol}
                                 className={m.symbol === symbol ? 'tk-market active' : 'tk-market'}
@@ -557,7 +551,7 @@ const MatchesTerminal = () => {
             </div>
 
             <div className='tk-disclaimer'>
-                <b>Execution note:</b> Deriv remains the broker and source of market data, proposals, balances and contract execution. A Match contract normally settles at its expiry. “Hold until digit appears” here means the app buys a longer-lived Match contract and sends an authenticated <code>sell</code> request when the locked digit appears; the broker records that as an early sale, not as a native 1-tick Match settlement.
+                <b>Data flow:</b> TrapKid Live Analyzer supplies the live tick stream and digit-analysis signals over localhost:5000. The authenticated Deriv connection remains responsible for balances, proposals, purchases, open-contract updates and sells. <b>Execution note:</b> Deriv remains the broker for contract execution. A Match contract normally settles at its expiry. “Hold until digit appears” here means the app buys a longer-lived Match contract and sends an authenticated <code>sell</code> request when the locked digit appears; the broker records that as an early sale, not as a native 1-tick Match settlement.
             </div>
         </div>
     );
