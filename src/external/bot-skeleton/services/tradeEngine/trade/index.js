@@ -16,6 +16,7 @@ import Purchase from './Purchase';
 import Sell from './Sell';
 import Ticks from './Ticks';
 import Total from './Total';
+import Analyzer from './Analyzer';
 
 const watchBefore = store =>
     watchScope({
@@ -62,7 +63,7 @@ const watchScope = ({ store, stopScope, passScope, passFlag }) => {
     });
 };
 
-export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Proposal(Ticks(Total(class {}))))))) {
+export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Proposal(Analyzer(Ticks(Total(class {})))))))) {
     constructor($scope) {
         super();
         this.observer = $scope.observer;
@@ -100,6 +101,19 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         this.tradeOptions = { ...validated_trade_options, symbol: this.options.symbol };
         this.store.dispatch(start());
         this.checkLimits(validated_trade_options);
+
+        // TrapKid analyzer mode: for DIGITMATCH, derive the prediction from
+        // the most frequent last digit in the current underlying tick stream.
+        // The selected digit is locked for 30 seconds and reused while valid.
+        if (this.isAnalyzerEnabledForTrade()) {
+            this.prepareAnalyzerPrediction()
+                .then(() => this.makeDirectPurchaseDecision())
+                .catch(error => {
+                    globalObserver.emit('ui.log.error', error?.message || 'TrapKid analyzer failed to prepare a prediction.');
+                    this.store.dispatch({ type: constants.STOP });
+                });
+            return;
+        }
 
         this.makeDirectPurchaseDecision();
     }
