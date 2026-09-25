@@ -5,6 +5,7 @@ import { api_base } from '../../api/api-base';
 import { contractStatus, log } from '../utils/broadcast';
 import { doUntilDone, recoverFromError } from '../utils/helpers';
 import { DURING_PURCHASE } from './state/constants';
+import { observer as globalObserver } from '../../../utils/observer';
 
 export default Engine =>
     class Sell extends Engine {
@@ -12,7 +13,14 @@ export default Engine =>
             return this.contractId && !this.isSold && this.isSellAvailable && !this.isExpired;
         }
 
-        sellAtMarket() {
+        sellAtMarket(source = 'BLOCKLY') {
+            if (this.isAnalyzerEnabledForTrade?.()) {
+                const exit = this.getAnalyzerExit?.();
+                if (source !== 'ANALYZER_EARLY_EXIT' || !exit) {
+                    return Promise.resolve();
+                }
+            }
+
             globalObserver.emit('bot.sell');
 
             // Prevent calling sell twice
