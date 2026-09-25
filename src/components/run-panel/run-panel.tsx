@@ -134,6 +134,13 @@ const TrapKidAnalyzerStatus = () => {
             <div style={{ fontSize: 11, marginTop: 3 }}>
                 Command: <strong>{state.commandKey || 'none yet'}</strong>
             </div>
+            <div style={{ fontSize: 11, marginTop: 3 }}>
+                Entry source: <strong>{state.signal?.signalId ? 'ANALYZER ONLY' : 'BLOCKED — NO ANALYZER SIGNAL'}</strong>
+            </div>
+            <div style={{ fontSize: 11, marginTop: 3 }}>
+                Exit: <strong>{state.exit?.status || state.signal?.exitStatus || 'WAITING FOR ANALYZER EARLY EXIT'}</strong>
+                {' · '}Hot digit: <strong>{state.hotDigit ?? state.signal?.hotDigit ?? '—'}</strong>
+            </div>
             <div style={{ fontSize: 10, marginTop: 3, opacity: 0.7 }}>
                 {remaining > 0 ? 'Analyzer lock expires in ' + remaining + 's' : 'No active lock countdown'}
             </div>
