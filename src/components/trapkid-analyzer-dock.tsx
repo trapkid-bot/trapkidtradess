@@ -58,6 +58,7 @@ const TrapKidAnalyzerDock = () => {
                         trapkid_analyzer: {
                             ...currentAnalyzerState,
                             ...data,
+                            ...(isNewSignal ? { exit: null } : {}),
                             status: preservedCommandStatus
                                 ? currentAnalyzerState.status
                                 : signalKey
@@ -73,8 +74,33 @@ const TrapKidAnalyzerDock = () => {
                         lastSeen: now,
                     });
 
-                    const exit = data?.exit;
-                    const exitSignalId = String(signal?.signalId || '');
+                    const previousSignalKey = analyzerSignalKeyRef.current;
+                    const isNewSignal = !!signalKey && previousSignalKey !== signalKey;
+
+                    // A new Analyze cycle starts with a clean exit state.
+                    // This prevents EARLY_SELL_READY from the previous cycle
+                    // from blocking the newly locked signal.
+                    if (isNewSignal) {
+                        analyzerExitKeyRef.current = null;
+                    }
+
+                    const rawExit = data?.exit;
+                    const rawExitSignalId = String(rawExit?.signalId || '');
+
+                    // The Analyzer endpoint may omit signalId on its exit object.
+                    // On the first poll of a NEW signal, do not inherit an old
+                    // EARLY_SELL_READY state. Subsequent polls may deliver the
+                    // exit for this already-known signal.
+                    const exit =
+                        isNewSignal
+                            ? null
+                            : rawExitSignalId && rawExitSignalId !== signalId
+                              ? null
+                              : rawExit
+                                ? { ...rawExit, signalId: rawExitSignalId || signalId }
+                                : null;
+
+                    const exitSignalId = String(exit?.signalId || '');
                     const exitKey = exit?.status === 'EARLY_SELL_READY' && exitSignalId
                         ? exitSignalId + ':' + String(exit.epoch || exit.quote || '')
                         : '';
@@ -103,10 +129,7 @@ const TrapKidAnalyzerDock = () => {
 
                     if (
                         signalKey &&
-                        (
-                            analyzerSignalKeyRef.current === null ||
-                            analyzerSignalKeyRef.current !== signalKey
-                        ) &&
+                        isNewSignal &&
                         String(globalObserver.getState('trapkid_analyzer')?.commandKey || '') !== signalKey
                     ) {
                         analyzerSignalKeyRef.current = signalKey;
