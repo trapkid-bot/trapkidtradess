@@ -124,7 +124,9 @@ const TrapKidAnalyzerStatus = () => {
                 <strong>{statusText}</strong>
             </div>
             <div style={{ fontSize: 11, marginTop: 4 }}>
-                {state.symbol || '—'} · locked digit <strong>{state.lockedDigit ?? state.signal?.lockedDigit ?? '—'}</strong>
+                Market: <strong>{state.symbol || state.signal?.symbol || '—'}</strong>
+                {' · '}Prediction: <strong>{state.prediction ?? state.signal?.prediction ?? state.signal?.lockedDigit ?? '—'}</strong>
+                {' · '}Hot digit: <strong>{state.hotDigit ?? state.signal?.hotDigit ?? '—'}</strong>
             </div>
             <div style={{ fontSize: 11, marginTop: 3 }}>
                 Signal: <strong>{state.signal?.signalId || state.signalId || 'waiting'}</strong>
