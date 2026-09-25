@@ -2,9 +2,13 @@ import { observer as globalObserver } from '../../../utils/observer';
 
 export default Engine =>
     class Analyzer extends Engine {
-        isAnalyzerEnabledForTrade() {
-            const contractTypes = this.tradeOptions?.contractTypes ?? [];
-            return contractTypes.includes('DIGITMATCH');
+        isAnalyzerEnabledForTrade(options = this.tradeOptions) {
+            const contractTypes = options?.contractTypes ?? [];
+            return (
+                contractTypes.includes('DIGITMATCH') ||
+                options?.contractType === 'DIGITMATCH' ||
+                options?.contract_type === 'DIGITMATCH'
+            );
         }
 
         getAnalyzerState() {
@@ -62,6 +66,10 @@ export default Engine =>
 
             if (!signal.symbol) {
                 throw new Error('TrapKid Analyzer: signal has no market. Trade blocked.');
+            }
+
+            if (!Number.isInteger(signal.hotDigit) || signal.hotDigit < 0 || signal.hotDigit > 9) {
+                throw new Error('TrapKid Analyzer: signal has no valid hot digit. Trade blocked.');
             }
 
             const pendingExit = this.getAnalyzerExit();
