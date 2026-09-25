@@ -39,11 +39,31 @@ const TrapKidAnalyzerDock = () => {
                         ? signalId + ':' + (Number.isFinite(lockedAt) ? lockedAt : '')
                         : '';
 
+                    const currentAnalyzerState = globalObserver.getState('trapkid_analyzer') || {};
+                    const commandBoundToSignal =
+                        signalKey && String(currentAnalyzerState.commandKey || '') === signalKey;
+                    const preservedCommandStatus =
+                        commandBoundToSignal &&
+                        [
+                            'COMMAND_RECEIVED',
+                            'COMMAND_ACCEPTED',
+                            'RUNNING',
+                            'ANALYZER_DATA_BOUND',
+                            'ANALYZER_PURCHASE_BOUND',
+                            'EARLY_EXIT_COMMAND_RECEIVED',
+                            'EARLY_EXIT_EXECUTING',
+                        ].includes(String(currentAnalyzerState.status || ''));
+
                     globalObserver.setState({
                         trapkid_analyzer: {
-                            ...(globalObserver.getState('trapkid_analyzer') || {}),
+                            ...currentAnalyzerState,
                             ...data,
-                            status: signalKey ? 'CONNECTED' : 'CONNECTED_WAITING',
+                            status: preservedCommandStatus
+                                ? currentAnalyzerState.status
+                                : signalKey
+                                  ? 'CONNECTED'
+                                  : 'CONNECTED_WAITING',
+                            ...(commandBoundToSignal ? { commandKey: signalKey } : {}),
                             lastSeen: now,
                         },
                     });
@@ -81,9 +101,14 @@ const TrapKidAnalyzerDock = () => {
                         });
                     }
 
-                    if (signalKey && analyzerSignalKeyRef.current === null) {
-                        analyzerSignalKeyRef.current = signalKey;
-                    } else if (signalKey && analyzerSignalKeyRef.current !== signalKey) {
+                    if (
+                        signalKey &&
+                        (
+                            analyzerSignalKeyRef.current === null ||
+                            analyzerSignalKeyRef.current !== signalKey
+                        ) &&
+                        String(globalObserver.getState('trapkid_analyzer')?.commandKey || '') !== signalKey
+                    ) {
                         analyzerSignalKeyRef.current = signalKey;
 
                         const command = {
