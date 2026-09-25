@@ -115,7 +115,10 @@ const MatchesTerminal = () => {
     const [analyzerDetails, setAnalyzerDetails] = useState<any>(null);
     const [analyzerPanelOpen, setAnalyzerPanelOpen] = useState(false);
     const [analyzerPos, setAnalyzerPos] = useState({ x: 24, y: 88 });
+    const [autoRun, setAutoRun] = useState(false);
     const analyzerDrag = useRef<{ dx: number; dy: number } | null>(null);
+    const analyzerSignalRef = useRef<string | null>(null);
+    const analyzerTickRef = useRef<number | null>(null);
 
     const selectedMarket = useMemo(() => markets.find(m => m.symbol === symbol), [markets, symbol]);
     const points = useMemo(() => buildSparkline(prices), [prices]);
@@ -158,11 +161,27 @@ const MatchesTerminal = () => {
                 const data = await response.json();
                 if (cancelled) return;
                 setAnalyzerDetails(data);
+
+                // Analyzer is the sole source of market data and strategy signals.
+                const analyzerMarkets: Market[] = Array.isArray(data.markets)
+                    ? data.markets.map((m: any) => ({
+                        symbol: String(m.symbol),
+                        name: String(m.name || m.symbol),
+                        type: String(m.type || 'synthetic'),
+                        pipSize: Number(m.pipSize ?? 2),
+                    }))
+                    : [];
+                if (analyzerMarkets.length) setMarkets(analyzerMarkets);
+
                 const nextSymbol = String(data.symbol || symbol);
-                if (nextSymbol !== symbol) setSymbol(nextSymbol);
+                if (nextSymbol !== symbol) {
+                    setSymbol(nextSymbol);
+                    subscribeMarket(nextSymbol);
+                }
                 if (data.lastTick) {
                     const quote = Number(data.lastTick.quote);
                     const d = Number(data.lastTick.digit);
+                    const epoch = Number(data.lastTick.epoch);
                     if (Number.isFinite(quote)) setTick(quote);
                     if (Number.isInteger(d)) setDigit(d);
                     if (Number.isFinite(quote)) setPrices(prev => [...prev.slice(-99), quote]);
@@ -171,13 +190,39 @@ const MatchesTerminal = () => {
                         analyze(next);
                         return next;
                     });
+
+                    // Exit decisions use the Analyzer's live tick, not a second
+                    // market-data subscription from Deriv.
+                    if (Number.isFinite(epoch) && analyzerTickRef.current !== epoch) {
+                        analyzerTickRef.current = epoch;
+                        const active = tradeRef.current;
+                        if (active && d === active.prediction && !sellingRef.current) {
+                            sellingRef.current = true;
+                            void exitOnHit(active, quote, d);
+                        }
+                    }
                 }
                 const signal = data.signal;
                 if (signal && Number.isInteger(Number(signal.prediction))) {
-                    setPrediction(Number(signal.prediction));
-                    setAiDigit(Number(signal.prediction));
+                    const nextPrediction = Number(signal.prediction);
+                    const nextSignalId = String(signal.signalId || '');
+                    setPrediction(nextPrediction);
+                    setAiDigit(nextPrediction);
                     if (Number.isFinite(Number(signal.score))) setAiScore(Math.round(Number(signal.score)));
-                    setAiReason('Analyzer locked digit ' + Number(signal.prediction) + ' — ' + String(signal.signalId || 'live signal') + '.');
+                    setAiReason('Analyzer locked digit ' + nextPrediction + ' — ' + nextSignalId + '.');
+
+                    // A fresh Analyzer signal automatically changes market/prediction.
+                    // When RUN is enabled, it starts the next Match automatically.
+                    if (nextSignalId && analyzerSignalRef.current !== nextSignalId) {
+                        analyzerSignalRef.current = nextSignalId;
+                        const signalReady =
+                            signal.exitStatus !== 'EARLY_EXIT_TRIGGERED' &&
+                            signal.exitStatus !== 'EXPIRED' &&
+                            signal.earlyExit !== true;
+                        if (autoRun && signalReady && !tradeRef.current && !sellingRef.current) {
+                            window.setTimeout(() => { void buy(); }, 0);
+                        }
+                    }
                 } else if (data.analysis) {
                     const analysis = data.analysis;
                     if (Number.isInteger(Number(analysis.hotDigit))) setAiDigit(Number(analysis.hotDigit));
@@ -365,7 +410,41 @@ const MatchesTerminal = () => {
         }
     };
 
+    const toggleRun = useCallback(() => {
+        if (autoRun) {
+            setAutoRun(false);
+            setStatus('Analyzer DBot stopped — no new automatic entries.');
+            return;
+        }
+
+        if (!api_base.is_authorized || !api_base.api) {
+            setError('Log in to Deriv first. Analyzer data is live, but broker execution needs your authenticated account.');
+            return;
+        }
+
+        setAutoRun(true);
+        setError('');
+        setStatus('Analyzer DBot RUNNING — waiting for a fresh locked signal…');
+
+        const signal = analyzerDetails?.signal;
+        const signalId = String(signal?.signalId || '');
+        const ready =
+            !!signalId &&
+            signal?.exitStatus !== 'EARLY_EXIT_TRIGGERED' &&
+            signal?.exitStatus !== 'EXPIRED' &&
+            signal?.earlyExit !== true;
+
+        if (ready && !tradeRef.current && !sellingRef.current) {
+            analyzerSignalRef.current = signalId;
+            window.setTimeout(() => { void buy(); }, 0);
+        }
+    }, [analyzerDetails, autoRun, buy]);
+
     const selectMarket = (next: string) => {
+        if (analyzerDetails?.symbol && next !== analyzerDetails.symbol) {
+            setStatus('Analyzer controls the active market: ' + analyzerDetails.symbol);
+            return;
+        }
         setSymbol(next);
         subscribeMarket(next);
     };
@@ -485,9 +564,20 @@ const MatchesTerminal = () => {
                     </div>
 
                     <div className='tk-live-quote'>
+                        <div><span>Analyzer feed</span><strong>{analyzerDetails?.connected ? 'CONNECTED' : 'DISCONNECTED'}</strong></div>
+                        <div><span>Analyzer market</span><strong>{analyzerDetails?.symbol || '—'}</strong></div>
                         <div><span>Broker proposal payout</span><strong>{payout ? formatMoney(payout, currency) : '—'}</strong></div>
-                        <div><span>Market</span><strong>{contractAvailable ? 'Match available' : 'Match unavailable'}</strong></div>
+                        <div><span>Execution</span><strong>{contractAvailable ? 'Deriv authenticated' : 'Unavailable'}</strong></div>
                     </div>
+
+                    <button
+                        className={autoRun ? 'tk-buy tk-run active' : 'tk-buy tk-run'}
+                        onClick={toggleRun}
+                        disabled={!api_base.is_authorized || !!trade}
+                    >
+                        <span>{autoRun ? 'STOP DBOT' : 'RUN DBOT'}</span>
+                        <strong>{autoRun ? 'Auto-follow Analyzer signals' : 'Follow Analyzer market + prediction'}</strong>
+                    </button>
 
                     {trade ? (
                         <div className='tk-active'>
@@ -496,9 +586,9 @@ const MatchesTerminal = () => {
                             <div className='active-meta'>Exit price: {formatMoney(trade.bidPrice || 0, currency)}</div>
                         </div>
                     ) : (
-                        <button className='tk-buy' onClick={buy} disabled={!contractAvailable || !!proposalId || holdTicks < 2}>
-                            <span>Buy Match {prediction}</span>
-                            <strong>{payout ? `Payout ${payout.toFixed(2)} ${currency}` : 'Get live payout'}</strong>
+                        <button className='tk-buy' onClick={buy} disabled={!autoRun || !contractAvailable || !!proposalId || holdTicks < 2}>
+                            <span>{autoRun ? `Armed: Match ${prediction}` : 'Start DBot first'}</span>
+                            <strong>{autoRun ? (payout ? `Payout ${payout.toFixed(2)} ${currency}` : 'Waiting for Analyzer signal') : 'Analyzer-controlled execution'}</strong>
                         </button>
                     )}
 
@@ -522,7 +612,7 @@ const MatchesTerminal = () => {
             </div>
 
             <div className='tk-disclaimer'>
-                <b>Data flow:</b> TrapKid Live Analyzer supplies the live tick stream and digit-analysis signals over localhost:5000. The authenticated Deriv connection remains responsible for balances, proposals, purchases, open-contract updates and sells. <b>Execution note:</b> Deriv remains the broker for contract execution. A Match contract normally settles at its expiry. “Hold until digit appears” here means the app buys a longer-lived Match contract and sends an authenticated <code>sell</code> request when the locked digit appears; the broker records that as an early sale, not as a native 1-tick Match settlement.
+                <b>Data flow:</b> TrapKid Analyzer is the source of truth for the selected market, live ticks, digits and locked signals. The DBot no longer subscribes to a separate Deriv market tick stream for strategy decisions. The authenticated Deriv connection is used only for account/balance data and the broker operations required to open and close the contract. <b>Execution note:</b> Deriv remains the broker for contract execution. A Match contract normally settles at its expiry. “Hold until digit appears” here means the app buys a longer-lived Match contract and sends an authenticated <code>sell</code> request when the locked digit appears; the broker records that as an early sale, not as a native 1-tick Match settlement.
             </div>
         </div>
     );
