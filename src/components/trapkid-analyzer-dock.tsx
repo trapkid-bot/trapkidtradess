@@ -70,7 +70,9 @@ const TrapKidAnalyzerDock = () => {
         >
             <button
                 className={connected ? 'tk-analyzer-link-button live' : 'tk-analyzer-link-button'}
-                onClick={() => setOpen(value => !value)}
+                onPointerDown={e => e.stopPropagation()}
+                onPointerUp={e => e.stopPropagation()}
+                onClick={e => { e.stopPropagation(); setOpen(value => !value); }}
                 title='TrapKid Analyzer HTTP link'
                 aria-label='Open TrapKid Analyzer HTTP link'
             >
@@ -80,13 +82,13 @@ const TrapKidAnalyzerDock = () => {
             </button>
 
             {open && (
-                <div className='tk-analyzer-global-popover'>
+                <div className='tk-analyzer-global-popover' onPointerDown={e => e.stopPropagation()}>
                     <div className='tk-analyzer-global-head'>
                         <div>
                             <b>TRAPKID ANALYZER • HTTP LINK</b>
                             <small>{connected ? '● CONNECTED — LIVE POLLING' : '○ DISCONNECTED — CHECK ANALYZER'}</small>
                         </div>
-                        <button onClick={() => setOpen(false)} aria-label='Close Analyzer panel'>×</button>
+                        <button onPointerDown={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); setOpen(false); }} aria-label='Close Analyzer panel'>×</button>
                     </div>
 
                     <div className='tk-analyzer-global-connection'>
@@ -115,6 +117,7 @@ const TrapKidAnalyzerDock = () => {
 
                     <div className='tk-analyzer-global-dbot'>
                         <strong>DBOT → ANALYZER</strong>
+                        <div className='tk-link-proof'><span className={connected ? 'is-live' : 'is-offline'} /> {connected ? 'HANDSHAKE OK • HTTP STATUS RECEIVED' : 'HANDSHAKE FAILED'}</div>
                         <code>GET /api/status?client=dbot</code>
                         <small>HTTP only. No browser WebSocket is required for the Analyzer link. Last successful read: {lastSeen ? new Date(lastSeen).toLocaleTimeString() : 'waiting…'}</small>
                     </div>
