@@ -77,11 +77,11 @@ const TrapKidAnalyzerDock = () => {
                             lastSeen: now,
                         },
                     });
-                    globalObserver.emit('trapkid.analyzer.updated', {
-                        ...data,
-                        status: signalKey ? 'CONNECTED' : 'CONNECTED_WAITING',
-                        lastSeen: now,
-                    });
+                    // Publish the merged observer state so commandKey/status are not lost.
+                    globalObserver.emit(
+                        'trapkid.analyzer.updated',
+                        globalObserver.getState('trapkid_analyzer') || {}
+                    );
 
                     // A new Analyze cycle starts with a clean exit state.
                     // This prevents EARLY_SELL_READY from the previous cycle
@@ -125,12 +125,10 @@ const TrapKidAnalyzerDock = () => {
                             receivedAt: now,
                         };
                         globalObserver.emit('trapkid.analyzer.exit', exitCommand);
-                        globalObserver.emit('trapkid.analyzer.updated', {
-                            ...data,
-                            status: 'EARLY_EXIT_COMMAND_RECEIVED',
-                            commandKey: exitCommand.commandKey,
-                            lastSeen: now,
-                        });
+                        globalObserver.emit(
+                            'trapkid.analyzer.updated',
+                            globalObserver.getState('trapkid_analyzer') || {}
+                        );
                     }
 
                     if (
@@ -159,12 +157,10 @@ const TrapKidAnalyzerDock = () => {
                             },
                         });
                         globalObserver.emit('trapkid.analyzer.command', command);
-                        globalObserver.emit('trapkid.analyzer.updated', {
-                            ...data,
-                            status: 'COMMAND_RECEIVED',
-                            commandKey: signalKey,
-                            lastSeen: now,
-                        });
+                        globalObserver.emit(
+                            'trapkid.analyzer.updated',
+                            globalObserver.getState('trapkid_analyzer') || {}
+                        );
                     }
                 }
             } catch {
