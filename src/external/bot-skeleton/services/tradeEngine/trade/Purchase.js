@@ -4,6 +4,7 @@ import { contractStatus, info, log } from '../utils/broadcast';
 import { doUntilDone, getUUID, recoverFromError, tradeOptionToBuy } from '../utils/helpers';
 import { purchaseSuccessful } from './state/actions';
 import { BEFORE_PURCHASE } from './state/constants';
+import { observer as globalObserver } from '../../../utils/observer';
 
 let delayIndex = 0;
 let purchase_reference;
@@ -11,21 +12,27 @@ let purchase_reference;
 export default Engine =>
     class Purchase extends Engine {
         purchase(contract_type) {
+            if (this.isAnalyzerEnabledForTrade?.()) {
+                const signal = this.getExternalAnalyzerSignal?.();
+                const activeSignal = this.analyzerSignal;
+                if (
+                    !signal ||
+                    !activeSignal ||
+                    String(signal.signalId) !== String(activeSignal.signalId) ||
+                    Number(signal.lockedAt) !== Number(activeSignal.lockedAt) ||
+                    !Number.isInteger(signal.prediction)
+                ) {
+                    globalObserver?.emit?.('ui.log.error', 'Analyzer signal changed or expired. Purchase blocked.');
+                    return Promise.resolve();
+                }
+                this.tradeOptions.prediction = signal.prediction;
+                this.tradeOptions.symbol = signal.symbol;
+            }
             // Prevent calling purchase twice
             if (this.store.getState().scope !== BEFORE_PURCHASE) {
                 return Promise.resolve();
             }
 
-            // Refresh the TrapKid analyzer lock when its 30-second window has expired.
-            // This is intentionally done before the native Match buy so the barrier
-            // sent to Deriv is always the currently locked digit.
-            if (
-                !this.is_proposal_subscription_required &&
-                this.isAnalyzerEnabledForTrade?.() &&
-                !this.analyzerPredictionIsValid?.()
-            ) {
-                return this.prepareAnalyzerPrediction(true).then(() => this.purchase(contract_type));
-            }
 
             const onSuccess = response => {
                 // Don't unnecessarily send a forget request for a purchased contract.
