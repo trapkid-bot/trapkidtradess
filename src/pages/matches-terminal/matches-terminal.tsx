@@ -127,23 +127,6 @@ const MatchesTerminal = () => {
     const selectedMarket = useMemo(() => markets.find(m => m.symbol === symbol), [markets, symbol]);
     const points = useMemo(() => buildSparkline(prices), [prices]);
 
-    const analyze = useCallback((digits: number[]) => {
-        if (!digits.length) return;
-        const counts = Array.from({ length: 10 }, (_, d) => digits.filter(x => x === d).length);
-        const recent = digits.slice(-30);
-        const recentCounts = Array.from({ length: 10 }, (_, d) => recent.filter(x => x === d).length);
-        const scores = counts.map((count, d) => count * 0.65 + recentCounts[d] * 1.35);
-        const top = scores.indexOf(Math.max(...scores));
-        const baseline = digits.length / 10;
-        const score = Math.max(0, Math.min(99, ((scores[top] / Math.max(1, baseline)) - 1) * 16 + 50));
-        const streak = [...digits].reverse().findIndex(d => d !== top);
-        setAiDigit(top);
-        setAiScore(Math.round(score));
-        setAiReason(
-            `Digit ${top} is most frequent in the weighted 100-tick sample; recent-window count ${recentCounts[top]}/${recent.length}.${streak > 1 ? ` Current run: ${streak}.` : ''}`
-        );
-    }, []);
-
     const subscribeMarket = useCallback((nextSymbol: string) => {
         setStatus(`Waiting for ${nextSymbol} from TrapKid Analyzer…`);
         setError('');
@@ -195,28 +178,26 @@ const MatchesTerminal = () => {
                     }
                     if (Number.isInteger(d)) {
                         setDigit(d);
-                        setHistoryDigits(prev => {
-                            const next = [...prev.slice(-99), d];
-                            analyze(next);
-                            return next;
-                        });
+                        setHistoryDigits(prev => [...prev.slice(-99), d]);
                     }
                 }
             }
 
             const signal = data.signal;
+            const analysis = data.analysis || {};
             if (signal && Number.isInteger(Number(signal.prediction ?? signal.lockedDigit))) {
                 const nextPrediction = Number(signal.prediction ?? signal.lockedDigit);
                 const nextSignalId = String(signal.signalId || '');
                 setPrediction(nextPrediction);
-                setAiDigit(nextPrediction);
-                if (Number.isFinite(Number(signal.score))) setAiScore(Math.round(Number(signal.score)));
-                setAiReason('Analyzer locked digit ' + nextPrediction + (nextSignalId ? ' — ' + nextSignalId : '') + '.');
-            } else if (data.analysis) {
-                const analysis = data.analysis;
+                setAiDigit(Number.isInteger(Number(analysis.hotDigit)) ? Number(analysis.hotDigit) : nextPrediction);
+                if (Number.isFinite(Number(analysis.score))) setAiScore(Math.round(Number(analysis.score)));
+                setAiReason(
+                    String(signal.reason || analysis.reason || ('Analyzer locked digit ' + nextPrediction + (nextSignalId ? ' — ' + nextSignalId : '') + '.'))
+                );
+            } else {
                 if (Number.isInteger(Number(analysis.hotDigit))) setAiDigit(Number(analysis.hotDigit));
                 if (Number.isFinite(Number(analysis.score))) setAiScore(Math.round(Number(analysis.score)));
-                setAiReason('Analyzer hot digit ' + Number(analysis.hotDigit ?? 0) + ' • score ' + Number(analysis.score ?? 0).toFixed(2) + '.');
+                if (analysis.reason) setAiReason(String(analysis.reason));
             }
 
             setStatus(data.connected ? 'TrapKid Analyzer HTTP LIVE • ' + nextSymbol : 'Analyzer disconnected');
@@ -412,20 +393,22 @@ const MatchesTerminal = () => {
         return false;
     }, [analyzerDetails, buyFromAnalyzerSignal]);
 
-    const exitOnHit = async (active: Trade, quote: number, hitDigit: number) => {
+    const exitOnHit = useCallback(async (active: Trade, quote: number, hitDigit: number) => {
         try {
             if (!api_base.api) throw new Error('Deriv connection is not available.');
-            const bid = Number(tradeRef.current?.bidPrice ?? active.bidPrice ?? 0);
-            if (!Number.isFinite(bid) || bid <= 0) {
-                throw new Error('The broker has not returned a positive resale price yet; the position was not force-sold at an arbitrary price.');
-            }
+            // Analyzer decides when the exit happens. We do not use a
+            // Deriv market tick to trigger it. For the broker-side close,
+            // use the Analyzer's exit quote when supplied; otherwise use
+            // Deriv's documented market-sell price of 0.
+            const analyzerExitQuote = Number(analyzerDetails?.exit?.quote);
+            const sellPrice = Number.isFinite(analyzerExitQuote) && analyzerExitQuote > 0 ? analyzerExitQuote : 0;
             const response = await sendApiRequest({
                 sell: active.contractId,
-                price: bid,
+                price: sellPrice,
             });
 
             const sold = response?.sell;
-            const soldFor = Number(sold?.sold_for ?? bid);
+            const soldFor = Number(sold?.sold_for ?? sellPrice);
             const pnl = soldFor - active.buyPrice;
 
             setTrades(prev => [
@@ -448,8 +431,7 @@ const MatchesTerminal = () => {
             setStatus('Target appeared, but the broker rejected the early sale.');
             sellingRef.current = false;
         }
-    };
-
+    }, [analyzerDetails?.exit?.quote, currency]);
     useEffect(() => {
         const signal = analyzerDetails?.signal;
         const signalId = String(signal?.signalId || '');
@@ -504,10 +486,8 @@ const MatchesTerminal = () => {
             return;
         }
 
-        if (active && Number.isInteger(d) && Number.isFinite(quote) && d === active.prediction && !sellingRef.current) {
-            sellingRef.current = true;
-            void exitOnHit(active, quote, d);
-        }
+        // IMPORTANT: do not close from a DBot/Deriv tick. The Analyzer's
+        // explicit exit state is the only exit trigger in RUN mode.
     }, [analyzerDetails, trade]);
 
     const toggleRun = useCallback(() => {
@@ -527,7 +507,7 @@ const MatchesTerminal = () => {
         analyzerSignalRef.current = null;
         setAutoRun(true);
         setError('');
-        setStatus('Analyzer DBot RUNNING — using the current Analyzer signal and live Analyzer ticks.');
+        setStatus('Analyzer DBot RUNNING — Analyzer controls market, live ticks, signal, prediction and exit.');
 
     }, [autoRun]);
 
@@ -568,7 +548,9 @@ const MatchesTerminal = () => {
                             <button
                                 key={m.symbol}
                                 className={m.symbol === symbol ? 'tk-market active' : 'tk-market'}
-                                onClick={() => selectMarket(m.symbol)}
+                                onClick={() => {
+                                    setStatus('Analyzer controls the active market: ' + (analyzerDetails?.symbol || m.symbol));
+                                }}
                             >
                                 <span className='market-icon'>▥</span>
                                 <span>
@@ -632,13 +614,7 @@ const MatchesTerminal = () => {
                                 <button
                                     key={d}
                                     className={prediction === d ? 'selected' : ''}
-                                    onClick={() => {
-                                        if (autoRun) {
-                                            setStatus('Analyzer controls the locked prediction while DBot RUN is active.');
-                                            return;
-                                        }
-                                        setPrediction(d);
-                                    }}
+                                    onClick={() => setStatus('Analyzer controls the locked prediction. DBot uses Analyzer signal data only.')}
                                 >
                                     <b>{d}</b>
                                     <small>{historyDigits.length ? ((historyDigits.filter(x => x === d).length / historyDigits.length) * 100).toFixed(1) : '—'}%</small>
@@ -648,11 +624,11 @@ const MatchesTerminal = () => {
                     </div>
 
                     <div className='tk-panel-section'>
-                        <label>Hold-until-hit window</label>
+                        <label>Your execution ticks</label>
                         <select value={holdTicks} onChange={e => setHoldTicks(Number(e.target.value))}>
                             {[2, 3, 5, 7, 10].map(n => <option key={n} value={n}>{n} ticks</option>)}
                         </select>
-                        <small className='tk-note'>The native 1-tick Match would settle immediately. This terminal uses a longer open contract and attempts an early broker sell when the locked digit appears.</small>
+                        <small className='tk-note'>Analyzer controls market, live ticks, signal and prediction. This setting only controls the contract's hold window.</small>
                     </div>
 
                     <div className='tk-panel-section'>
@@ -661,7 +637,9 @@ const MatchesTerminal = () => {
                     </div>
 
                     <div className='tk-live-quote'>
+                        <div><span>Strategy source</span><strong>TRAPKID ANALYZER</strong></div>
                         <div><span>Analyzer feed</span><strong>{analyzerDetails?.connected ? 'CONNECTED' : 'DISCONNECTED'}</strong></div>
+                        <div><span>Analyzer exit</span><strong>{analyzerDetails?.exit?.status || 'WAITING'}</strong></div>
                         <div><span>Analyzer market</span><strong>{analyzerDetails?.symbol || '—'}</strong></div>
                         <div><span>Broker proposal payout</span><strong>{payout ? formatMoney(payout, currency) : '—'}</strong></div>
                         <div><span>Execution</span><strong>{contractAvailable ? 'Deriv authenticated' : 'Unavailable'}</strong></div>
@@ -709,7 +687,7 @@ const MatchesTerminal = () => {
             </div>
 
             <div className='tk-disclaimer'>
-                <b>Data flow:</b> TrapKid Analyzer is the source of truth for the selected market, live ticks, digits and locked signals. The DBot no longer subscribes to a separate Deriv market tick stream for strategy decisions. The authenticated Deriv connection is used only for account/balance data and the broker operations required to open and close the contract. <b>Execution note:</b> Deriv remains the broker for contract execution. A Match contract normally settles at its expiry. “Hold until digit appears” here means the app buys a longer-lived Match contract and sends an authenticated <code>sell</code> request when the locked digit appears; the broker records that as an early sale, not as a native 1-tick Match settlement.
+                <b>Analyzer source of truth:</b> Market, live ticks, last digit, hot digit, signal ID, prediction/locked digit and exit trigger all come from TrapKid Analyzer. The DBot does not use its own market/tick strategy or local digit calculation. Your controls are the execution stake and hold-ticks setting. <b>Exit:</b> DBot waits for Analyzer's explicit <code>EARLY_SELL_READY</code> state and does not close from a locally observed or separately subscribed Deriv tick. The authenticated broker connection is only the transport used to submit the resulting contract operation.
             </div>
         </div>
     );
