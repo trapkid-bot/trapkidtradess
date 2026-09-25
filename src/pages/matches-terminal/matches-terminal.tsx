@@ -431,7 +431,9 @@ const MatchesTerminal = () => {
         setError('No locked Analyzer signal is available yet.');
         setStatus('Waiting for Analyzer signal');
         return false;
-    }, [analyzerDetails, buyFromAnalyzerSignal]);\n\n    const exitOnHit = async (active: Trade, quote: number, hitDigit: number) => {
+    }, [analyzerDetails, buyFromAnalyzerSignal]);
+
+    const exitOnHit = async (active: Trade, quote: number, hitDigit: number) => {
         try {
             if (!api_base.api) throw new Error('Deriv connection is not available.');
             const bid = Number(tradeRef.current?.bidPrice ?? active.bidPrice ?? 0);
