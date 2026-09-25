@@ -22,8 +22,7 @@ type Trade = {
     holdTicks: number;
 };
 
-const ANALYZER_WS =
-    (process.env.NEXT_PUBLIC_ANALYZER_WS_URL || 'ws://localhost:5000/ws/ticks').trim();
+const ANALYZER_API = (process.env.NEXT_PUBLIC_ANALYZER_API_URL || 'https://thesis-quality-remote-rendered.trycloudflare.com').trim();
 
 const lastDigit = (quote: number, pipSize = 2) => {
     const fixed = Number(quote).toFixed(Math.max(0, pipSize));
@@ -85,7 +84,6 @@ const buildSparkline = (prices: number[], width = 900, height = 520) => {
 };
 
 const MatchesTerminal = () => {
-    const analyzerSocket = useRef<WebSocket | null>(null);
     const authSubscription = useRef<{ unsubscribe: () => void } | null>(null);
     const reqIdRef = useRef(1);
     const tradeRef = useRef<Trade | null>(null);
@@ -114,6 +112,10 @@ const MatchesTerminal = () => {
     const [aiScore, setAiScore] = useState(0);
     const [aiReason, setAiReason] = useState('Waiting for tick history');
     const [trades, setTrades] = useState<{ time: string; digit: number; result: string; pnl: number }[]>([]);
+    const [analyzerDetails, setAnalyzerDetails] = useState<any>(null);
+    const [analyzerPanelOpen, setAnalyzerPanelOpen] = useState(false);
+    const [analyzerPos, setAnalyzerPos] = useState({ x: 24, y: 88 });
+    const analyzerDrag = useRef<{ dx: number; dy: number } | null>(null);
 
     const selectedMarket = useMemo(() => markets.find(m => m.symbol === symbol), [markets, symbol]);
     const points = useMemo(() => buildSparkline(prices), [prices]);
@@ -148,89 +150,57 @@ const MatchesTerminal = () => {
     }, []);
 
     useEffect(() => {
-        const ws = new WebSocket(ANALYZER_WS);
-        analyzerSocket.current = ws;
-
-        ws.onopen = () => {
-            setStatus('TrapKid Analyzer feed connected');
-            setError('');
-            ws.send(JSON.stringify({ type: 'STATUS' }));
-        };
-
-        ws.onmessage = event => {
+        let cancelled = false;
+        const poll = async () => {
             try {
-                const data = JSON.parse(event.data);
-
-                if (data.type === 'TICK') {
-                    const quote = Number(data.quote);
-                    const d = Number(data.digit);
-                    const nextSymbol = String(data.symbol || symbol);
-                    if (!Number.isFinite(quote) || !Number.isInteger(d)) return;
-
-                    if (nextSymbol !== symbol) setSymbol(nextSymbol);
-                    setTick(quote);
-                    setDigit(d);
-                    setPrices(prev => [...prev.slice(-99), quote]);
-                    setHistoryDigits(prev => {
+                const response = await fetch(ANALYZER_API + '/api/status', { cache: 'no-store' });
+                if (!response.ok) throw new Error('Analyzer HTTP ' + response.status);
+                const data = await response.json();
+                if (cancelled) return;
+                setAnalyzerDetails(data);
+                const nextSymbol = String(data.symbol || symbol);
+                if (nextSymbol !== symbol) setSymbol(nextSymbol);
+                if (data.lastTick) {
+                    const quote = Number(data.lastTick.quote);
+                    const d = Number(data.lastTick.digit);
+                    if (Number.isFinite(quote)) setTick(quote);
+                    if (Number.isInteger(d)) setDigit(d);
+                    if (Number.isFinite(quote)) setPrices(prev => [...prev.slice(-99), quote]);
+                    if (Number.isInteger(d)) setHistoryDigits(prev => {
                         const next = [...prev.slice(-99), d];
                         analyze(next);
                         return next;
                     });
-
-                    setStatus('Analyzer live • ' + nextSymbol);
-
-                    const active = tradeRef.current;
-                    if (active && !sellingRef.current && d === active.prediction) {
-                        sellingRef.current = true;
-                        void exitOnHit(active, quote, d);
-                    }
                 }
-
-                if (data.type === 'ANALYZER_UPDATE' && data.analysis) {
+                const signal = data.signal;
+                if (signal && Number.isInteger(Number(signal.prediction))) {
+                    setPrediction(Number(signal.prediction));
+                    setAiDigit(Number(signal.prediction));
+                    if (Number.isFinite(Number(signal.score))) setAiScore(Math.round(Number(signal.score)));
+                    setAiReason('Analyzer locked digit ' + Number(signal.prediction) + ' — ' + String(signal.signalId || 'live signal') + '.');
+                } else if (data.analysis) {
                     const analysis = data.analysis;
-                    const nextSymbol = String(data.symbol || analysis.symbol || symbol);
-                    if (nextSymbol !== symbol) setSymbol(nextSymbol);
-                    if (Array.isArray(analysis.recent)) setHistoryDigits(analysis.recent.map(Number).filter(Number.isInteger));
-                    if (Number.isInteger(analysis.candidateDigit)) setAiDigit(analysis.candidateDigit);
-                    if (Number.isFinite(Number(analysis.candidateScore))) setAiScore(Math.round(Number(analysis.candidateScore)));
-                    if (Number.isInteger(analysis.candidateDigit)) {
-                        setAiReason('TrapKid Analyzer candidate: digit ' + analysis.candidateDigit + ', weighted score ' + Number(analysis.candidateScore ?? 0).toFixed(3) + '.');
-                    }
+                    if (Number.isInteger(Number(analysis.hotDigit))) setAiDigit(Number(analysis.hotDigit));
+                    if (Number.isFinite(Number(analysis.score))) setAiScore(Math.round(Number(analysis.score)));
+                    setAiReason('Analyzer hot digit ' + Number(analysis.hotDigit ?? 0) + ' • score ' + Number(analysis.score ?? 0).toFixed(2) + '.');
                 }
-
-                if (data.type === 'SIGNAL_LOCKED') {
-                    const locked = Number(data.lockedDigit);
-                    if (Number.isInteger(locked) && locked >= 0 && locked <= 9) {
-                        setPrediction(locked);
-                        setAiDigit(locked);
-                        if (Number.isFinite(Number(data.score))) setAiScore(Math.round(Number(data.score)));
-                        setAiReason('Analyzer locked digit ' + locked + ' (' + (data.signalId || 'no signal id') + ').');
-                        setStatus('Analyzer locked digit ' + locked + ' — ready for Match execution');
-                    }
+                setStatus(data.connected ? 'TrapKid Analyzer live • ' + nextSymbol : 'Analyzer disconnected');
+                setError('');
+            } catch (e: any) {
+                if (!cancelled) {
+                    setError('Cannot reach TrapKid Analyzer at ' + ANALYZER_API);
+                    setStatus('Analyzer connection offline');
                 }
-
-                if (data.type === 'DIGIT_MATCH') {
-                    setStatus('Analyzer detected locked digit ' + data.digit + ' at ' + Number(data.quote).toFixed(2));
-                }
-
-                if (data.type === 'SIGNAL_UNLOCKED') {
-                    setStatus('Analyzer unlocked the previous signal; waiting for the next lock.');
-                }
-            } catch (e) {
-                console.warn('[MatchesTerminal] analyzer message:', e);
             }
         };
-
-        ws.onerror = () => setError('Cannot connect to TrapKid Live Analyzer at localhost:5000. Start the analyzer first.');
-        ws.onclose = () => setStatus('TrapKid Analyzer feed disconnected');
-
+        void poll();
+        const timer = window.setInterval(poll, 1000);
         return () => {
-            ws.close();
-            analyzerSocket.current = null;
+            cancelled = true;
+            window.clearInterval(timer);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
+    }, [ANALYZER_API]);
 
     useEffect(() => {
         const active = localStorage.getItem('active_loginid');
@@ -549,6 +519,56 @@ const MatchesTerminal = () => {
                         ))}
                     </div>
                 </aside>
+            </div>
+
+            <div
+                className={analyzerPanelOpen ? 'tk-analyzer-dock open' : 'tk-analyzer-dock'}
+                style={{ left: analyzerPos.x, top: analyzerPos.y }}
+                onPointerDown={e => {
+                    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
+                    analyzerDrag.current = { dx: e.clientX - rect.left, dy: e.clientY - rect.top };
+                    (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
+                }}
+                onPointerMove={e => {
+                    if (!analyzerDrag.current) return;
+                    setAnalyzerPos({
+                        x: Math.max(8, Math.min(window.innerWidth - 64, e.clientX - analyzerDrag.current.dx)),
+                        y: Math.max(8, Math.min(window.innerHeight - 64, e.clientY - analyzerDrag.current.dy)),
+                    });
+                }}
+                onPointerUp={() => { analyzerDrag.current = null; }}
+                onPointerCancel={() => { analyzerDrag.current = null; }}
+            >
+                <button className='tk-analyzer-orb' onClick={() => setAnalyzerPanelOpen(v => !v)} title='TrapKid Analyzer connection'>
+                    <span className={analyzerDetails?.connected ? 'tk-analyzer-led live' : 'tk-analyzer-led'} />
+                    <b>TK</b>
+                </button>
+                {analyzerPanelOpen && (
+                    <div className='tk-analyzer-popover' onPointerDown={e => e.stopPropagation()}>
+                        <div className='tk-analyzer-head'>
+                            <div><b>TRAPKID ANALYZER LINK</b><small>{analyzerDetails?.connected ? 'LIVE DATA' : 'OFFLINE'}</small></div>
+                            <button onClick={() => setAnalyzerPanelOpen(false)}>×</button>
+                        </div>
+                        <div className='tk-analyzer-url'>{ANALYZER_API}</div>
+                        <div className='tk-analyzer-grid'>
+                            <span>MARKET<b>{analyzerDetails?.symbol || '—'}</b></span>
+                            <span>LAST DIGIT<b>{analyzerDetails?.lastTick?.digit ?? '—'}</b></span>
+                            <span>HOT DIGIT<b>{analyzerDetails?.analysis?.hotDigit ?? '—'}</b></span>
+                            <span>SCORE<b>{Number(analyzerDetails?.analysis?.score ?? 0).toFixed(2)}</b></span>
+                            <span>SIGNAL<b>{analyzerDetails?.signal?.signalId || 'NONE'}</b></span>
+                            <span>PREDICTION<b>{analyzerDetails?.signal?.prediction ?? '—'}</b></span>
+                            <span>ENTRY QUOTE<b>{analyzerDetails?.signal?.entryQuote ?? '—'}</b></span>
+                            <span>LOCKED QUOTE<b>{analyzerDetails?.signal?.lockedQuote ?? '—'}</b></span>
+                            <span>EXIT<b>{analyzerDetails?.exit?.status || 'IDLE'}</b></span>
+                            <span>EXIT DIGIT<b>{analyzerDetails?.exit?.digit ?? '—'}</b></span>
+                        </div>
+                        <div className='tk-analyzer-dbot'>
+                            <strong>DBOT FETCH / USE</strong>
+                            <code>GET {ANALYZER_API}/api/status</code>
+                            <small>DBot should use <b>symbol</b>, <b>prediction/lockedDigit</b>, <b>contractType</b>, <b>entryQuote</b>, <b>lockedQuote</b>, <b>signalId</b> and <b>exit</b> from this live payload.</small>
+                        </div>
+                    </div>
+                )}
             </div>
 
             <div className='tk-disclaimer'>
