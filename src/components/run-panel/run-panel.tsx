@@ -142,7 +142,11 @@ const TrapKidAnalyzerStatus = () => {
                 {' · '}Hot digit: <strong>{state.hotDigit ?? state.signal?.hotDigit ?? '—'}</strong>
             </div>
             <div style={{ fontSize: 10, marginTop: 3, opacity: 0.7 }}>
-                {remaining > 0 ? 'Analyzer lock expires in ' + remaining + 's' : 'No active lock countdown'}
+                {state.signal?.signalId
+                    ? (state.exit?.status === 'EARLY_SELL_READY'
+                        ? 'Analyzer exit signal is ready — waiting for Analyzer-controlled exit'
+                        : 'Analyzer signal LOCKED — waiting for Analyzer early exit')
+                    : 'No active Analyzer lock'}
             </div>
         </div>
     );
