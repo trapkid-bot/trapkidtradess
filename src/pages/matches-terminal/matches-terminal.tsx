@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api_base } from '@/external/bot-skeleton';
 import './matches-terminal.scss';
 
+// TrapKid Analyzer WS + exact signal handoff
+
 type Market = {
     symbol: string;
     name: string;
