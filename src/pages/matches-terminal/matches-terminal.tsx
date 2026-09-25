@@ -201,10 +201,8 @@ const MatchesTerminal = () => {
                     if (Number.isFinite(Number(signal.score))) setAiScore(Math.round(Number(signal.score)));
                     setAiReason('Analyzer locked digit ' + nextPrediction + ' — ' + nextSignalId + '.');
 
-                    // A fresh Analyzer signal automatically changes market/prediction.
-                    if (nextSignalId && analyzerSignalRef.current !== nextSignalId) {
-                        analyzerSignalRef.current = nextSignalId;
-                    }
+                    // Analyzer owns the active prediction. Do not consume a signal while DBot
+                    // is stopped; RUN must be able to take the currently displayed locked signal.
                 } else if (data.analysis) {
                     const analysis = data.analysis;
                     if (Number.isInteger(Number(analysis.hotDigit))) setAiDigit(Number(analysis.hotDigit));
@@ -419,6 +417,27 @@ const MatchesTerminal = () => {
         analyzerTickRef.current = epoch;
 
         const active = tradeRef.current;
+        const analyzerExit = analyzerDetails?.exit;
+        const exitReady = analyzerExit?.status === 'EARLY_SELL_READY';
+        const exitDigit = Number(analyzerExit?.digit);
+        const exitQuote = Number(analyzerExit?.quote);
+
+        if (
+            active &&
+            !sellingRef.current &&
+            exitReady &&
+            Number.isInteger(exitDigit) &&
+            exitDigit === active.prediction
+        ) {
+            sellingRef.current = true;
+            void exitOnHit(
+                active,
+                Number.isFinite(exitQuote) ? exitQuote : quote,
+                exitDigit
+            );
+            return;
+        }
+
         if (active && Number.isInteger(d) && Number.isFinite(quote) && d === active.prediction && !sellingRef.current) {
             sellingRef.current = true;
             void exitOnHit(active, quote, d);
@@ -437,11 +456,14 @@ const MatchesTerminal = () => {
             return;
         }
 
+        // Reset the consumed-signal guard so RUN can execute the signal currently
+        // displayed by the Analyzer, then follow every new signal exactly once.
+        analyzerSignalRef.current = null;
         setAutoRun(true);
         setError('');
-        setStatus('Analyzer DBot RUNNING — waiting for a fresh locked signal…');
+        setStatus('Analyzer DBot RUNNING — using the current Analyzer signal and live Analyzer ticks.');
 
-    }, [analyzerDetails, autoRun, buy]);
+    }, [autoRun]);
 
     const selectMarket = (next: string) => {
         if (analyzerDetails?.symbol && next !== analyzerDetails.symbol) {
@@ -544,7 +566,13 @@ const MatchesTerminal = () => {
                                 <button
                                     key={d}
                                     className={prediction === d ? 'selected' : ''}
-                                    onClick={() => setPrediction(d)}
+                                    onClick={() => {
+                                        if (autoRun) {
+                                            setStatus('Analyzer controls the locked prediction while DBot RUN is active.');
+                                            return;
+                                        }
+                                        setPrediction(d);
+                                    }}
                                 >
                                     <b>{d}</b>
                                     <small>{historyDigits.length ? ((historyDigits.filter(x => x === d).length / historyDigits.length) * 100).toFixed(1) : '—'}%</small>
@@ -576,7 +604,7 @@ const MatchesTerminal = () => {
                     <button
                         className={autoRun ? 'tk-buy tk-run active' : 'tk-buy tk-run'}
                         onClick={toggleRun}
-                        disabled={!api_base.is_authorized || !!trade}
+                        disabled={!api_base.is_authorized}
                     >
                         <span>{autoRun ? 'STOP DBOT' : 'RUN DBOT'}</span>
                         <strong>{autoRun ? 'Auto-follow Analyzer signals' : 'Follow Analyzer market + prediction'}</strong>
