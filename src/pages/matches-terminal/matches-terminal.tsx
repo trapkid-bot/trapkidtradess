@@ -158,8 +158,8 @@ const MatchesTerminal = () => {
 
     useEffect(() => {
         let cancelled = false;
-        let socket: WebSocket | null = null;
-        let reconnectTimer: number | null = null;
+        let lastEpoch: number | null = null;
+        let polling = false;
 
         const applyAnalyzerState = (data: any) => {
             if (cancelled || !data) return;
@@ -184,11 +184,15 @@ const MatchesTerminal = () => {
             if (data.lastTick) {
                 const quote = Number(data.lastTick.quote);
                 const d = Number(data.lastTick.digit);
-                if (Number.isFinite(quote)) {
+                const epoch = Number(data.lastTick.epoch);
+
+                if (Number.isFinite(quote) && (!Number.isFinite(epoch) || epoch !== lastEpoch)) {
+                    lastEpoch = Number.isFinite(epoch) ? epoch : lastEpoch;
                     setTick(quote);
                     setPrices(prev => [...prev.slice(-99), quote]);
                 }
-                if (Number.isInteger(d)) {
+
+                if (Number.isInteger(d) && Number.isFinite(epoch) && epoch === lastEpoch) {
                     setDigit(d);
                     setHistoryDigits(prev => {
                         const next = [...prev.slice(-99), d];
@@ -199,13 +203,13 @@ const MatchesTerminal = () => {
             }
 
             const signal = data.signal;
-            if (signal && Number.isInteger(Number(signal.prediction))) {
-                const nextPrediction = Number(signal.prediction);
+            if (signal && Number.isInteger(Number(signal.prediction ?? signal.lockedDigit))) {
+                const nextPrediction = Number(signal.prediction ?? signal.lockedDigit);
                 const nextSignalId = String(signal.signalId || '');
                 setPrediction(nextPrediction);
                 setAiDigit(nextPrediction);
                 if (Number.isFinite(Number(signal.score))) setAiScore(Math.round(Number(signal.score)));
-                setAiReason('Analyzer locked digit ' + nextPrediction + ' — ' + nextSignalId + '.');
+                setAiReason('Analyzer locked digit ' + nextPrediction + (nextSignalId ? ' — ' + nextSignalId : '') + '.');
             } else if (data.analysis) {
                 const analysis = data.analysis;
                 if (Number.isInteger(Number(analysis.hotDigit))) setAiDigit(Number(analysis.hotDigit));
@@ -213,66 +217,37 @@ const MatchesTerminal = () => {
                 setAiReason('Analyzer hot digit ' + Number(analysis.hotDigit ?? 0) + ' • score ' + Number(analysis.score ?? 0).toFixed(2) + '.');
             }
 
-            setStatus(data.connected ? 'TrapKid Analyzer LIVE • ' + nextSymbol : 'Analyzer disconnected');
+            setStatus(data.connected ? 'TrapKid Analyzer HTTP LIVE • ' + nextSymbol : 'Analyzer disconnected');
             if (data.connected) setError('');
         };
 
-        const connect = () => {
-            if (cancelled) return;
+        const poll = async () => {
+            if (cancelled || polling) return;
+            polling = true;
             try {
-                socket = new WebSocket(ANALYZER_WS);
-                socket.onopen = () => {
-                    if (!cancelled) setStatus('TrapKid Analyzer WS LIVE • receiving direct ticks');
-                };
-                socket.onmessage = event => {
-                    try {
-                        const message = JSON.parse(event.data);
-                        if (message?.type === 'state') applyAnalyzerState(message.data || message.state || message);
-                        else if (message?.type === 'tick') applyAnalyzerState({
-                            ...(analyzerDetails || {}),
-                            lastTick: message.data || message,
-                            connected: true,
-                        });
-                        else applyAnalyzerState(message.data || message);
-                    } catch {
-                        // Ignore malformed analyzer frames; the HTTP fallback below remains active.
-                    }
-                };
-                socket.onerror = () => {
-                    if (!cancelled) setStatus('Analyzer WS reconnecting…');
-                };
-                socket.onclose = () => {
-                    if (!cancelled) {
-                        setStatus('Analyzer WS disconnected — reconnecting…');
-                        reconnectTimer = window.setTimeout(connect, 1500);
-                    }
-                };
-            } catch {
-                reconnectTimer = window.setTimeout(connect, 1500);
-            }
-        };
-
-        const fallback = async () => {
-            try {
-                const response = await fetch(ANALYZER_API + '/api/status', { cache: 'no-store' });
+                const response = await fetch(ANALYZER_API + '/api/status?client=dbot&t=' + Date.now(), {
+                    cache: 'no-store',
+                    headers: { Accept: 'application/json' },
+                });
                 if (!response.ok) throw new Error('Analyzer HTTP ' + response.status);
                 const data = await response.json();
                 applyAnalyzerState(data);
             } catch {
-                if (!cancelled) setStatus('Analyzer connection offline');
+                if (!cancelled) setStatus('Analyzer HTTP connection offline');
+            } finally {
+                polling = false;
             }
         };
 
-        void fallback();
-        connect();
+        void poll();
+        const timer = window.setInterval(poll, 500);
 
         return () => {
             cancelled = true;
-            if (reconnectTimer) window.clearTimeout(reconnectTimer);
-            try { socket?.close(); } catch { /* noop */ }
+            window.clearInterval(timer);
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [ANALYZER_API, ANALYZER_WS]);
+    }, [ANALYZER_API]);
 
     useEffect(() => {
         const active = localStorage.getItem('active_loginid');
