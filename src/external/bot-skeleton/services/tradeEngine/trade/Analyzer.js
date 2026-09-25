@@ -64,6 +64,13 @@ export default Engine =>
                 throw new Error('TrapKid Analyzer: signal has no market. Trade blocked.');
             }
 
+            const pendingExit = this.getAnalyzerExit();
+            if (pendingExit && String(pendingExit.signalId) === String(signal.signalId)) {
+                throw new Error(
+                    'TrapKid Analyzer: EARLY_SELL_READY is already active for this signal. New purchase blocked.'
+                );
+            }
+
             this.tradeOptions.symbol = signal.symbol;
             this.tradeOptions.prediction = signal.prediction;
             this.analyzerSignal = signal;
