@@ -131,28 +131,17 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
 
         const validated_trade_options = this.validateTradeOptions(tradeOptions);
 
-        const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
-        const analyzerSignal = analyzerState?.signal;
-        const analyzerPrediction = Number(analyzerSignal?.prediction ?? analyzerSignal?.lockedDigit);
-        const analyzerSymbol = String(analyzerSignal?.symbol || '').trim();
-
+        // Start with the user's strategy shape only so we can identify the
+        // selected contract type. Analyzer mode is decided AFTER tradeOptions
+        // exists; Analyzer is then the only source allowed to bind symbol/prediction.
         this.tradeOptions = {
             ...validated_trade_options,
-            symbol:
-                this.isAnalyzerEnabledForTrade() && analyzerSymbol
-                    ? analyzerSymbol
-                    : this.options.symbol,
-            ...(this.isAnalyzerEnabledForTrade() && Number.isInteger(analyzerPrediction)
-                ? { prediction: analyzerPrediction }
-                : {}),
         };
+
         this.store.dispatch(start());
         this.checkLimits(validated_trade_options);
 
-        // TrapKid analyzer mode: for DIGITMATCH, derive the prediction from
-        // the most frequent last digit in the current underlying tick stream.
-        // The selected digit is locked for 30 seconds and reused while valid.
-        if (this.isAnalyzerEnabledForTrade()) {
+        if (this.isAnalyzerEnabledForTrade(this.tradeOptions)) {
             this.prepareAnalyzerPrediction()
                 .then(() => this.makeDirectPurchaseDecision())
                 .catch(error => {
