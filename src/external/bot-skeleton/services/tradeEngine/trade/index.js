@@ -80,7 +80,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
     }
 
     onAnalyzerEarlyExit = async command => {
-        if (!this.isAnalyzerEnabledForTrade?.() || !this.contractId || this.isSold) return;
+        if (!(this.isAnalyzerEnabledForTrade?.() || this.analyzerSignal) || !this.contractId || this.isSold) return;
 
         const exit = this.getAnalyzerExit?.();
         const signal = this.analyzerSignal;
