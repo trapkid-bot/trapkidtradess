@@ -402,8 +402,8 @@ const MatchesTerminal = () => {
             signal.exitStatus !== 'EXPIRED' &&
             signal.earlyExit !== true;
 
+        analyzerSignalRef.current = signalId;
         if (signalReady && !tradeRef.current && !sellingRef.current) {
-            analyzerSignalRef.current = signalId;
             window.setTimeout(() => { void buy(); }, 0);
         }
     }, [analyzerDetails, autoRun, buy]);
@@ -450,7 +450,8 @@ const MatchesTerminal = () => {
             signal?.earlyExit !== true;
 
         if (ready && !tradeRef.current && !sellingRef.current) {
-            analyzerSignalRef.current = signalId;
+            // Leave the signal ref untouched here so the auto-run effect can
+            // consume the current Analyzer signal exactly once.
             window.setTimeout(() => { void buy(); }, 0);
         }
     }, [analyzerDetails, autoRun, buy]);
