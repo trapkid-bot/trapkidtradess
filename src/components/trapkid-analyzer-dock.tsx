@@ -85,7 +85,17 @@ const TrapKidAnalyzerDock = () => {
                     }
                 }
             } catch {
-                if (!cancelled) setDetails((current: any) => current ? { ...current, connected: false } : { connected: false });
+                if (!cancelled) {
+                    const offline = {
+                        ...(globalObserver.getState('trapkid_analyzer') || {}),
+                        status: 'DISCONNECTED',
+                        connected: false,
+                        lastSeen: null,
+                    };
+                    setDetails((current: any) => current ? { ...current, connected: false } : { connected: false });
+                    globalObserver.setState({ trapkid_analyzer: offline });
+                    globalObserver.emit('trapkid.analyzer.updated', offline);
+                }
             } finally {
                 polling = false;
             }
