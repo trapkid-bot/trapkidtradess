@@ -98,7 +98,7 @@ const MatchesTerminal = () => {
     const [prices, setPrices] = useState<number[]>([]);
     const [tick, setTick] = useState<number | null>(null);
     const [digit, setDigit] = useState<number | null>(null);
-    const [prediction, setPrediction] = useState(5);
+    const [prediction, setPrediction] = useState<number | null>(null);
     const [stake, setStake] = useState(2);
     const [holdTicks, setHoldTicks] = useState(10);
     const [balance, setBalance] = useState<number | null>(null);
@@ -143,10 +143,12 @@ const MatchesTerminal = () => {
         let cancelled = false;
         let lastEpoch: number | null = null;
         let polling = false;
+        let ws: WebSocket | null = null;
+        let reconnectTimer: number | null = null;
 
         const applyAnalyzerState = (data: any) => {
             if (cancelled || !data) return;
-            setAnalyzerDetails(data);
+            setAnalyzerDetails((current: any) => ({ ...(current || {}), ...data }));
 
             const analyzerMarkets: Market[] = Array.isArray(data.markets)
                 ? data.markets.map((m: any) => ({
@@ -164,25 +166,6 @@ const MatchesTerminal = () => {
                 subscribeMarket(nextSymbol);
             }
 
-            if (data.lastTick) {
-                const quote = Number(data.lastTick.quote);
-                const d = Number(data.lastTick.digit);
-                const epoch = Number(data.lastTick.epoch);
-                const isNewTick = Number.isFinite(epoch) && epoch !== lastEpoch;
-
-                if (isNewTick) {
-                    lastEpoch = epoch;
-                    if (Number.isFinite(quote)) {
-                        setTick(quote);
-                        setPrices(prev => [...prev.slice(-99), quote]);
-                    }
-                    if (Number.isInteger(d)) {
-                        setDigit(d);
-                        setHistoryDigits(prev => [...prev.slice(-99), d]);
-                    }
-                }
-            }
-
             const signal = data.signal;
             const analysis = data.analysis || {};
             if (signal && Number.isInteger(Number(signal.prediction ?? signal.lockedDigit))) {
@@ -191,17 +174,73 @@ const MatchesTerminal = () => {
                 setPrediction(nextPrediction);
                 setAiDigit(Number.isInteger(Number(analysis.hotDigit)) ? Number(analysis.hotDigit) : nextPrediction);
                 if (Number.isFinite(Number(analysis.score))) setAiScore(Math.round(Number(analysis.score)));
-                setAiReason(
-                    String(signal.reason || analysis.reason || ('Analyzer locked digit ' + nextPrediction + (nextSignalId ? ' — ' + nextSignalId : '') + '.'))
-                );
-            } else {
-                if (Number.isInteger(Number(analysis.hotDigit))) setAiDigit(Number(analysis.hotDigit));
+                setAiReason(String(signal.reason || analysis.reason || ('Analyzer locked digit ' + nextPrediction + (nextSignalId ? ' — ' + nextSignalId : '') + '.')));
+            } else if (Number.isInteger(Number(analysis.hotDigit))) {
+                setAiDigit(Number(analysis.hotDigit));
                 if (Number.isFinite(Number(analysis.score))) setAiScore(Math.round(Number(analysis.score)));
                 if (analysis.reason) setAiReason(String(analysis.reason));
             }
+        };
 
-            setStatus(data.connected ? 'TrapKid Analyzer HTTP LIVE • ' + nextSymbol : 'Analyzer disconnected');
-            if (data.connected) setError('');
+        const applyAnalyzerTick = (tick: any) => {
+            if (cancelled || !tick) return;
+            const quote = Number(tick.quote);
+            const d = Number(tick.digit);
+            const epoch = Number(tick.epoch);
+            if (!Number.isFinite(epoch) || epoch === lastEpoch) return;
+            lastEpoch = epoch;
+
+            setAnalyzerDetails((current: any) => ({
+                ...(current || {}),
+                connected: true,
+                lastTick: { ...(current?.lastTick || {}), ...tick },
+            }));
+            if (Number.isFinite(quote)) {
+                setTick(quote);
+                setPrices(prev => [...prev.slice(-99), quote]);
+            }
+            if (Number.isInteger(d)) {
+                setDigit(d);
+                setHistoryDigits(prev => [...prev.slice(-99), d]);
+            }
+            setStatus('Analyzer LIVE STREAM • ' + (analyzerDetails?.symbol || symbol) + ' • tick ' + epoch);
+            setError('');
+        };
+
+        const connectWs = () => {
+            if (cancelled) return;
+            try {
+                const wsUrl = (process.env.NEXT_PUBLIC_ANALYZER_WS_URL || ANALYZER_API.replace(/^http/i, 'ws')).replace(/\/$/, '') + '/ws/ticks';
+                ws = new WebSocket(wsUrl);
+                ws.onopen = () => {
+                    if (!cancelled) setStatus('Analyzer LIVE STREAM CONNECTED • waiting for ticks…');
+                };
+                ws.onmessage = event => {
+                    try {
+                        const message = JSON.parse(event.data);
+                        const data = message?.data || message?.state || message;
+                        if (message?.type === 'tick' || data?.quote !== undefined && data?.epoch !== undefined && data?.digit !== undefined) {
+                            applyAnalyzerTick(data?.lastTick || data);
+                        }
+                        if (message?.type === 'state' || data?.signal || data?.symbol || data?.analysis) {
+                            applyAnalyzerState(data);
+                        }
+                    } catch {
+                        // Ignore malformed stream frames; HTTP snapshot remains available.
+                    }
+                };
+                ws.onerror = () => {
+                    if (!cancelled) setStatus('Analyzer stream reconnecting…');
+                };
+                ws.onclose = () => {
+                    if (cancelled) return;
+                    if (reconnectTimer) window.clearTimeout(reconnectTimer);
+                    reconnectTimer = window.setTimeout(connectWs, 1000);
+                };
+            } catch {
+                if (!cancelled) setStatus('Analyzer stream unavailable — using HTTP snapshot');
+                reconnectTimer = window.setTimeout(connectWs, 1500);
+            }
         };
 
         const poll = async () => {
@@ -214,20 +253,29 @@ const MatchesTerminal = () => {
                 });
                 if (!response.ok) throw new Error('Analyzer HTTP ' + response.status);
                 const data = await response.json();
-                applyAnalyzerState(data);
+                if (!cancelled) {
+                    applyAnalyzerState(data);
+                    if (data.lastTick) applyAnalyzerTick(data.lastTick);
+                    setStatus(ws?.readyState === WebSocket.OPEN
+                        ? 'Analyzer LIVE STREAM • ' + (data.symbol || symbol)
+                        : 'Analyzer HTTP LIVE • ' + (data.symbol || symbol));
+                }
             } catch {
-                if (!cancelled) setStatus('Analyzer HTTP connection offline');
+                if (!cancelled) setStatus('Analyzer connection offline');
             } finally {
                 polling = false;
             }
         };
 
         void poll();
-        const timer = window.setInterval(poll, 500);
+        connectWs();
+        const timer = window.setInterval(poll, 1000);
 
         return () => {
             cancelled = true;
             window.clearInterval(timer);
+            if (reconnectTimer) window.clearTimeout(reconnectTimer);
+            try { ws?.close(); } catch { /* noop */ }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [ANALYZER_API]);
@@ -333,7 +381,7 @@ const MatchesTerminal = () => {
             const entryStake = Number(stake);
 
             if (!signalId) throw new Error('Analyzer signal has no signalId.');
-            if (!Number.isInteger(entryPrediction)) throw new Error('Analyzer signal has no valid locked digit.');
+            if (!Number.isInteger(entryPrediction) || entryPrediction < 0 || entryPrediction > 9) throw new Error('Analyzer signal has no valid locked digit.');
             if (signal.expiresAt && Number.isFinite(Number(signal.expiresAt)) && Date.now() > Number(signal.expiresAt)) {
                 throw new Error('Analyzer signal expired before DBot could open the contract.');
             }
@@ -437,6 +485,12 @@ const MatchesTerminal = () => {
         const signalId = String(signal?.signalId || '');
         if (!autoRun || !signalId || analyzerSignalRef.current === signalId) return;
 
+        const analyzerLive = Boolean(analyzerDetails?.connected && analyzerDetails?.lastTick?.epoch);
+        if (!analyzerLive) {
+            setStatus('RUNNING • waiting for live Analyzer stream before executing ' + signalId + '…');
+            return;
+        }
+
         const signalReady =
             signal.exitStatus !== 'EARLY_EXIT_TRIGGERED' &&
             signal.exitStatus !== 'EXPIRED' &&
@@ -451,7 +505,7 @@ const MatchesTerminal = () => {
                 if (!ok) analyzerSignalRef.current = null;
             });
         }
-    }, [analyzerDetails, autoRun, buy]);
+    }, [analyzerDetails, autoRun, buyFromAnalyzerSignal]);
 
     useEffect(() => {
         const tick = analyzerDetails?.lastTick;
@@ -507,7 +561,7 @@ const MatchesTerminal = () => {
         analyzerSignalRef.current = null;
         setAutoRun(true);
         setError('');
-        setStatus('Analyzer DBot RUNNING — Analyzer controls market, live ticks, signal, prediction and exit.');
+        setStatus('WAITING FOR ANALYZER SIGNAL • market/prediction will switch automatically.');
 
     }, [autoRun]);
 
@@ -608,7 +662,7 @@ const MatchesTerminal = () => {
                     </div>
 
                     <div className='tk-panel-section'>
-                        <label>Last digit prediction</label>
+                        <label>Analyzer prediction</label>
                         <div className='digit-grid'>
                             {Array.from({ length: 10 }, (_, d) => (
                                 <button
@@ -638,6 +692,7 @@ const MatchesTerminal = () => {
 
                     <div className='tk-live-quote'>
                         <div><span>Strategy source</span><strong>TRAPKID ANALYZER</strong></div>
+                        <div><span>Live stream</span><strong>{analyzerDetails?.lastTick?.epoch ? 'LIVE TICK' : 'WAITING'}</strong></div>
                         <div><span>Analyzer feed</span><strong>{analyzerDetails?.connected ? 'CONNECTED' : 'DISCONNECTED'}</strong></div>
                         <div><span>Analyzer exit</span><strong>{analyzerDetails?.exit?.status || 'WAITING'}</strong></div>
                         <div><span>Analyzer market</span><strong>{analyzerDetails?.symbol || '—'}</strong></div>
@@ -662,7 +717,7 @@ const MatchesTerminal = () => {
                         </div>
                     ) : (
                         <button className='tk-buy' onClick={buy} disabled={!autoRun || !contractAvailable || !!proposalId || holdTicks < 2}>
-                            <span>{autoRun ? `Armed: Match ${prediction}` : 'Start DBot first'}</span>
+                            <span>{autoRun ? (prediction === null ? 'Waiting for Analyzer signal' : `Analyzer Match ${prediction}`) : 'Start DBot first'}</span>
                             <strong>{autoRun ? (payout ? `Payout ${payout.toFixed(2)} ${currency}` : 'Waiting for Analyzer signal') : 'Analyzer-controlled execution'}</strong>
                         </button>
                     )}
