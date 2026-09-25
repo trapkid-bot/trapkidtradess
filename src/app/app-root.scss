@@ -86,3 +86,7 @@
 @media (max-width:640px) {
     .tk-analyzer-global-popover { left:0; top:78px; width:min(360px,calc(100vw - 24px)); }
 }
+
+.tk-link-proof { margin-top:8px; padding:7px 8px; border-radius:8px; background:rgba(255,255,255,.035); color:#a8b7bf; font:9px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace; }
+.tk-link-proof > span { display:inline-block; width:7px; height:7px; margin-right:5px; border-radius:50%; background:#ff5263; }
+.tk-link-proof > span.is-live { background:#19f6a5; box-shadow:0 0 9px rgba(25,246,165,.9); }
