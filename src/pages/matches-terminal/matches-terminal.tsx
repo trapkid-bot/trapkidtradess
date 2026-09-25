@@ -521,56 +521,6 @@ const MatchesTerminal = () => {
                 </aside>
             </div>
 
-            <div
-                className={analyzerPanelOpen ? 'tk-analyzer-dock open' : 'tk-analyzer-dock'}
-                style={{ left: analyzerPos.x, top: analyzerPos.y }}
-                onPointerDown={e => {
-                    const rect = (e.currentTarget as HTMLDivElement).getBoundingClientRect();
-                    analyzerDrag.current = { dx: e.clientX - rect.left, dy: e.clientY - rect.top };
-                    (e.currentTarget as HTMLDivElement).setPointerCapture(e.pointerId);
-                }}
-                onPointerMove={e => {
-                    if (!analyzerDrag.current) return;
-                    setAnalyzerPos({
-                        x: Math.max(8, Math.min(window.innerWidth - 64, e.clientX - analyzerDrag.current.dx)),
-                        y: Math.max(8, Math.min(window.innerHeight - 64, e.clientY - analyzerDrag.current.dy)),
-                    });
-                }}
-                onPointerUp={() => { analyzerDrag.current = null; }}
-                onPointerCancel={() => { analyzerDrag.current = null; }}
-            >
-                <button className='tk-analyzer-orb' onClick={() => setAnalyzerPanelOpen(v => !v)} title='TrapKid Analyzer connection'>
-                    <span className={analyzerDetails?.connected ? 'tk-analyzer-led live' : 'tk-analyzer-led'} />
-                    <b>TK</b>
-                </button>
-                {analyzerPanelOpen && (
-                    <div className='tk-analyzer-popover' onPointerDown={e => e.stopPropagation()}>
-                        <div className='tk-analyzer-head'>
-                            <div><b>TRAPKID ANALYZER LINK</b><small>{analyzerDetails?.connected ? 'LIVE DATA' : 'OFFLINE'}</small></div>
-                            <button onClick={() => setAnalyzerPanelOpen(false)}>×</button>
-                        </div>
-                        <div className='tk-analyzer-url'>{ANALYZER_API}</div>
-                        <div className='tk-analyzer-grid'>
-                            <span>MARKET<b>{analyzerDetails?.symbol || '—'}</b></span>
-                            <span>LAST DIGIT<b>{analyzerDetails?.lastTick?.digit ?? '—'}</b></span>
-                            <span>HOT DIGIT<b>{analyzerDetails?.analysis?.hotDigit ?? '—'}</b></span>
-                            <span>SCORE<b>{Number(analyzerDetails?.analysis?.score ?? 0).toFixed(2)}</b></span>
-                            <span>SIGNAL<b>{analyzerDetails?.signal?.signalId || 'NONE'}</b></span>
-                            <span>PREDICTION<b>{analyzerDetails?.signal?.prediction ?? '—'}</b></span>
-                            <span>ENTRY QUOTE<b>{analyzerDetails?.signal?.entryQuote ?? '—'}</b></span>
-                            <span>LOCKED QUOTE<b>{analyzerDetails?.signal?.lockedQuote ?? '—'}</b></span>
-                            <span>EXIT<b>{analyzerDetails?.exit?.status || 'IDLE'}</b></span>
-                            <span>EXIT DIGIT<b>{analyzerDetails?.exit?.digit ?? '—'}</b></span>
-                        </div>
-                        <div className='tk-analyzer-dbot'>
-                            <strong>DBOT FETCH / USE</strong>
-                            <code>GET {ANALYZER_API}/api/status</code>
-                            <small>DBot should use <b>symbol</b>, <b>prediction/lockedDigit</b>, <b>contractType</b>, <b>entryQuote</b>, <b>lockedQuote</b>, <b>signalId</b> and <b>exit</b> from this live payload.</small>
-                        </div>
-                    </div>
-                )}
-            </div>
-
             <div className='tk-disclaimer'>
                 <b>Data flow:</b> TrapKid Live Analyzer supplies the live tick stream and digit-analysis signals over localhost:5000. The authenticated Deriv connection remains responsible for balances, proposals, purchases, open-contract updates and sells. <b>Execution note:</b> Deriv remains the broker for contract execution. A Match contract normally settles at its expiry. “Hold until digit appears” here means the app buys a longer-lived Match contract and sends an authenticated <code>sell</code> request when the locked digit appears; the broker records that as an early sale, not as a native 1-tick Match settlement.
             </div>
