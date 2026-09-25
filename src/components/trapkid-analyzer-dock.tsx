@@ -67,11 +67,16 @@ const TrapKidAnalyzerDock = () => {
                     <div className='tk-analyzer-global-head'>
                         <div>
                             <b>TRAPKID ANALYZER LINK</b>
-                            <small>{details?.connected ? '● LIVE DATA' : '○ OFFLINE'}</small>
+                            <small>{details?.connected ? '● CONNECTED — LIVE ANALYZER' : '○ DISCONNECTED — ANALYZER UNREACHABLE'}</small>
                         </div>
                         <button onClick={() => setOpen(false)} aria-label='Close Analyzer panel'>×</button>
                     </div>
 
+                    <div className='tk-analyzer-global-connection'>
+                        <span className={details?.connected ? 'is-live' : 'is-offline'} />
+                        <b>{details?.connected ? 'CONNECTED' : 'DISCONNECTED'}</b>
+                        <small>{details?.connected ? 'Website is receiving live Analyzer status.' : 'Website cannot reach the Analyzer right now.'}</small>
+                    </div>
                     <div className='tk-analyzer-global-url'>{ANALYZER_API}</div>
 
                     <div className='tk-analyzer-global-grid'>
