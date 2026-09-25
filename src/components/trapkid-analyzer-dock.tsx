@@ -1,4 +1,5 @@
 import React from 'react';
+import { observer as globalObserver } from '@/external/bot-skeleton/utils/observer';
 
 const ANALYZER_API = (process.env.NEXT_PUBLIC_ANALYZER_API_URL || 'https://thesis-quality-remote-rendered.trycloudflare.com').trim();
 const LINK_VERSION = 'HTTP-LINK-02';
@@ -9,6 +10,7 @@ const TrapKidAnalyzerDock = () => {
     const [pos, setPos] = React.useState({ x: 22, y: 120 });
     const [lastSeen, setLastSeen] = React.useState<number | null>(null);
     const drag = React.useRef<{ dx: number; dy: number } | null>(null);
+    const analyzerSignalKeyRef = React.useRef<string | null>(null);
 
     React.useEffect(() => {
         let cancelled = false;
@@ -25,8 +27,62 @@ const TrapKidAnalyzerDock = () => {
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 const data = await res.json();
                 if (!cancelled) {
+                    const now = Date.now();
                     setDetails(data);
-                    setLastSeen(Date.now());
+                    setLastSeen(now);
+
+                    const signal = data?.signal;
+                    const signalId = String(signal?.signalId || '');
+                    const lockedAt = Number(signal?.lockedAt);
+                    const signalKey = signalId
+                        ? signalId + ':' + (Number.isFinite(lockedAt) ? lockedAt : '')
+                        : '';
+
+                    globalObserver.setState({
+                        trapkid_analyzer: {
+                            ...(globalObserver.getState('trapkid_analyzer') || {}),
+                            ...data,
+                            status: signalKey ? 'CONNECTED' : 'CONNECTED_WAITING',
+                            lastSeen: now,
+                        },
+                    });
+                    globalObserver.emit('trapkid.analyzer.updated', {
+                        ...data,
+                        status: signalKey ? 'CONNECTED' : 'CONNECTED_WAITING',
+                        lastSeen: now,
+                    });
+
+                    if (signalKey && analyzerSignalKeyRef.current === null) {
+                        analyzerSignalKeyRef.current = signalKey;
+                    } else if (signalKey && analyzerSignalKeyRef.current !== signalKey) {
+                        analyzerSignalKeyRef.current = signalKey;
+
+                        const command = {
+                            source: 'TRAPKID_ANALYZER_HTTP',
+                            command: 'EXECUTE_ANALYZER_SIGNAL',
+                            commandKey: signalKey,
+                            receivedAt: now,
+                            signal,
+                            analyzer: data,
+                        };
+
+                        globalObserver.setState({
+                            trapkid_analyzer: {
+                                ...(globalObserver.getState('trapkid_analyzer') || {}),
+                                ...data,
+                                status: 'COMMAND_RECEIVED',
+                                commandKey: signalKey,
+                                lastSeen: now,
+                            },
+                        });
+                        globalObserver.emit('trapkid.analyzer.command', command);
+                        globalObserver.emit('trapkid.analyzer.updated', {
+                            ...data,
+                            status: 'COMMAND_RECEIVED',
+                            commandKey: signalKey,
+                            lastSeen: now,
+                        });
+                    }
                 }
             } catch {
                 if (!cancelled) setDetails((current: any) => current ? { ...current, connected: false } : { connected: false });
@@ -93,7 +149,7 @@ const TrapKidAnalyzerDock = () => {
 
                     <div className='tk-analyzer-global-connection'>
                         <span className={connected ? 'is-live' : 'is-offline'} />
-                        <b>{connected ? 'CONNECTED' : 'DISCONNECTED'}</b>
+                        <b>{connected ? 'CONNECTED TO ANALYZER' : 'DISCONNECTED FROM ANALYZER'}</b>
                         <small>{connected ? 'DBot site is reading /api/status directly.' : 'No response from Analyzer.'}</small>
                     </div>
 
@@ -116,8 +172,8 @@ const TrapKidAnalyzerDock = () => {
                     </div>
 
                     <div className='tk-analyzer-global-dbot'>
-                        <strong>DBOT → ANALYZER</strong>
-                        <div className='tk-link-proof'><span className={connected ? 'is-live' : 'is-offline'} /> {connected ? 'HANDSHAKE OK • HTTP STATUS RECEIVED' : 'HANDSHAKE FAILED'}</div>
+                        <strong>ANALYZER → DBOT COMMAND LINK</strong>
+                        <div className='tk-link-proof'><span className={connected ? 'is-live' : 'is-offline'} /> {connected ? 'ANALYZER DATA CHANNEL LIVE' : 'ANALYZER DATA CHANNEL OFFLINE'}</div>
                         <code>GET /api/status?client=dbot</code>
                         <small>HTTP only. No browser WebSocket is required for the Analyzer link. Last successful read: {lastSeen ? new Date(lastSeen).toLocaleTimeString() : 'waiting…'}</small>
                     </div>
