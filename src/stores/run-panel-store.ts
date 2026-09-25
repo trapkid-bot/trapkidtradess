@@ -940,14 +940,19 @@ export default class RunPanelStore {
             String(analyzerState.commandKey || '') === analyzerCommandKey &&
             String(analyzerState.status || '') === 'COMMAND_RECEIVED';
 
+        const analyzerCommandNeedsRecovery =
+            analyzerCommandWasPublished ||
+            (
+                String(analyzerState.commandKey || '') !== analyzerCommandKey &&
+                (
+                    (Number.isFinite(analyzerExpiresAt) && Date.now() < analyzerExpiresAt) ||
+                    (Number.isFinite(analyzerLockedAt) && Date.now() - analyzerLockedAt < 10000)
+                )
+            );
+
         if (
             analyzerCommandKey &&
-            (
-                analyzerCommandWasPublished ||
-                (Number.isFinite(analyzerExpiresAt) && Date.now() < analyzerExpiresAt) ||
-                (Number.isFinite(analyzerLockedAt) && Date.now() - analyzerLockedAt < 10000)
-            ) &&
-            String(analyzerState.commandKey || '') !== analyzerCommandKey &&
+            analyzerCommandNeedsRecovery &&
             !this.is_running &&
             !this.has_open_contract
         ) {
