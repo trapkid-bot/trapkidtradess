@@ -1,33 +1,49 @@
 import React from 'react';
 
 const ANALYZER_API = (process.env.NEXT_PUBLIC_ANALYZER_API_URL || 'https://thesis-quality-remote-rendered.trycloudflare.com').trim();
+const LINK_VERSION = 'HTTP-LINK-02';
 
 const TrapKidAnalyzerDock = () => {
     const [details, setDetails] = React.useState<any>(null);
     const [open, setOpen] = React.useState(false);
-    const [pos, setPos] = React.useState({ x: 24, y: 88 });
+    const [pos, setPos] = React.useState({ x: 22, y: 120 });
+    const [lastSeen, setLastSeen] = React.useState<number | null>(null);
     const drag = React.useRef<{ dx: number; dy: number } | null>(null);
 
     React.useEffect(() => {
         let cancelled = false;
+        let polling = false;
+
         const poll = async () => {
+            if (cancelled || polling) return;
+            polling = true;
             try {
-                const res = await fetch(`${ANALYZER_API}/api/status`, { cache: 'no-store' });
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const res = await fetch(ANALYZER_API + '/api/status?client=global-link&t=' + Date.now(), {
+                    cache: 'no-store',
+                    headers: { Accept: 'application/json' },
+                });
+                if (!res.ok) throw new Error('HTTP ' + res.status);
                 const data = await res.json();
-                if (!cancelled) setDetails(data);
+                if (!cancelled) {
+                    setDetails(data);
+                    setLastSeen(Date.now());
+                }
             } catch {
                 if (!cancelled) setDetails((current: any) => current ? { ...current, connected: false } : { connected: false });
+            } finally {
+                polling = false;
             }
         };
 
-        poll();
-        const timer = window.setInterval(poll, 1000);
+        void poll();
+        const timer = window.setInterval(poll, 700);
         return () => {
             cancelled = true;
             window.clearInterval(timer);
         };
     }, []);
+
+    const connected = Boolean(details?.connected);
 
     const beginDrag = (e: React.PointerEvent<HTMLDivElement>) => {
         const rect = e.currentTarget.getBoundingClientRect();
@@ -38,8 +54,8 @@ const TrapKidAnalyzerDock = () => {
     const moveDrag = (e: React.PointerEvent<HTMLDivElement>) => {
         if (!drag.current) return;
         setPos({
-            x: Math.max(8, Math.min(window.innerWidth - 64, e.clientX - drag.current.dx)),
-            y: Math.max(8, Math.min(window.innerHeight - 64, e.clientY - drag.current.dy)),
+            x: Math.max(8, Math.min(window.innerWidth - 72, e.clientX - drag.current.dx)),
+            y: Math.max(8, Math.min(window.innerHeight - 72, e.clientY - drag.current.dy)),
         });
     };
 
@@ -53,31 +69,36 @@ const TrapKidAnalyzerDock = () => {
             onPointerCancel={() => { drag.current = null; }}
         >
             <button
-                className='tk-analyzer-global-orb'
+                className={connected ? 'tk-analyzer-link-button live' : 'tk-analyzer-link-button'}
                 onClick={() => setOpen(value => !value)}
-                title='TrapKid Analyzer connection'
-                aria-label='Open TrapKid Analyzer connection'
+                title='TrapKid Analyzer HTTP link'
+                aria-label='Open TrapKid Analyzer HTTP link'
             >
-                <span className={details?.connected ? 'tk-analyzer-global-led live' : 'tk-analyzer-global-led'} />
-                <b>TK</b>
+                <span className='tk-link-bars'><i /><i /><i /></span>
+                <span className='tk-link-led' />
+                <b>LINK</b>
             </button>
 
             {open && (
-                <div className='tk-analyzer-global-popover' onPointerDown={e => e.stopPropagation()}>
+                <div className='tk-analyzer-global-popover'>
                     <div className='tk-analyzer-global-head'>
                         <div>
-                            <b>TRAPKID ANALYZER LINK</b>
-                            <small>{details?.connected ? '● CONNECTED — LIVE ANALYZER' : '○ DISCONNECTED — ANALYZER UNREACHABLE'}</small>
+                            <b>TRAPKID ANALYZER • HTTP LINK</b>
+                            <small>{connected ? '● CONNECTED — LIVE POLLING' : '○ DISCONNECTED — CHECK ANALYZER'}</small>
                         </div>
                         <button onClick={() => setOpen(false)} aria-label='Close Analyzer panel'>×</button>
                     </div>
 
                     <div className='tk-analyzer-global-connection'>
-                        <span className={details?.connected ? 'is-live' : 'is-offline'} />
-                        <b>{details?.connected ? 'CONNECTED' : 'DISCONNECTED'}</b>
-                        <small>{details?.connected ? 'Website is receiving live Analyzer status.' : 'Website cannot reach the Analyzer right now.'}</small>
+                        <span className={connected ? 'is-live' : 'is-offline'} />
+                        <b>{connected ? 'CONNECTED' : 'DISCONNECTED'}</b>
+                        <small>{connected ? 'DBot site is reading /api/status directly.' : 'No response from Analyzer.'}</small>
                     </div>
-                    <div className='tk-analyzer-global-url'>{ANALYZER_API}</div>
+
+                    <div className='tk-analyzer-global-url'>
+                        <b>LINK {LINK_VERSION}</b><br />
+                        {ANALYZER_API}/api/status
+                    </div>
 
                     <div className='tk-analyzer-global-grid'>
                         <span>MARKET<b>{details?.symbol || '—'}</b></span>
@@ -93,12 +114,9 @@ const TrapKidAnalyzerDock = () => {
                     </div>
 
                     <div className='tk-analyzer-global-dbot'>
-                        <strong>DBOT FETCH / USE</strong>
-                        <code>GET {ANALYZER_API}/api/status</code>
-                        <small>
-                            DBot reads <b>symbol</b>, <b>prediction/lockedDigit</b>, <b>contractType</b>,
-                            <b>entryQuote</b>, <b>lockedQuote</b>, <b>signalId</b> and <b>exit</b> from this live payload.
-                        </small>
+                        <strong>DBOT → ANALYZER</strong>
+                        <code>GET /api/status?client=dbot</code>
+                        <small>HTTP only. No browser WebSocket is required for the Analyzer link. Last successful read: {lastSeen ? new Date(lastSeen).toLocaleTimeString() : 'waiting…'}</small>
                     </div>
                 </div>
             )}
