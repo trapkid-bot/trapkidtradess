@@ -11,6 +11,7 @@ const TrapKidAnalyzerDock = () => {
     const [lastSeen, setLastSeen] = React.useState<number | null>(null);
     const drag = React.useRef<{ dx: number; dy: number } | null>(null);
     const analyzerSignalKeyRef = React.useRef<string | null>(null);
+    const analyzerExitKeyRef = React.useRef<string | null>(null);
 
     React.useEffect(() => {
         let cancelled = false;
@@ -51,6 +52,34 @@ const TrapKidAnalyzerDock = () => {
                         status: signalKey ? 'CONNECTED' : 'CONNECTED_WAITING',
                         lastSeen: now,
                     });
+
+                    const exit = data?.exit;
+                    const exitSignalId = String(signal?.signalId || '');
+                    const exitKey = exit?.status === 'EARLY_SELL_READY' && exitSignalId
+                        ? exitSignalId + ':' + String(exit.epoch || exit.quote || '')
+                        : '';
+
+                    if (exitKey && analyzerExitKeyRef.current !== exitKey) {
+                        analyzerExitKeyRef.current = exitKey;
+                        const exitCommand = {
+                            source: 'TRAPKID_ANALYZER_HTTP',
+                            command: 'ANALYZER_EARLY_EXIT',
+                            commandKey: signalId
+                                ? signalId + ':' + String(signal.lockedAt || '')
+                                : '',
+                            signalId: exitSignalId,
+                            signal,
+                            exit,
+                            receivedAt: now,
+                        };
+                        globalObserver.emit('trapkid.analyzer.exit', exitCommand);
+                        globalObserver.emit('trapkid.analyzer.updated', {
+                            ...data,
+                            status: 'EARLY_EXIT_COMMAND_RECEIVED',
+                            commandKey: exitCommand.commandKey,
+                            lastSeen: now,
+                        });
+                    }
 
                     if (signalKey && analyzerSignalKeyRef.current === null) {
                         analyzerSignalKeyRef.current = signalKey;
