@@ -12,167 +12,77 @@
 }
 
 
-/* Global TrapKid Analyzer connection dock */
+/* Global TrapKid Analyzer connection dock — HTTP LINK */
 .tk-analyzer-global-dock {
     position: fixed;
     z-index: 2147483000;
-    width: 52px;
-    height: 52px;
+    width: 66px;
+    height: 66px;
     touch-action: none;
     user-select: none;
     cursor: grab;
 }
-.tk-analyzer-global-dock:active {
-    cursor: grabbing;
-}
-.tk-analyzer-global-orb {
-    width: 52px;
-    height: 52px;
-    border: 1px solid rgba(0, 255, 190, 0.55);
-    border-radius: 50%;
-    background: radial-gradient(circle at 35% 25%, #263b49 0%, #101820 48%, #05080b 100%);
-    color: #dffdf5;
-    box-shadow: 0 0 0 2px rgba(0, 0, 0, 0.35), 0 10px 30px rgba(0, 0, 0, 0.45), 0 0 22px rgba(0, 255, 190, 0.16);
-    position: relative;
+.tk-analyzer-global-dock:active { cursor: grabbing; }
+.tk-analyzer-link-button {
+    width: 66px;
+    height: 66px;
+    border: 1px solid rgba(255, 190, 60, .65);
+    border-radius: 18px;
+    background: linear-gradient(145deg, #20242b, #090b0f);
+    color: #f6f7f9;
+    box-shadow: 0 12px 35px rgba(0,0,0,.55), 0 0 0 2px rgba(0,0,0,.35);
     display: grid;
     place-items: center;
-    font-weight: 900;
-    letter-spacing: 0.5px;
+    position: relative;
     cursor: pointer;
 }
-.tk-analyzer-global-orb b {
-    font-size: 14px;
+.tk-analyzer-link-button.live {
+    border-color: rgba(25, 246, 165, .8);
+    box-shadow: 0 12px 35px rgba(0,0,0,.55), 0 0 25px rgba(25,246,165,.18);
 }
-.tk-analyzer-global-led {
-    position: absolute;
-    width: 9px;
-    height: 9px;
-    border-radius: 50%;
-    right: 5px;
-    bottom: 5px;
-    background: #69747c;
-    border: 2px solid #071015;
-}
-.tk-analyzer-global-led.live {
-    background: #19f6a5;
-    box-shadow: 0 0 12px rgba(25, 246, 165, 0.95);
-}
+.tk-analyzer-link-button b { font: 900 11px/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: 1.4px; }
+.tk-link-bars { display:flex; align-items:flex-end; gap:3px; height:17px; }
+.tk-link-bars i { display:block; width:4px; border-radius:2px; background:#7c8791; }
+.tk-link-bars i:nth-child(1) { height:7px; }
+.tk-link-bars i:nth-child(2) { height:12px; }
+.tk-link-bars i:nth-child(3) { height:17px; }
+.tk-analyzer-link-button.live .tk-link-bars i { background:#19f6a5; box-shadow:0 0 7px rgba(25,246,165,.75); }
+.tk-link-led { position:absolute; top:6px; right:7px; width:9px; height:9px; border-radius:50%; background:#ff5263; border:2px solid #080a0d; }
+.tk-analyzer-link-button.live .tk-link-led { background:#19f6a5; box-shadow:0 0 11px rgba(25,246,165,.95); }
 .tk-analyzer-global-popover {
-    position: absolute;
-    left: 62px;
-    top: 0;
-    width: min(420px, calc(100vw - 86px));
-    max-height: min(620px, calc(100vh - 32px));
-    overflow: auto;
-    padding: 14px;
-    border: 1px solid rgba(0, 255, 190, 0.28);
-    border-radius: 16px;
-    background: rgba(7, 12, 17, 0.97);
-    color: #dce8ee;
-    box-shadow: 0 24px 70px rgba(0,0,0,.55), 0 0 35px rgba(0,255,190,.09);
-    backdrop-filter: blur(18px);
+    position:absolute;
+    left:78px;
+    top:0;
+    width:min(430px,calc(100vw - 100px));
+    max-height:min(620px,calc(100vh - 32px));
+    overflow:auto;
+    padding:14px;
+    border:1px solid rgba(25,246,165,.25);
+    border-radius:16px;
+    background:rgba(7,12,17,.98);
+    color:#dce8ee;
+    box-shadow:0 24px 70px rgba(0,0,0,.55),0 0 35px rgba(25,246,165,.09);
+    backdrop-filter:blur(18px);
 }
-.tk-analyzer-global-head {
-    display: flex;
-    justify-content: space-between;
-    gap: 12px;
-    align-items: flex-start;
-}
-.tk-analyzer-global-head b {
-    display: block;
-    color: #f2fffb;
-    font-size: 12px;
-    letter-spacing: 0.7px;
-}
-.tk-analyzer-global-head small {
-    display: block;
-    margin-top: 4px;
-    color: #19f6a5;
-    font-size: 10px;
-    font-weight: 800;
-}
-.tk-analyzer-global-head button {
-    border: 0;
-    background: transparent;
-    color: #9fb0b9;
-    font-size: 22px;
-    line-height: 1;
-    cursor: pointer;
-}
-.tk-analyzer-global-url {
-    margin: 10px 0;
-    padding: 7px 9px;
-    border-radius: 8px;
-    background: rgba(255,255,255,.045);
-    color: #7fdcc4;
-    font: 10px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
-    overflow-wrap: anywhere;
-}
-.tk-analyzer-global-grid {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 7px;
-}
-.tk-analyzer-global-grid span {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-    min-width: 0;
-    padding: 8px;
-    border: 1px solid rgba(255,255,255,.07);
-    border-radius: 9px;
-    background: rgba(255,255,255,.025);
-    color: #70818a;
-    font-size: 8px;
-    font-weight: 800;
-    letter-spacing: .7px;
-}
-.tk-analyzer-global-grid b {
-    color: #eefaf7;
-    font-size: 11px;
-    letter-spacing: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-.tk-analyzer-global-dbot {
-    margin-top: 10px;
-    padding: 10px;
-    border: 1px solid rgba(84, 141, 255, .25);
-    border-radius: 10px;
-    background: rgba(70, 100, 180, .08);
-}
-.tk-analyzer-global-dbot strong {
-    display: block;
-    color: #9dbaff;
-    font-size: 9px;
-    letter-spacing: .8px;
-}
-.tk-analyzer-global-dbot code {
-    display: block;
-    margin-top: 6px;
-    color: #dce7ff;
-    font: 9px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace;
-    overflow-wrap: anywhere;
-}
-.tk-analyzer-global-dbot small {
-    display: block;
-    margin-top: 7px;
-    color: #94a6b0;
-    font-size: 9px;
-    line-height: 1.45;
-}
-@media (max-width: 640px) {
-    .tk-analyzer-global-popover {
-        left: 0;
-        top: 62px;
-        width: min(360px, calc(100vw - 24px));
-    }
-}
-
+.tk-analyzer-global-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
+.tk-analyzer-global-head b { display:block; color:#f2fffb; font-size:12px; letter-spacing:.7px; }
+.tk-analyzer-global-head small { display:block; margin-top:4px; color:#19f6a5; font-size:10px; font-weight:800; }
+.tk-analyzer-global-head button { border:0; background:transparent; color:#9fb0b9; font-size:22px; line-height:1; cursor:pointer; }
+.tk-analyzer-global-url { margin:10px 0; padding:8px 9px; border-radius:8px; background:rgba(255,255,255,.045); color:#7fdcc4; font:10px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; overflow-wrap:anywhere; }
+.tk-analyzer-global-url b { color:#f5d27a; }
+.tk-analyzer-global-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:7px; }
+.tk-analyzer-global-grid span { display:flex; flex-direction:column; gap:4px; min-width:0; padding:8px; border:1px solid rgba(255,255,255,.07); border-radius:9px; background:rgba(255,255,255,.025); color:#70818a; font-size:8px; font-weight:800; letter-spacing:.7px; }
+.tk-analyzer-global-grid b { color:#eefaf7; font-size:11px; letter-spacing:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tk-analyzer-global-dbot { margin-top:10px; padding:10px; border:1px solid rgba(84,141,255,.25); border-radius:10px; background:rgba(70,100,180,.08); }
+.tk-analyzer-global-dbot strong { display:block; color:#9dbaff; font-size:9px; letter-spacing:.8px; }
+.tk-analyzer-global-dbot code { display:block; margin-top:6px; color:#dce7ff; font:9px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace; overflow-wrap:anywhere; }
+.tk-analyzer-global-dbot small { display:block; margin-top:7px; color:#94a6b0; font-size:9px; line-height:1.45; }
 .tk-analyzer-global-connection { display:flex; align-items:center; gap:7px; margin:8px 0; padding:8px 9px; border:1px solid rgba(255,255,255,.07); border-radius:9px; background:rgba(255,255,255,.025); }
 .tk-analyzer-global-connection > span { width:8px; height:8px; border-radius:50%; background:#69747c; flex:0 0 auto; }
 .tk-analyzer-global-connection > span.is-live { background:#19f6a5; box-shadow:0 0 10px rgba(25,246,165,.9); }
 .tk-analyzer-global-connection > span.is-offline { background:#ff5263; box-shadow:0 0 10px rgba(255,82,99,.55); }
 .tk-analyzer-global-connection b { font-size:10px; color:#eefaf7; letter-spacing:.6px; }
 .tk-analyzer-global-connection small { margin-left:auto; color:#83939c; font-size:8px; }
+@media (max-width:640px) {
+    .tk-analyzer-global-popover { left:0; top:78px; width:min(360px,calc(100vw - 24px)); }
+}
