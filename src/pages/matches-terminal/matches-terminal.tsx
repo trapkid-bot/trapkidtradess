@@ -395,7 +395,7 @@ const MatchesTerminal = () => {
     useEffect(() => {
         const signal = analyzerDetails?.signal;
         const signalId = String(signal?.signalId || '');
-        if (!autoRun || !signalId || analyzerSignalRef.current !== signalId) return;
+        if (!autoRun || !signalId || analyzerSignalRef.current === signalId) return;
 
         const signalReady =
             signal.exitStatus !== 'EARLY_EXIT_TRIGGERED' &&
@@ -441,19 +441,6 @@ const MatchesTerminal = () => {
         setError('');
         setStatus('Analyzer DBot RUNNING — waiting for a fresh locked signal…');
 
-        const signal = analyzerDetails?.signal;
-        const signalId = String(signal?.signalId || '');
-        const ready =
-            !!signalId &&
-            signal?.exitStatus !== 'EARLY_EXIT_TRIGGERED' &&
-            signal?.exitStatus !== 'EXPIRED' &&
-            signal?.earlyExit !== true;
-
-        if (ready && !tradeRef.current && !sellingRef.current) {
-            // Leave the signal ref untouched here so the auto-run effect can
-            // consume the current Analyzer signal exactly once.
-            window.setTimeout(() => { void buy(); }, 0);
-        }
     }, [analyzerDetails, autoRun, buy]);
 
     const selectMarket = (next: string) => {
