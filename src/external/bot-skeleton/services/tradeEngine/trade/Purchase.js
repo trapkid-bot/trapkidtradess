@@ -35,6 +35,22 @@ export default Engine =>
                     return Promise.resolve();
                 }
 
+                const analyzerPurchaseKey =
+                    String(signal.signalId) + ':' + String(signal.lockedAt);
+
+                // One Analyzer signal authorizes one purchase cycle only.
+                // Internal request retries are still allowed, but a second
+                // contract cannot be created from the same Analyzer signal.
+                if (this.analyzerPurchaseKey === analyzerPurchaseKey) {
+                    globalObserver?.emit?.(
+                        'ui.log.error',
+                        'Analyzer signal already has a purchase cycle. New purchase blocked.'
+                    );
+                    return Promise.resolve();
+                }
+
+                this.analyzerPurchaseKey = analyzerPurchaseKey;
+
                 // Analyzer is the sole source of the actual Match entry values.
                 // Any Bot Builder prediction value is overwritten here.
                 this.tradeOptions.prediction = signal.prediction;
