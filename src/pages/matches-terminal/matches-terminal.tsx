@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api_base } from '@/external/bot-skeleton';
 import './matches-terminal.scss';
 
-// TrapKid Analyzer ONLY execution gate • V4
+// TrapKid Analyzer ONLY execution gate • COMMAND BUS V5
 
 type Market = {
     symbol: string;
@@ -30,7 +30,7 @@ type Trade = {
 
 const ANALYZER_API = (process.env.NEXT_PUBLIC_ANALYZER_API_URL || 'https://thesis-quality-remote-rendered.trycloudflare.com').trim();
 const ANALYZER_WS = (process.env.NEXT_PUBLIC_ANALYZER_WS_URL || ANALYZER_API.replace(/^http/i, 'ws')).trim();
-const ANALYZER_EXECUTION_VERSION = 'ANALYZER-ONLY-V4';
+const ANALYZER_EXECUTION_VERSION = 'ANALYZER-COMMAND-BUS-V5';
 
 const lastDigit = (quote: number, pipSize = 2) => {
     const fixed = Number(quote).toFixed(Math.max(0, pipSize));
@@ -127,6 +127,7 @@ const MatchesTerminal = () => {
     const analyzerInitializedRef = useRef(false);
     const analyzerBaselineSignalRef = useRef<string | null>(null);
     const analyzerProcessedSignalRef = useRef<string | null>(null);
+    const analyzerAuthorizedSignalRef = useRef<string | null>(null);
     const analyzerTickRef = useRef<number | null>(null);
 
     const selectedMarket = useMemo(() => markets.find(m => m.symbol === symbol), [markets, symbol]);
@@ -393,6 +394,13 @@ const MatchesTerminal = () => {
     const buyFromAnalyzerSignal = useCallback(async (signal: any) => {
         try {
             const signalId = String(signal?.signalId || '');
+            const lockedAt = Number(signal?.lockedAt);
+            const commandKey = signalId
+                ? signalId + ':' + (Number.isFinite(lockedAt) ? lockedAt : '')
+                : '';
+            if (!commandKey || analyzerAuthorizedSignalRef.current !== commandKey) {
+                throw new Error('Analyzer command was not authorized. DBot remains idle.');
+            }
             const entrySymbol = String(signal?.symbol || '');
             const entryPrediction = Number(signal?.prediction ?? signal?.lockedDigit);
             const liveAnalyzerSymbol = String(analyzerDetails?.symbol || '');
@@ -413,6 +421,9 @@ const MatchesTerminal = () => {
             if (entryHoldTicks < 2) throw new Error('Hold-until-hit mode requires at least 2 ticks.');
             if (tradeRef.current || sellingRef.current) return;
 
+            // Consume the authorization before any proposal/buy request is sent.
+            // No button, local prediction, local tick or stale signal can authorize execution.
+            analyzerAuthorizedSignalRef.current = null;
             setError('');
             const proposal = await requestProposal({
                 symbol: entrySymbol,
@@ -525,15 +536,19 @@ const MatchesTerminal = () => {
         }
 
         analyzerProcessedSignalRef.current = signalKey;
+        analyzerAuthorizedSignalRef.current = signalKey;
         setStatus(
-            'ANALYZER COMMAND RECEIVED • ' +
+            'ANALYZER COMMAND RECEIVED • '
             String(signal.symbol || analyzerDetails?.symbol || '—') +
             ' • MATCH ' + String(signal.prediction ?? signal.lockedDigit ?? '—') +
             ' • executing…'
         );
 
         void buyFromAnalyzerSignal(signal).then(ok => {
-            if (!ok) analyzerProcessedSignalRef.current = null;
+            if (!ok) {
+                analyzerProcessedSignalRef.current = null;
+                analyzerAuthorizedSignalRef.current = null;
+            }
         });
     }, [analyzerDetails, buyFromAnalyzerSignal]);
 
@@ -631,6 +646,7 @@ const MatchesTerminal = () => {
                             <span className='tk-chip'>Matches</span>
                         </div>
                         <div className='tk-feed'>{status}</div>
+                        <div className='tk-command-badge'>ANALYZER COMMAND BUS • V5</div>
                     </div>
 
                     <div className='tk-chart'>
@@ -699,6 +715,7 @@ const MatchesTerminal = () => {
 
                     <div className='tk-live-quote'>
                         <div><span>Strategy source</span><strong>TRAPKID ANALYZER ONLY</strong></div>
+                        <div><span>Execution gate</span><strong>{analyzerAuthorizedSignalRef.current ? 'AUTHORIZED • ' + analyzerAuthorizedSignalRef.current : trade ? 'COMMAND ACTIVE' : 'LOCKED • ANALYZE MARKET'}</strong></div>
                         <div><span>Live stream</span><strong>{analyzerDetails?.lastTick?.epoch ? 'LIVE TICK' : 'WAITING'}</strong></div>
                         <div><span>Analyzer feed</span><strong>{analyzerDetails?.connected ? 'CONNECTED' : 'DISCONNECTED'}</strong></div>
                         <div><span>Analyzer exit</span><strong>{analyzerDetails?.exit?.status || 'WAITING'}</strong></div>
@@ -750,7 +767,7 @@ const MatchesTerminal = () => {
             </div>
 
             <div className='tk-disclaimer'>
-                <b>ANALYZER-TRIGGERED DBOT:</b> RUN is disabled. The DBot remains idle until TrapKid Analyzer produces a NEW signal after Analyze Market. The signal is the only command allowed to start execution and supplies the market, entry digit, hot digit, signal ID and prediction/locked digit. <b>Exit:</b> the DBot waits exclusively for that same Analyzer signal to report <code>EARLY_SELL_READY</code> and uses the Analyzer-provided exit digit/quote. No local strategy, default prediction, default market, or independent entry/exit condition can start a trade.
+                <b>ANALYZER-COMMAND DBOT:</b> RUN is permanently disabled. The DBot remains idle until TrapKid Analyzer produces a NEW signal after Analyze Market. The signal is the only command allowed to start execution and supplies the market, entry digit, hot digit, signal ID and prediction/locked digit. <b>Exit:</b> the DBot waits exclusively for that same Analyzer signal to report <code>EARLY_SELL_READY</code> and uses the Analyzer-provided exit digit/quote. No local strategy, default prediction, default market, or independent entry/exit condition can start a trade.
             </div>
         </div>
     );
