@@ -2,7 +2,7 @@ import React from 'react';
 import { observer as globalObserver } from '@/external/bot-skeleton/utils/observer';
 
 const ANALYZER_API = (process.env.NEXT_PUBLIC_ANALYZER_API_URL || 'https://thesis-quality-remote-rendered.trycloudflare.com').trim();
-const LINK_VERSION = 'HTTP-LINK-02';
+const LINK_VERSION = 'ANALYZER-DBOT-BRIDGE-01';
 
 const TrapKidAnalyzerDock = () => {
     const [details, setDetails] = React.useState<any>(null);
