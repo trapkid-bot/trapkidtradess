@@ -55,6 +55,7 @@ export default class RunPanelStore {
             setHasOpenContract: action,
             setIsRunning: action,
             onRunButtonClick: action,
+            onAnalyzerCommand: action,
             is_contract_buying_in_progress: observable,
             SetpurchaseInProgress: action,
             onStopButtonClick: action,
@@ -160,7 +161,69 @@ export default class RunPanelStore {
         });
     };
 
-    onRunButtonClick = async () => {
+    onAnalyzerCommand = async (command: any) => {
+        const signal = command?.signal;
+        const commandKey = String(command?.commandKey || '');
+        const signalId = String(signal?.signalId || '');
+        const lockedAt = Number(signal?.lockedAt);
+
+        if (
+            command?.source !== 'TRAPKID_ANALYZER_HTTP' ||
+            command?.command !== 'EXECUTE_ANALYZER_SIGNAL' ||
+            !signal ||
+            !commandKey ||
+            !signalId ||
+            this.is_running ||
+            this.has_open_contract
+        ) {
+            return;
+        }
+
+        if (
+            signal.expiresAt &&
+            Number.isFinite(Number(signal.expiresAt)) &&
+            Date.now() > Number(signal.expiresAt)
+        ) {
+            observer.setState({
+                trapkid_analyzer: {
+                    ...(observer.getState('trapkid_analyzer') || {}),
+                    status: 'COMMAND_EXPIRED',
+                    commandKey,
+                },
+            });
+            observer.emit('trapkid.analyzer.updated', {
+                ...(observer.getState('trapkid_analyzer') || {}),
+                status: 'COMMAND_EXPIRED',
+                commandKey,
+            });
+            return;
+        }
+
+        observer.setState({
+            trapkid_analyzer: {
+                ...(observer.getState('trapkid_analyzer') || {}),
+                status: 'COMMAND_ACCEPTED',
+                commandKey,
+                signalId,
+                lockedAt,
+            },
+        });
+        observer.emit('trapkid.analyzer.updated', {
+            ...(observer.getState('trapkid_analyzer') || {}),
+            status: 'COMMAND_ACCEPTED',
+            commandKey,
+            signalId,
+            lockedAt,
+        });
+
+        await this.onRunButtonClick({
+            source: 'TRAPKID_ANALYZER_HTTP',
+            commandKey,
+            signal,
+        });
+    };
+
+    onRunButtonClick = async (sourceCommand?: any) => {
         let timer_counter = 1;
         if (window.sendRequestsStatistic) {
             performance.clearMeasures();
@@ -176,6 +239,21 @@ export default class RunPanelStore {
             }, 10000);
         }
         const { summary_card } = this.root_store;
+
+        if (sourceCommand?.source !== 'TRAPKID_ANALYZER_HTTP') {
+            observer.setState({
+                trapkid_analyzer: {
+                    ...(observer.getState('trapkid_analyzer') || {}),
+                    status: 'WAITING_FOR_ANALYZER',
+                },
+            });
+            observer.emit('trapkid.analyzer.updated', {
+                ...(observer.getState('trapkid_analyzer') || {}),
+                status: 'WAITING_FOR_ANALYZER',
+            });
+            return;
+        }
+
         const { client, ui } = this.core;
         const is_ios = mobileOSDetect() === 'iOS';
         this.dbot.saveRecentWorkspace();
@@ -840,6 +918,7 @@ export default class RunPanelStore {
         observer.register('ui.log.notify', journal.onNotify);
         observer.register('ui.log.success', journal.onLogSuccess);
         observer.register('client.invalid_token', this.handleInvalidToken);
+        observer.register('trapkid.analyzer.command', this.onAnalyzerCommand);
     };
 
     onUnmount = () => {
@@ -857,6 +936,7 @@ export default class RunPanelStore {
         observer.unregisterAll('ui.log.notify');
         observer.unregisterAll('ui.log.success');
         observer.unregisterAll('client.invalid_token');
+        observer.unregisterAll('trapkid.analyzer.command');
     };
 
     handleInvalidToken = async () => {
