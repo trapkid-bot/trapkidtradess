@@ -954,8 +954,10 @@ export default class RunPanelStore {
 
         if (
             analyzerCommandKey &&
-            Number.isFinite(analyzerExpiresAt) &&
-            Date.now() < analyzerExpiresAt &&
+            (
+                (Number.isFinite(analyzerExpiresAt) && Date.now() < analyzerExpiresAt) ||
+                (Number.isFinite(analyzerLockedAt) && Date.now() - analyzerLockedAt < 10000)
+            ) &&
             String(analyzerState.commandKey || '') !== analyzerCommandKey &&
             !this.is_running &&
             !this.has_open_contract
