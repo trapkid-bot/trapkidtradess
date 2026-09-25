@@ -11,6 +11,7 @@ type Market = {
 };
 
 type Trade = {
+    signalId: string;
     contractId: string;
     prediction: number;
     symbol: string;
@@ -23,6 +24,7 @@ type Trade = {
 };
 
 const ANALYZER_API = (process.env.NEXT_PUBLIC_ANALYZER_API_URL || 'https://thesis-quality-remote-rendered.trycloudflare.com').trim();
+const ANALYZER_WS = (process.env.NEXT_PUBLIC_ANALYZER_WS_URL || ANALYZER_API.replace(/^http/i, 'ws')).trim();
 
 const lastDigit = (quote: number, pipSize = 2) => {
     const fixed = Number(quote).toFixed(Math.max(0, pipSize));
@@ -154,78 +156,121 @@ const MatchesTerminal = () => {
 
     useEffect(() => {
         let cancelled = false;
-        const poll = async () => {
-            try {
-                const response = await fetch(ANALYZER_API + '/api/status', { cache: 'no-store' });
-                if (!response.ok) throw new Error('Analyzer HTTP ' + response.status);
-                const data = await response.json();
-                if (cancelled) return;
-                setAnalyzerDetails(data);
+        let socket: WebSocket | null = null;
+        let reconnectTimer: number | null = null;
 
-                // Analyzer is the sole source of market data and strategy signals.
-                const analyzerMarkets: Market[] = Array.isArray(data.markets)
-                    ? data.markets.map((m: any) => ({
-                        symbol: String(m.symbol),
-                        name: String(m.name || m.symbol),
-                        type: String(m.type || 'synthetic'),
-                        pipSize: Number(m.pipSize ?? 2),
-                    }))
-                    : [];
-                if (analyzerMarkets.length) setMarkets(analyzerMarkets);
+        const applyAnalyzerState = (data: any) => {
+            if (cancelled || !data) return;
+            setAnalyzerDetails(data);
 
-                const nextSymbol = String(data.symbol || symbol);
-                if (nextSymbol !== symbol) {
-                    setSymbol(nextSymbol);
-                    subscribeMarket(nextSymbol);
+            const analyzerMarkets: Market[] = Array.isArray(data.markets)
+                ? data.markets.map((m: any) => ({
+                    symbol: String(m.symbol),
+                    name: String(m.name || m.symbol),
+                    type: String(m.type || 'synthetic'),
+                    pipSize: Number(m.pipSize ?? 2),
+                }))
+                : [];
+            if (analyzerMarkets.length) setMarkets(analyzerMarkets);
+
+            const nextSymbol = String(data.symbol || symbol);
+            if (nextSymbol !== symbol) {
+                setSymbol(nextSymbol);
+                subscribeMarket(nextSymbol);
+            }
+
+            if (data.lastTick) {
+                const quote = Number(data.lastTick.quote);
+                const d = Number(data.lastTick.digit);
+                if (Number.isFinite(quote)) {
+                    setTick(quote);
+                    setPrices(prev => [...prev.slice(-99), quote]);
                 }
-                if (data.lastTick) {
-                    const quote = Number(data.lastTick.quote);
-                    const d = Number(data.lastTick.digit);
-                    const epoch = Number(data.lastTick.epoch);
-                    if (Number.isFinite(quote)) setTick(quote);
-                    if (Number.isInteger(d)) setDigit(d);
-                    if (Number.isFinite(quote)) setPrices(prev => [...prev.slice(-99), quote]);
-                    if (Number.isInteger(d)) setHistoryDigits(prev => {
+                if (Number.isInteger(d)) {
+                    setDigit(d);
+                    setHistoryDigits(prev => {
                         const next = [...prev.slice(-99), d];
                         analyze(next);
                         return next;
                     });
-
-                }
-                const signal = data.signal;
-                if (signal && Number.isInteger(Number(signal.prediction))) {
-                    const nextPrediction = Number(signal.prediction);
-                    const nextSignalId = String(signal.signalId || '');
-                    setPrediction(nextPrediction);
-                    setAiDigit(nextPrediction);
-                    if (Number.isFinite(Number(signal.score))) setAiScore(Math.round(Number(signal.score)));
-                    setAiReason('Analyzer locked digit ' + nextPrediction + ' — ' + nextSignalId + '.');
-
-                    // Analyzer owns the active prediction. Do not consume a signal while DBot
-                    // is stopped; RUN must be able to take the currently displayed locked signal.
-                } else if (data.analysis) {
-                    const analysis = data.analysis;
-                    if (Number.isInteger(Number(analysis.hotDigit))) setAiDigit(Number(analysis.hotDigit));
-                    if (Number.isFinite(Number(analysis.score))) setAiScore(Math.round(Number(analysis.score)));
-                    setAiReason('Analyzer hot digit ' + Number(analysis.hotDigit ?? 0) + ' • score ' + Number(analysis.score ?? 0).toFixed(2) + '.');
-                }
-                setStatus(data.connected ? 'TrapKid Analyzer live • ' + nextSymbol : 'Analyzer disconnected');
-                setError('');
-            } catch (e: any) {
-                if (!cancelled) {
-                    setError('Cannot reach TrapKid Analyzer at ' + ANALYZER_API);
-                    setStatus('Analyzer connection offline');
                 }
             }
+
+            const signal = data.signal;
+            if (signal && Number.isInteger(Number(signal.prediction))) {
+                const nextPrediction = Number(signal.prediction);
+                const nextSignalId = String(signal.signalId || '');
+                setPrediction(nextPrediction);
+                setAiDigit(nextPrediction);
+                if (Number.isFinite(Number(signal.score))) setAiScore(Math.round(Number(signal.score)));
+                setAiReason('Analyzer locked digit ' + nextPrediction + ' — ' + nextSignalId + '.');
+            } else if (data.analysis) {
+                const analysis = data.analysis;
+                if (Number.isInteger(Number(analysis.hotDigit))) setAiDigit(Number(analysis.hotDigit));
+                if (Number.isFinite(Number(analysis.score))) setAiScore(Math.round(Number(analysis.score)));
+                setAiReason('Analyzer hot digit ' + Number(analysis.hotDigit ?? 0) + ' • score ' + Number(analysis.score ?? 0).toFixed(2) + '.');
+            }
+
+            setStatus(data.connected ? 'TrapKid Analyzer LIVE • ' + nextSymbol : 'Analyzer disconnected');
+            if (data.connected) setError('');
         };
-        void poll();
-        const timer = window.setInterval(poll, 1000);
+
+        const connect = () => {
+            if (cancelled) return;
+            try {
+                socket = new WebSocket(ANALYZER_WS);
+                socket.onopen = () => {
+                    if (!cancelled) setStatus('TrapKid Analyzer WS LIVE • receiving direct ticks');
+                };
+                socket.onmessage = event => {
+                    try {
+                        const message = JSON.parse(event.data);
+                        if (message?.type === 'state') applyAnalyzerState(message.data || message.state || message);
+                        else if (message?.type === 'tick') applyAnalyzerState({
+                            ...(analyzerDetails || {}),
+                            lastTick: message.data || message,
+                            connected: true,
+                        });
+                        else applyAnalyzerState(message.data || message);
+                    } catch {
+                        // Ignore malformed analyzer frames; the HTTP fallback below remains active.
+                    }
+                };
+                socket.onerror = () => {
+                    if (!cancelled) setStatus('Analyzer WS reconnecting…');
+                };
+                socket.onclose = () => {
+                    if (!cancelled) {
+                        setStatus('Analyzer WS disconnected — reconnecting…');
+                        reconnectTimer = window.setTimeout(connect, 1500);
+                    }
+                };
+            } catch {
+                reconnectTimer = window.setTimeout(connect, 1500);
+            }
+        };
+
+        const fallback = async () => {
+            try {
+                const response = await fetch(ANALYZER_API + '/api/status', { cache: 'no-store' });
+                if (!response.ok) throw new Error('Analyzer HTTP ' + response.status);
+                const data = await response.json();
+                applyAnalyzerState(data);
+            } catch {
+                if (!cancelled) setStatus('Analyzer connection offline');
+            }
+        };
+
+        void fallback();
+        connect();
+
         return () => {
             cancelled = true;
-            window.clearInterval(timer);
+            if (reconnectTimer) window.clearTimeout(reconnectTimer);
+            try { socket?.close(); } catch { /* noop */ }
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [ANALYZER_API]);
+    }, [ANALYZER_API, ANALYZER_WS]);
 
     useEffect(() => {
         const active = localStorage.getItem('active_loginid');
@@ -285,7 +330,12 @@ const MatchesTerminal = () => {
         };
     }, []);
 
-    const requestProposal = useCallback(async () => {
+    const requestProposal = useCallback(async (entry: {
+        symbol: string;
+        prediction: number;
+        holdTicks: number;
+        stake: number;
+    }) => {
         setError('');
         setStatus('Requesting live Match proposal…');
         if (!api_base.is_authorized || !api_base.api) {
@@ -294,51 +344,72 @@ const MatchesTerminal = () => {
 
         const response = await sendApiRequest({
             proposal: 1,
-            amount: stake,
+            amount: entry.stake,
             basis: 'stake',
             contract_type: 'DIGITMATCH',
             currency,
-            duration: holdTicks,
+            duration: entry.holdTicks,
             duration_unit: 't',
-            barrier: String(prediction),
-            underlying_symbol: symbol,
+            barrier: String(entry.prediction),
+            underlying_symbol: entry.symbol,
         });
 
         if (!response?.proposal) throw new Error('No Match proposal returned by Deriv.');
         const p = response.proposal;
-        const ask = Number(p.ask_price ?? p.display_value ?? stake);
+        const ask = Number(p.ask_price ?? p.display_value ?? entry.stake);
         const nextPayout = Number(p.payout ?? p.payout_amount ?? 0);
         setProposalId(String(p.id));
         setPayout(nextPayout || null);
-        setStatus(`Proposal ready — hold window ${holdTicks} ticks`);
+        setStatus(`Proposal ready — ${entry.symbol} / MATCH ${entry.prediction} / ${entry.holdTicks} ticks`);
         return { id: String(p.id), ask, payout: nextPayout };
-    }, [currency, holdTicks, prediction, stake, symbol]);
+    }, [currency]);
 
-    const buy = useCallback(async () => {
+    const buyFromAnalyzerSignal = useCallback(async (signal: any) => {
         try {
+            const signalId = String(signal?.signalId || '');
+            const entrySymbol = String(signal?.symbol || analyzerDetails?.symbol || symbol);
+            const entryPrediction = Number(signal?.prediction ?? signal?.lockedDigit);
+            const entryHoldTicks = Math.max(2, Number(holdTicks));
+            const entryStake = Number(stake);
+
+            if (!signalId) throw new Error('Analyzer signal has no signalId.');
+            if (!Number.isInteger(entryPrediction)) throw new Error('Analyzer signal has no valid locked digit.');
+            if (signal.expiresAt && Number.isFinite(Number(signal.expiresAt)) && Date.now() > Number(signal.expiresAt)) {
+                throw new Error('Analyzer signal expired before DBot could open the contract.');
+            }
+            if (entryHoldTicks < 2) throw new Error('Hold-until-hit mode requires at least 2 ticks.');
+            if (tradeRef.current || sellingRef.current) return;
+
             setError('');
-            if (holdTicks < 2) throw new Error('Hold-until-hit mode requires at least 2 ticks so the position is not forced to settle immediately.');
-            const proposal = await requestProposal();
+            const proposal = await requestProposal({
+                symbol: entrySymbol,
+                prediction: entryPrediction,
+                holdTicks: entryHoldTicks,
+                stake: entryStake,
+            });
             const response = await sendApiRequest({ buy: proposal.id, price: Math.max(0, proposal.ask) });
             const b = response?.buy;
             if (!b?.contract_id) throw new Error('Deriv did not return a contract id.');
 
             const nextTrade: Trade = {
+                signalId,
                 contractId: String(b.contract_id),
-                prediction,
-                symbol,
-                stake,
+                prediction: entryPrediction,
+                symbol: entrySymbol,
+                stake: entryStake,
                 payout: Number(b.payout ?? proposal.payout ?? 0),
                 buyPrice: Number(b.buy_price ?? proposal.ask),
                 bidPrice: Number(b.buy_price ?? proposal.ask),
                 openedAt: Date.now(),
-                holdTicks,
+                holdTicks: entryHoldTicks,
             };
 
             tradeRef.current = nextTrade;
             sellingRef.current = false;
             setTrade(nextTrade);
-            setStatus(`MATCH ${prediction} locked — waiting for digit ${prediction}`);
+            setPrediction(entryPrediction);
+            setSymbol(entrySymbol);
+            setStatus(`MATCH ${entryPrediction} locked • signal ${signalId} • waiting for digit ${entryPrediction}`);
             setProposalId(null);
 
             api_base.api?.send({
@@ -346,13 +417,21 @@ const MatchesTerminal = () => {
                 contract_id: nextTrade.contractId,
                 subscribe: 1,
             });
+            return true;
         } catch (e: any) {
-            setError(e?.message || 'Buy failed');
-            setStatus('Trade not opened');
+            setError(e?.message || 'Analyzer signal buy failed');
+            setStatus('Analyzer signal received — trade not opened');
+            return false;
         }
-    }, [holdTicks, prediction, requestProposal, stake, symbol]);
+    }, [analyzerDetails?.symbol, holdTicks, requestProposal, stake, symbol]);
 
-    const exitOnHit = async (active: Trade, quote: number, hitDigit: number) => {
+    const buy = useCallback(async () => {
+        const signal = analyzerDetails?.signal;
+        if (signal?.signalId) return buyFromAnalyzerSignal(signal);
+        setError('No locked Analyzer signal is available yet.');
+        setStatus('Waiting for Analyzer signal');
+        return false;
+    }, [analyzerDetails, buyFromAnalyzerSignal]);\n\n    const exitOnHit = async (active: Trade, quote: number, hitDigit: number) => {
         try {
             if (!api_base.api) throw new Error('Deriv connection is not available.');
             const bid = Number(tradeRef.current?.bidPrice ?? active.bidPrice ?? 0);
@@ -398,11 +477,16 @@ const MatchesTerminal = () => {
         const signalReady =
             signal.exitStatus !== 'EARLY_EXIT_TRIGGERED' &&
             signal.exitStatus !== 'EXPIRED' &&
-            signal.earlyExit !== true;
+            signal.earlyExit !== true &&
+            (!signal.expiresAt || Date.now() <= Number(signal.expiresAt));
 
-        analyzerSignalRef.current = signalId;
-        if (signalReady && !tradeRef.current && !sellingRef.current) {
-            window.setTimeout(() => { void buy(); }, 0);
+        if (!signalReady) return;
+
+        if (!tradeRef.current && !sellingRef.current) {
+            analyzerSignalRef.current = signalId;
+            void buyFromAnalyzerSignal(signal).then(ok => {
+                if (!ok) analyzerSignalRef.current = null;
+            });
         }
     }, [analyzerDetails, autoRun, buy]);
 
@@ -427,7 +511,8 @@ const MatchesTerminal = () => {
             !sellingRef.current &&
             exitReady &&
             Number.isInteger(exitDigit) &&
-            exitDigit === active.prediction
+            exitDigit === active.prediction &&
+            String(analyzerDetails?.signal?.signalId || '') === active.signalId
         ) {
             sellingRef.current = true;
             void exitOnHit(
