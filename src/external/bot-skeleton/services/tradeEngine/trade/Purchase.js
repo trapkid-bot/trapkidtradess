@@ -12,7 +12,12 @@ let purchase_reference;
 export default Engine =>
     class Purchase extends Engine {
         purchase(contract_type) {
-            if (this.isAnalyzerEnabledForTrade?.()) {
+            const analyzerMode =
+                this.isAnalyzerEnabledForTrade?.() ||
+                String(contract_type || '') === 'DIGITMATCH' ||
+                !!this.analyzerSignal;
+
+            if (analyzerMode) {
                 const signal = this.getExternalAnalyzerSignal?.();
                 const activeSignal = this.analyzerSignal;
                 if (
@@ -20,13 +25,38 @@ export default Engine =>
                     !activeSignal ||
                     String(signal.signalId) !== String(activeSignal.signalId) ||
                     Number(signal.lockedAt) !== Number(activeSignal.lockedAt) ||
-                    !Number.isInteger(signal.prediction)
+                    !Number.isInteger(signal.prediction) ||
+                    !Number.isInteger(signal.hotDigit)
                 ) {
-                    globalObserver?.emit?.('ui.log.error', 'Analyzer signal changed or expired. Purchase blocked.');
+                    globalObserver?.emit?.(
+                        'ui.log.error',
+                        'Analyzer signal is missing, changed, expired, or incomplete. Purchase blocked.'
+                    );
                     return Promise.resolve();
                 }
+
+                // Analyzer is the sole source of the actual Match entry values.
+                // Any Bot Builder prediction value is overwritten here.
                 this.tradeOptions.prediction = signal.prediction;
                 this.tradeOptions.symbol = signal.symbol;
+
+                globalObserver.setState({
+                    trapkid_analyzer: {
+                        ...(globalObserver.getState('trapkid_analyzer') || {}),
+                        status: 'ANALYZER_PURCHASE_BOUND',
+                        symbol: signal.symbol,
+                        signal,
+                        signalId: signal.signalId,
+                        commandKey: String(signal.signalId) + ':' + String(signal.lockedAt),
+                        prediction: signal.prediction,
+                        lockedDigit: signal.lockedDigit,
+                        hotDigit: signal.hotDigit,
+                        entryPrediction: signal.prediction,
+                        entrySource: 'ANALYZER_ONLY',
+                        exitSource: 'ANALYZER_EARLY_SELL_ONLY',
+                    },
+                });
+                globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
             }
             // Prevent calling purchase twice
             if (this.store.getState().scope !== BEFORE_PURCHASE) {
