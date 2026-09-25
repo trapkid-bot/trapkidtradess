@@ -939,6 +939,36 @@ export default class RunPanelStore {
         observer.register('ui.log.success', journal.onLogSuccess);
         observer.register('client.invalid_token', this.handleInvalidToken);
         observer.register('trapkid.analyzer.command', this.onAnalyzerCommand);
+
+        // Recover an active Analyzer signal if the HTTP dock published it before
+        // this store mounted. This keeps Analyze Market as the only authorization
+        // source while preventing a missed in-memory event from leaving Command empty.
+        const analyzerState = observer.getState('trapkid_analyzer') || {};
+        const analyzerSignal = analyzerState?.signal;
+        const analyzerSignalId = String(analyzerSignal?.signalId || '');
+        const analyzerLockedAt = Number(analyzerSignal?.lockedAt);
+        const analyzerExpiresAt = Number(analyzerSignal?.expiresAt);
+        const analyzerCommandKey = analyzerSignalId && Number.isFinite(analyzerLockedAt)
+            ? analyzerSignalId + ':' + String(analyzerLockedAt)
+            : '';
+
+        if (
+            analyzerCommandKey &&
+            Number.isFinite(analyzerExpiresAt) &&
+            Date.now() < analyzerExpiresAt &&
+            String(analyzerState.commandKey || '') !== analyzerCommandKey &&
+            !this.is_running &&
+            !this.has_open_contract
+        ) {
+            void this.onAnalyzerCommand({
+                source: 'TRAPKID_ANALYZER_HTTP',
+                command: 'EXECUTE_ANALYZER_SIGNAL',
+                commandKey: analyzerCommandKey,
+                signal: analyzerSignal,
+                analyzer: analyzerState,
+                receivedAt: Date.now(),
+            });
+        }
     };
 
     onUnmount = () => {
