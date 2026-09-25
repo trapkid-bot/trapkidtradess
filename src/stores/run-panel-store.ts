@@ -593,6 +593,16 @@ export default class RunPanelStore {
 
     onBotRunningEvent = () => {
         this.setHasOpenContract(true);
+        observer.setState({
+            trapkid_analyzer: {
+                ...(observer.getState('trapkid_analyzer') || {}),
+                status: 'RUNNING',
+            },
+        });
+        observer.emit('trapkid.analyzer.updated', {
+            ...(observer.getState('trapkid_analyzer') || {}),
+            status: 'RUNNING',
+        });
 
         // prevent new version update
         const ignore_new_version = new Event('IgnorePWAUpdate');
@@ -642,6 +652,16 @@ export default class RunPanelStore {
         }
 
         this.setHasOpenContract(false);
+        observer.setState({
+            trapkid_analyzer: {
+                ...(observer.getState('trapkid_analyzer') || {}),
+                status: 'WAITING_FOR_ANALYZER',
+            },
+        });
+        observer.emit('trapkid.analyzer.updated', {
+            ...(observer.getState('trapkid_analyzer') || {}),
+            status: 'WAITING_FOR_ANALYZER',
+        });
 
         summary_card.clearContractUpdateConfigValues();
 
