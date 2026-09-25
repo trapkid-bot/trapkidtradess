@@ -13,7 +13,7 @@ export default Engine =>
         }
 
         sellAtMarket(source = 'BLOCKLY') {
-            if (this.isAnalyzerEnabledForTrade?.()) {
+            if (this.isAnalyzerEnabledForTrade?.() || this.analyzerSignal) {
                 const exit = this.getAnalyzerExit?.();
                 if (source !== 'ANALYZER_EARLY_EXIT' || !exit) {
                     return Promise.resolve();
