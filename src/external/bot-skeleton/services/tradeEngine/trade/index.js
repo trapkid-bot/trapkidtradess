@@ -75,8 +75,41 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         };
         this.subscription_id_for_accumulators = null;
         this.is_proposal_requested_for_accumulators = false;
+        globalObserver.register('trapkid.analyzer.exit', this.onAnalyzerEarlyExit);
         this.store = createStore(rootReducer, applyMiddleware(thunk));
     }
+
+    onAnalyzerEarlyExit = async command => {
+        if (!this.isAnalyzerEnabledForTrade?.() || !this.contractId || this.isSold) return;
+
+        const exit = this.getAnalyzerExit?.();
+        const signal = this.analyzerSignal;
+        const commandSignalId = String(command?.signalId || command?.signal?.signalId || '');
+        const activeSignalId = String(signal?.signalId || '');
+
+        if (
+            !exit ||
+            !signal ||
+            !commandSignalId ||
+            commandSignalId !== activeSignalId ||
+            String(exit.signalId) !== activeSignalId
+        ) {
+            return;
+        }
+
+        globalObserver.setState({
+            trapkid_analyzer: {
+                ...(globalObserver.getState('trapkid_analyzer') || {}),
+                status: 'EARLY_EXIT_EXECUTING',
+                exitDigit: exit.digit,
+                hotDigit: exit.hotDigit,
+                commandKey: exit.commandKey,
+            },
+        });
+        globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
+
+        await this.sellAtMarket('ANALYZER_EARLY_EXIT');
+    };
 
     init(...args) {
         const [token, options] = expectInitArg(args);
