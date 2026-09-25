@@ -40,6 +40,14 @@ const TrapKidAnalyzerDock = () => {
                         ? signalId + ':' + (Number.isFinite(lockedAt) ? lockedAt : '')
                         : '';
 
+                    const previousSignalKey = analyzerSignalKeyRef.current;
+                    const isFirstSignal = previousSignalKey === null;
+                    const isNewSignal = !!signalKey && !isFirstSignal && previousSignalKey !== signalKey;
+                    const initialSignalIsFresh =
+                        isFirstSignal &&
+                        Number.isFinite(lockedAt) &&
+                        lockedAt >= mountedAtRef.current - 10000;
+
                     const currentAnalyzerState = globalObserver.getState('trapkid_analyzer') || {};
                     const commandBoundToSignal =
                         signalKey && String(currentAnalyzerState.commandKey || '') === signalKey;
@@ -59,7 +67,7 @@ const TrapKidAnalyzerDock = () => {
                         trapkid_analyzer: {
                             ...currentAnalyzerState,
                             ...data,
-                            ...(isNewSignal ? { exit: null } : {}),
+                            ...(isNewSignal || initialSignalIsFresh ? { exit: null } : {}),
                             status: preservedCommandStatus
                                 ? currentAnalyzerState.status
                                 : signalKey
@@ -74,14 +82,6 @@ const TrapKidAnalyzerDock = () => {
                         status: signalKey ? 'CONNECTED' : 'CONNECTED_WAITING',
                         lastSeen: now,
                     });
-
-                    const previousSignalKey = analyzerSignalKeyRef.current;
-                    const isFirstSignal = previousSignalKey === null;
-                    const isNewSignal = !!signalKey && !isFirstSignal && previousSignalKey !== signalKey;
-                    const initialSignalIsFresh =
-                        isFirstSignal &&
-                        Number.isFinite(lockedAt) &&
-                        lockedAt >= mountedAtRef.current - 10000;
 
                     // A new Analyze cycle starts with a clean exit state.
                     // This prevents EARLY_SELL_READY from the previous cycle
