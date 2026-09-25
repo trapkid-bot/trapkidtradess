@@ -538,7 +538,7 @@ const MatchesTerminal = () => {
         analyzerProcessedSignalRef.current = signalKey;
         analyzerAuthorizedSignalRef.current = signalKey;
         setStatus(
-            'ANALYZER COMMAND RECEIVED • '
+            'ANALYZER COMMAND RECEIVED • ' +
             String(signal.symbol || analyzerDetails?.symbol || '—') +
             ' • MATCH ' + String(signal.prediction ?? signal.lockedDigit ?? '—') +
             ' • executing…'
