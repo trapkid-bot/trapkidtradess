@@ -32,8 +32,18 @@ export default Engine =>
 
             const lockedAt = Number(signal.lockedAt);
             const expiresAt = Number(signal.expiresAt);
-            if (!Number.isFinite(lockedAt) || !Number.isFinite(expiresAt)) return null;
-            if (Date.now() >= expiresAt) return null;
+            if (!Number.isFinite(lockedAt)) return null;
+
+            // expiresAt only controls whether a NEW signal may be entered.
+            // Once this exact signal is bound to the trade, it stays locked
+            // until its matching Analyzer early-exit event arrives.
+            const boundSignalKey = this.analyzerSignal
+                ? String(this.analyzerSignal.signalId || '') + ':' + String(this.analyzerSignal.lockedAt || '')
+                : '';
+            const currentSignalKey = String(signal.signalId || '') + ':' + String(signal.lockedAt || '');
+            const signalAlreadyBound = !!boundSignalKey && boundSignalKey === currentSignalKey;
+
+            if (!signalAlreadyBound && Number.isFinite(expiresAt) && Date.now() >= expiresAt) return null;
 
             return {
                 ...signal,
@@ -118,9 +128,12 @@ export default Engine =>
             const signal = this.analyzerSignal || state?.signal;
             if (!exit || exit.status !== 'EARLY_SELL_READY' || !signal) return null;
 
+            const exitSignalId = String(exit.signalId || '');
+            const signalId = String(signal.signalId || '');
+            if (exitSignalId && exitSignalId !== signalId) return null;
+
             const exitDigit = Number(exit.digit);
             const hotDigit = Number(signal.hotDigit);
-            const signalId = String(signal.signalId || '');
             if (!signalId || !Number.isInteger(exitDigit) || exitDigit < 0 || exitDigit > 9) return null;
             if (!Number.isInteger(hotDigit) || hotDigit < 0 || hotDigit > 9) return null;
             if (exitDigit !== hotDigit) return null;
@@ -142,6 +155,9 @@ export default Engine =>
                 trapkid_analyzer: {
                     ...this.getAnalyzerState(),
                     status: 'WAITING_FOR_ANALYZER',
+                    exit: null,
+                    commandKey: null,
+                    signalId: null,
                 },
             });
             globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
