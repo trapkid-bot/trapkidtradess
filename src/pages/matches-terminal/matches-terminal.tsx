@@ -23,6 +23,9 @@ type Trade = {
     bidPrice: number;
     openedAt: number;
     holdTicks: number;
+    entryDigit: number | null;
+    hotDigit: number | null;
+    lockedDigit: number;
 };
 
 const ANALYZER_API = (process.env.NEXT_PUBLIC_ANALYZER_API_URL || 'https://thesis-quality-remote-rendered.trycloudflare.com').trim();
@@ -120,11 +123,11 @@ const MatchesTerminal = () => {
     const [analyzerDetails, setAnalyzerDetails] = useState<any>(null);
     const [analyzerPanelOpen, setAnalyzerPanelOpen] = useState(false);
     const [analyzerPos, setAnalyzerPos] = useState({ x: 24, y: 88 });
-    const [autoRun, setAutoRun] = useState(false);
     const analyzerDrag = useRef<{ dx: number; dy: number } | null>(null);
-    const analyzerSignalRef = useRef<string | null>(null);
+    const analyzerInitializedRef = useRef(false);
+    const analyzerBaselineSignalRef = useRef<string | null>(null);
+    const analyzerProcessedSignalRef = useRef<string | null>(null);
     const analyzerTickRef = useRef<number | null>(null);
-    const analyzerRunAtRef = useRef<number | null>(null);
 
     const selectedMarket = useMemo(() => markets.find(m => m.symbol === symbol), [markets, symbol]);
     const points = useMemo(() => buildSparkline(prices), [prices]);
@@ -170,6 +173,19 @@ const MatchesTerminal = () => {
 
             const signal = data.signal;
             const analysis = data.analysis || {};
+
+            // First snapshot is a baseline only. A later signal produced by
+            // Analyze Market becomes the sole execution trigger.
+            const signalId = String(signal?.signalId || '');
+            const lockedAt = Number(signal?.lockedAt);
+            const signalKey = signalId
+                ? signalId + ':' + (Number.isFinite(lockedAt) ? lockedAt : '')
+                : '';
+            if (!analyzerInitializedRef.current) {
+                analyzerInitializedRef.current = true;
+                analyzerBaselineSignalRef.current = signalKey || null;
+                analyzerProcessedSignalRef.current = signalKey || null;
+            }
             if (signal && Number.isInteger(Number(signal.prediction ?? signal.lockedDigit))) {
                 const nextPrediction = Number(signal.prediction ?? signal.lockedDigit);
                 const nextSignalId = String(signal.signalId || '');
@@ -419,6 +435,9 @@ const MatchesTerminal = () => {
                 bidPrice: Number(b.buy_price ?? proposal.ask),
                 openedAt: Date.now(),
                 holdTicks: entryHoldTicks,
+                entryDigit: Number.isInteger(Number(signal?.entryDigit)) ? Number(signal.entryDigit) : null,
+                hotDigit: Number.isInteger(Number(signal?.hotDigit)) ? Number(signal.hotDigit) : null,
+                lockedDigit: entryPrediction,
             };
 
             tradeRef.current = nextTrade;
@@ -440,13 +459,7 @@ const MatchesTerminal = () => {
             setStatus('Analyzer signal received — trade not opened');
             return false;
         }
-    }, [analyzerDetails?.symbol, holdTicks, requestProposal, stake, symbol]);
-
-    const buy = useCallback(async () => {
-        setError('Manual execution is disabled. DBot can only open a trade from a fresh Analyzer signal.');
-        setStatus('Waiting for a NEW Analyzer signal');
-        return false;
-    }, []);
+    }, [analyzerDetails?.signal, analyzerDetails?.symbol, holdTicks, requestProposal, stake]);
 
     const exitOnHit = useCallback(async (active: Trade, quote: number, hitDigit: number) => {
         try {
@@ -490,20 +503,15 @@ const MatchesTerminal = () => {
     useEffect(() => {
         const signal = analyzerDetails?.signal;
         const signalId = String(signal?.signalId || '');
-        if (!autoRun || !signalId || analyzerSignalRef.current === signalId) return;
+        const lockedAt = Number(signal?.lockedAt);
+        const signalKey = signalId
+            ? signalId + ':' + (Number.isFinite(lockedAt) ? lockedAt : '')
+            : '';
 
-        const analyzerLive = Boolean(analyzerDetails?.connected && analyzerDetails?.lastTick?.epoch);
-        if (!analyzerLive) {
-            setStatus('RUNNING • waiting for LIVE ANALYZER TICK STREAM before executing ' + signalId + '…');
-            return;
-        }
-
-        const lockedAt = Number(signal.lockedAt);
-        const runAt = Number(analyzerRunAtRef.current || 0);
-        if (!Number.isFinite(lockedAt) || lockedAt <= runAt) {
-            setStatus('RUNNING • waiting for a NEW Analyzer signal after RUN…');
-            return;
-        }
+        if (!analyzerInitializedRef.current || !signalKey) return;
+        if (signalKey === analyzerBaselineSignalRef.current) return;
+        if (signalKey === analyzerProcessedSignalRef.current) return;
+        if (tradeRef.current || sellingRef.current) return;
 
         const signalReady =
             signal.exitStatus !== 'EARLY_EXIT_TRIGGERED' &&
@@ -511,15 +519,23 @@ const MatchesTerminal = () => {
             signal.earlyExit !== true &&
             (!signal.expiresAt || Date.now() <= Number(signal.expiresAt));
 
-        if (!signalReady) return;
-
-        if (!tradeRef.current && !sellingRef.current) {
-            analyzerSignalRef.current = signalId;
-            void buyFromAnalyzerSignal(signal).then(ok => {
-                if (!ok) analyzerSignalRef.current = null;
-            });
+        if (!signalReady) {
+            setStatus('ANALYZER SIGNAL RECEIVED • waiting for an executable signal state…');
+            return;
         }
-    }, [analyzerDetails, autoRun, buyFromAnalyzerSignal]);
+
+        analyzerProcessedSignalRef.current = signalKey;
+        setStatus(
+            'ANALYZER COMMAND RECEIVED • ' +
+            String(signal.symbol || analyzerDetails?.symbol || '—') +
+            ' • MATCH ' + String(signal.prediction ?? signal.lockedDigit ?? '—') +
+            ' • executing…'
+        );
+
+        void buyFromAnalyzerSignal(signal).then(ok => {
+            if (!ok) analyzerProcessedSignalRef.current = null;
+        });
+    }, [analyzerDetails, buyFromAnalyzerSignal]);
 
     useEffect(() => {
         const tick = analyzerDetails?.lastTick;
@@ -557,35 +573,6 @@ const MatchesTerminal = () => {
         // IMPORTANT: do not close from a DBot/Deriv tick. The Analyzer's
         // explicit exit state is the only exit trigger in RUN mode.
     }, [analyzerDetails, trade]);
-
-    const toggleRun = useCallback(() => {
-        if (autoRun) {
-            setAutoRun(false);
-            setStatus('Analyzer DBot stopped — no new automatic entries.');
-            return;
-        }
-
-        if (!api_base.is_authorized || !api_base.api) {
-            setError('Log in to Deriv first. Analyzer data is live, but broker execution needs your authenticated account.');
-            return;
-        }
-
-        // Reset the consumed-signal guard so RUN can execute the signal currently
-        // displayed by the Analyzer, then follow every new signal exactly once.
-        analyzerSignalRef.current = null;
-        analyzerTickRef.current = null;
-        analyzerRunAtRef.current = Date.now();
-        setPrediction(null);
-        setPayout(null);
-        setProposalId(null);
-        setTrade(null);
-        tradeRef.current = null;
-        sellingRef.current = false;
-        setAutoRun(true);
-        setError('');
-        setStatus('WAITING FOR ANALYZER SIGNAL • no default market or prediction is executable.');
-
-    }, [autoRun]);
 
     const selectMarket = (next: string) => {
         if (analyzerDetails?.symbol && next !== analyzerDetails.symbol) {
@@ -722,13 +709,9 @@ const MatchesTerminal = () => {
                         <div><span>Execution transport</span><strong>{contractAvailable ? 'Broker transport only' : 'Unavailable'}</strong></div>
                     </div>
 
-                    <button
-                        className={autoRun ? 'tk-buy tk-run active' : 'tk-buy tk-run'}
-                        onClick={toggleRun}
-                        disabled={!api_base.is_authorized}
-                    >
-                        <span>{autoRun ? 'STOP DBOT' : 'RUN DBOT'}</span>
-                        <strong>{autoRun ? 'Auto-follow Analyzer signals' : 'Follow Analyzer market + prediction'}</strong>
+                    <button className='tk-buy tk-run tk-analyzer-trigger' disabled>
+                        <span>RUN DISABLED</span>
+                        <strong>Analyze Market is the DBot trigger</strong>
                     </button>
 
                     {trade ? (
@@ -739,8 +722,8 @@ const MatchesTerminal = () => {
                         </div>
                     ) : (
                         <button className='tk-buy' disabled>
-                            <span>{autoRun ? 'WAITING FOR ANALYZER SIGNAL' : 'START DBOT FIRST'}</span>
-                            <strong>Only a NEW Analyzer signal can open a trade</strong>
+                            <span>WAITING FOR ANALYZER SIGNAL</span>
+                            <strong>Analyze Market starts the execution path</strong>
                         </button>
                     )}
 
@@ -764,7 +747,7 @@ const MatchesTerminal = () => {
             </div>
 
             <div className='tk-disclaimer'>
-                <b>Analyzer source of truth:</b> Market, live ticks, last digit, hot digit, signal ID, prediction/locked digit and exit trigger all come from TrapKid Analyzer. The DBot does not use its own market/tick strategy or local digit calculation. Your controls are the execution stake and hold-ticks setting. <b>Exit:</b> DBot waits for Analyzer's explicit <code>EARLY_SELL_READY</code> state and does not close from a locally observed or separately subscribed Deriv tick. The authenticated broker connection is only the transport used to submit the resulting contract operation.
+                <b>ANALYZER-TRIGGERED DBOT:</b> RUN is disabled. The DBot remains idle until TrapKid Analyzer produces a NEW signal after Analyze Market. The signal is the only command allowed to start execution and supplies the market, entry digit, hot digit, signal ID and prediction/locked digit. <b>Exit:</b> the DBot waits exclusively for that same Analyzer signal to report <code>EARLY_SELL_READY</code> and uses the Analyzer-provided exit digit/quote. No local strategy, default prediction, default market, or independent entry/exit condition can start a trade.
             </div>
         </div>
     );
