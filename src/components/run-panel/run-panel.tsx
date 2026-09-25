@@ -93,7 +93,21 @@ const TrapKidAnalyzerStatus = () => {
         return () => window.clearInterval(timer);
     }, [state?.expiresAt]);
 
-    if (state?.status !== 'LOCKED') return null;
+    const status = String(state?.status || 'IDLE');
+    const statusText =
+        status === 'COMMAND_ACCEPTED'
+            ? 'COMMAND ACCEPTED — STARTING BOT'
+            : status === 'COMMAND_RECEIVED'
+              ? 'NEW ANALYZER COMMAND RECEIVED'
+              : status === 'RUNNING'
+                ? 'BOT RUNNING FROM ANALYZER COMMAND'
+                : status === 'WAITING_FOR_ANALYZER'
+                  ? 'WAITING FOR ANALYZER'
+                  : status === 'CONNECTED'
+                    ? 'CONNECTED — WAITING FOR NEW ANALYZER SIGNAL'
+                    : status === 'COMMAND_EXPIRED'
+                      ? 'COMMAND EXPIRED — WAITING'
+                      : status;
 
     return (
         <div
@@ -105,15 +119,21 @@ const TrapKidAnalyzerStatus = () => {
                 border: '1px solid var(--general-section-3)',
             }}
         >
-            <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 4 }}>TRAPKID ANALYZER</div>
+            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>TRAPKID ANALYZER → DBOT</div>
             <div style={{ fontSize: 12 }}>
-                {state.symbol || '—'} · locked digit <strong>{state.lockedDigit}</strong>
+                <strong>{statusText}</strong>
+            </div>
+            <div style={{ fontSize: 11, marginTop: 4 }}>
+                {state.symbol || '—'} · locked digit <strong>{state.lockedDigit ?? state.signal?.lockedDigit ?? '—'}</strong>
             </div>
             <div style={{ fontSize: 11, marginTop: 3 }}>
-                {remaining > 0 ? 'Lock expires in ' + remaining + 's' : 'Lock expired — next Match trade will refresh it'}
+                Signal: <strong>{state.signal?.signalId || state.signalId || 'waiting'}</strong>
+            </div>
+            <div style={{ fontSize: 11, marginTop: 3 }}>
+                Command: <strong>{state.commandKey || 'none yet'}</strong>
             </div>
             <div style={{ fontSize: 10, marginTop: 3, opacity: 0.7 }}>
-                {state.sampleSize || 0} recent ticks · frequency lock
+                {remaining > 0 ? 'Analyzer lock expires in ' + remaining + 's' : 'No active lock countdown'}
             </div>
         </div>
     );
