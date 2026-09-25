@@ -48,6 +48,7 @@ export default defineConfig({
         // Public WebSocket endpoint for the local TrapKid Live Analyzer. Netlify injects
         // this at build time so the deployed browser never tries to connect to its own localhost.
         NEXT_PUBLIC_ANALYZER_WS_URL: JSON.stringify(process.env.NEXT_PUBLIC_ANALYZER_WS_URL ?? ''),
+        NEXT_PUBLIC_ANALYZER_API_URL: JSON.stringify(process.env.NEXT_PUBLIC_ANALYZER_API_URL ?? ''),
         GD_CLIENT_ID: JSON.stringify(process.env.GD_CLIENT_ID),
         GD_APP_ID: JSON.stringify(process.env.GD_APP_ID),
         GD_API_KEY: JSON.stringify(process.env.GD_API_KEY),
