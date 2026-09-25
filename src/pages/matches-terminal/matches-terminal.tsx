@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api_base } from '@/external/bot-skeleton';
 import './matches-terminal.scss';
 
-// TrapKid Analyzer WS + exact signal handoff
+// TrapKid Analyzer ONLY execution gate • V4
 
 type Market = {
     symbol: string;
@@ -27,6 +27,7 @@ type Trade = {
 
 const ANALYZER_API = (process.env.NEXT_PUBLIC_ANALYZER_API_URL || 'https://thesis-quality-remote-rendered.trycloudflare.com').trim();
 const ANALYZER_WS = (process.env.NEXT_PUBLIC_ANALYZER_WS_URL || ANALYZER_API.replace(/^http/i, 'ws')).trim();
+const ANALYZER_EXECUTION_VERSION = 'ANALYZER-ONLY-V4';
 
 const lastDigit = (quote: number, pipSize = 2) => {
     const fixed = Number(quote).toFixed(Math.max(0, pipSize));
@@ -375,12 +376,19 @@ const MatchesTerminal = () => {
     const buyFromAnalyzerSignal = useCallback(async (signal: any) => {
         try {
             const signalId = String(signal?.signalId || '');
-            const entrySymbol = String(signal?.symbol || analyzerDetails?.symbol || symbol);
+            const entrySymbol = String(signal?.symbol || '');
             const entryPrediction = Number(signal?.prediction ?? signal?.lockedDigit);
+            const liveAnalyzerSymbol = String(analyzerDetails?.symbol || '');
+            const liveAnalyzerSignalId = String(analyzerDetails?.signal?.signalId || '');
+            const liveAnalyzerPrediction = Number(analyzerDetails?.signal?.prediction ?? analyzerDetails?.signal?.lockedDigit);
             const entryHoldTicks = Math.max(2, Number(holdTicks));
             const entryStake = Number(stake);
 
             if (!signalId) throw new Error('Analyzer signal has no signalId.');
+            if (!entrySymbol) throw new Error('Analyzer signal has no market symbol.');
+            if (liveAnalyzerSymbol !== entrySymbol) throw new Error('Analyzer market changed before execution; waiting for the current Analyzer signal.');
+            if (liveAnalyzerSignalId !== signalId) throw new Error('Analyzer signal changed before execution; stale signal blocked.');
+            if (!Number.isInteger(liveAnalyzerPrediction) || liveAnalyzerPrediction !== entryPrediction) throw new Error('Analyzer prediction changed before execution; stale prediction blocked.');
             if (!Number.isInteger(entryPrediction) || entryPrediction < 0 || entryPrediction > 9) throw new Error('Analyzer signal has no valid locked digit.');
             if (signal.expiresAt && Number.isFinite(Number(signal.expiresAt)) && Date.now() > Number(signal.expiresAt)) {
                 throw new Error('Analyzer signal expired before DBot could open the contract.');
@@ -417,7 +425,7 @@ const MatchesTerminal = () => {
             setTrade(nextTrade);
             setPrediction(entryPrediction);
             setSymbol(entrySymbol);
-            setStatus(`MATCH ${entryPrediction} locked • signal ${signalId} • waiting for digit ${entryPrediction}`);
+            setStatus(`ANALYZER LOCKED • ${entrySymbol} • MATCH ${entryPrediction} • ${signalId} • waiting for Analyzer exit`);
             setProposalId(null);
 
             api_base.api?.send({
@@ -487,7 +495,7 @@ const MatchesTerminal = () => {
 
         const analyzerLive = Boolean(analyzerDetails?.connected && analyzerDetails?.lastTick?.epoch);
         if (!analyzerLive) {
-            setStatus('RUNNING • waiting for live Analyzer stream before executing ' + signalId + '…');
+            setStatus('RUNNING • waiting for LIVE ANALYZER TICK STREAM before executing ' + signalId + '…');
             return;
         }
 
@@ -561,7 +569,7 @@ const MatchesTerminal = () => {
         analyzerSignalRef.current = null;
         setAutoRun(true);
         setError('');
-        setStatus('WAITING FOR ANALYZER SIGNAL • market/prediction will switch automatically.');
+        setStatus('WAITING FOR ANALYZER SIGNAL • no default market or prediction is executable.');
 
     }, [autoRun]);
 
@@ -583,7 +591,7 @@ const MatchesTerminal = () => {
                     <div className='tk-brand-mark'>TK</div>
                     <div>
                         <div className='tk-brand-name'>TRAPKID MATCHES</div>
-                        <div className='tk-brand-sub'>Deriv broker • Match-only terminal</div>
+                        <div className='tk-brand-sub'>Analyzer-controlled Match terminal • {ANALYZER_EXECUTION_VERSION}</div>
                     </div>
                 </div>
                 <div className='tk-account'>
@@ -691,13 +699,13 @@ const MatchesTerminal = () => {
                     </div>
 
                     <div className='tk-live-quote'>
-                        <div><span>Strategy source</span><strong>TRAPKID ANALYZER</strong></div>
+                        <div><span>Strategy source</span><strong>TRAPKID ANALYZER ONLY</strong></div>
                         <div><span>Live stream</span><strong>{analyzerDetails?.lastTick?.epoch ? 'LIVE TICK' : 'WAITING'}</strong></div>
                         <div><span>Analyzer feed</span><strong>{analyzerDetails?.connected ? 'CONNECTED' : 'DISCONNECTED'}</strong></div>
                         <div><span>Analyzer exit</span><strong>{analyzerDetails?.exit?.status || 'WAITING'}</strong></div>
                         <div><span>Analyzer market</span><strong>{analyzerDetails?.symbol || '—'}</strong></div>
                         <div><span>Broker proposal payout</span><strong>{payout ? formatMoney(payout, currency) : '—'}</strong></div>
-                        <div><span>Execution</span><strong>{contractAvailable ? 'Deriv authenticated' : 'Unavailable'}</strong></div>
+                        <div><span>Execution transport</span><strong>{contractAvailable ? 'Broker transport only' : 'Unavailable'}</strong></div>
                     </div>
 
                     <button
