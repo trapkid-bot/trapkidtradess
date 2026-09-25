@@ -539,40 +539,38 @@ const MatchesTerminal = () => {
 
     useEffect(() => {
         const tick = analyzerDetails?.lastTick;
-        if (!tick) return;
-
-        const epoch = Number(tick.epoch);
-        const quote = Number(tick.quote);
-        const d = Number(tick.digit);
-        if (!Number.isFinite(epoch) || analyzerTickRef.current === epoch) return;
-        analyzerTickRef.current = epoch;
+        if (tick) {
+            const epoch = Number(tick.epoch);
+            if (Number.isFinite(epoch) && analyzerTickRef.current !== epoch) {
+                analyzerTickRef.current = epoch;
+            }
+        }
 
         const active = tradeRef.current;
         const analyzerExit = analyzerDetails?.exit;
         const exitReady = analyzerExit?.status === 'EARLY_SELL_READY';
         const exitDigit = Number(analyzerExit?.digit);
         const exitQuote = Number(analyzerExit?.quote);
+        const activeSignalId = String(analyzerDetails?.signal?.signalId || '');
 
+        // Analyzer's EARLY_SELL_READY command is the only exit trigger.
+        // Do not require the local prediction to match: the Analyzer owns
+        // the exit digit and the DBot obeys that exact command.
         if (
             active &&
             !sellingRef.current &&
             exitReady &&
             Number.isInteger(exitDigit) &&
-            exitDigit === active.prediction &&
-            String(analyzerDetails?.signal?.signalId || '') === active.signalId
+            activeSignalId === active.signalId
         ) {
             sellingRef.current = true;
             void exitOnHit(
                 active,
-                Number.isFinite(exitQuote) ? exitQuote : quote,
+                Number.isFinite(exitQuote) ? exitQuote : 0,
                 exitDigit
             );
-            return;
         }
-
-        // IMPORTANT: do not close from a DBot/Deriv tick. The Analyzer's
-        // explicit exit state is the only exit trigger in RUN mode.
-    }, [analyzerDetails, trade]);
+    }, [analyzerDetails, trade, exitOnHit]);
 
     const selectMarket = (next: string) => {
         if (analyzerDetails?.symbol && next !== analyzerDetails.symbol) {
@@ -704,7 +702,11 @@ const MatchesTerminal = () => {
                         <div><span>Live stream</span><strong>{analyzerDetails?.lastTick?.epoch ? 'LIVE TICK' : 'WAITING'}</strong></div>
                         <div><span>Analyzer feed</span><strong>{analyzerDetails?.connected ? 'CONNECTED' : 'DISCONNECTED'}</strong></div>
                         <div><span>Analyzer exit</span><strong>{analyzerDetails?.exit?.status || 'WAITING'}</strong></div>
+                        <div><span>Analyzer exit digit</span><strong>{analyzerDetails?.exit?.digit ?? '—'}</strong></div>
                         <div><span>Analyzer market</span><strong>{analyzerDetails?.symbol || '—'}</strong></div>
+                        <div><span>Analyzer signal</span><strong>{analyzerDetails?.signal?.signalId || 'WAITING'}</strong></div>
+                        <div><span>Entry digit</span><strong>{analyzerDetails?.signal?.entryDigit ?? '—'}</strong></div>
+                        <div><span>Hot digit</span><strong>{analyzerDetails?.signal?.hotDigit ?? analyzerDetails?.analysis?.hotDigit ?? '—'}</strong></div>
                         <div><span>Broker proposal payout</span><strong>{payout ? formatMoney(payout, currency) : '—'}</strong></div>
                         <div><span>Execution transport</span><strong>{contractAvailable ? 'Broker transport only' : 'Unavailable'}</strong></div>
                     </div>
@@ -716,9 +718,10 @@ const MatchesTerminal = () => {
 
                     {trade ? (
                         <div className='tk-active'>
-                            <div className='active-title'><span className='pulse' /> MATCH {trade.prediction} ACTIVE</div>
-                            <div className='active-main'>Waiting for <b>{trade.prediction}</b></div>
-                            <div className='active-meta'>Exit price: {formatMoney(trade.bidPrice || 0, currency)}</div>
+                            <div className='active-title'><span className='pulse' /> ANALYZER COMMAND ACTIVE</div>
+                            <div className='active-main'>{trade.symbol} • MATCH <b>{trade.lockedDigit}</b></div>
+                            <div className='active-meta'>Entry digit: {trade.entryDigit ?? '—'} • Hot digit: {trade.hotDigit ?? '—'} • Signal: {trade.signalId}</div>
+                            <div className='active-meta'>Analyzer exit: {analyzerDetails?.exit?.status || 'WAITING'} • Exit digit: {analyzerDetails?.exit?.digit ?? '—'}</div>
                         </div>
                     ) : (
                         <button className='tk-buy' disabled>
