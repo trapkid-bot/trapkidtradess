@@ -169,3 +169,10 @@
         width: min(360px, calc(100vw - 24px));
     }
 }
+
+.tk-analyzer-global-connection { display:flex; align-items:center; gap:7px; margin:8px 0; padding:8px 9px; border:1px solid rgba(255,255,255,.07); border-radius:9px; background:rgba(255,255,255,.025); }
+.tk-analyzer-global-connection > span { width:8px; height:8px; border-radius:50%; background:#69747c; flex:0 0 auto; }
+.tk-analyzer-global-connection > span.is-live { background:#19f6a5; box-shadow:0 0 10px rgba(25,246,165,.9); }
+.tk-analyzer-global-connection > span.is-offline { background:#ff5263; box-shadow:0 0 10px rgba(255,82,99,.55); }
+.tk-analyzer-global-connection b { font-size:10px; color:#eefaf7; letter-spacing:.6px; }
+.tk-analyzer-global-connection small { margin-left:auto; color:#83939c; font-size:8px; }
