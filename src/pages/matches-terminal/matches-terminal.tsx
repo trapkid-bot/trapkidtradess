@@ -185,20 +185,22 @@ const MatchesTerminal = () => {
                 const quote = Number(data.lastTick.quote);
                 const d = Number(data.lastTick.digit);
                 const epoch = Number(data.lastTick.epoch);
+                const isNewTick = Number.isFinite(epoch) && epoch !== lastEpoch;
 
-                if (Number.isFinite(quote) && (!Number.isFinite(epoch) || epoch !== lastEpoch)) {
-                    lastEpoch = Number.isFinite(epoch) ? epoch : lastEpoch;
-                    setTick(quote);
-                    setPrices(prev => [...prev.slice(-99), quote]);
-                }
-
-                if (Number.isInteger(d) && Number.isFinite(epoch) && epoch === lastEpoch) {
-                    setDigit(d);
-                    setHistoryDigits(prev => {
-                        const next = [...prev.slice(-99), d];
-                        analyze(next);
-                        return next;
-                    });
+                if (isNewTick) {
+                    lastEpoch = epoch;
+                    if (Number.isFinite(quote)) {
+                        setTick(quote);
+                        setPrices(prev => [...prev.slice(-99), quote]);
+                    }
+                    if (Number.isInteger(d)) {
+                        setDigit(d);
+                        setHistoryDigits(prev => {
+                            const next = [...prev.slice(-99), d];
+                            analyze(next);
+                            return next;
+                        });
+                    }
                 }
             }
 
