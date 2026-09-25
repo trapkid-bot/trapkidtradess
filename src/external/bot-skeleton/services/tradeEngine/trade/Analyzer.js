@@ -42,8 +42,27 @@ export default Engine =>
                 : '';
             const currentSignalKey = String(signal.signalId || '') + ':' + String(signal.lockedAt || '');
             const signalAlreadyBound = !!boundSignalKey && boundSignalKey === currentSignalKey;
+            const observerCommandKey = String(state?.commandKey || '');
+            const commandAuthorizesSignal =
+                observerCommandKey === currentSignalKey &&
+                [
+                    'COMMAND_RECEIVED',
+                    'COMMAND_ACCEPTED',
+                    'RUNNING',
+                    'ANALYZER_DATA_BOUND',
+                    'ANALYZER_PURCHASE_BOUND',
+                    'EARLY_EXIT_COMMAND_RECEIVED',
+                    'EARLY_EXIT_EXECUTING',
+                ].includes(String(state?.status || ''));
 
-            if (!signalAlreadyBound && Number.isFinite(expiresAt) && Date.now() >= expiresAt) return null;
+            // expiresAt is only an entry-window guard for an un-authorized signal.
+            // An Analyze-authorized signal remains valid for its single trade cycle.
+            if (
+                !signalAlreadyBound &&
+                !commandAuthorizesSignal &&
+                Number.isFinite(expiresAt) &&
+                Date.now() >= expiresAt
+            ) return null;
 
             return {
                 ...signal,
