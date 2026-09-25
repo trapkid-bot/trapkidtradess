@@ -191,16 +191,6 @@ const MatchesTerminal = () => {
                         return next;
                     });
 
-                    // Exit decisions use the Analyzer's live tick, not a second
-                    // market-data subscription from Deriv.
-                    if (Number.isFinite(epoch) && analyzerTickRef.current !== epoch) {
-                        analyzerTickRef.current = epoch;
-                        const active = tradeRef.current;
-                        if (active && d === active.prediction && !sellingRef.current) {
-                            sellingRef.current = true;
-                            void exitOnHit(active, quote, d);
-                        }
-                    }
                 }
                 const signal = data.signal;
                 if (signal && Number.isInteger(Number(signal.prediction))) {
@@ -212,16 +202,8 @@ const MatchesTerminal = () => {
                     setAiReason('Analyzer locked digit ' + nextPrediction + ' — ' + nextSignalId + '.');
 
                     // A fresh Analyzer signal automatically changes market/prediction.
-                    // When RUN is enabled, it starts the next Match automatically.
                     if (nextSignalId && analyzerSignalRef.current !== nextSignalId) {
                         analyzerSignalRef.current = nextSignalId;
-                        const signalReady =
-                            signal.exitStatus !== 'EARLY_EXIT_TRIGGERED' &&
-                            signal.exitStatus !== 'EXPIRED' &&
-                            signal.earlyExit !== true;
-                        if (autoRun && signalReady && !tradeRef.current && !sellingRef.current) {
-                            window.setTimeout(() => { void buy(); }, 0);
-                        }
                     }
                 } else if (data.analysis) {
                     const analysis = data.analysis;
@@ -409,6 +391,39 @@ const MatchesTerminal = () => {
             sellingRef.current = false;
         }
     };
+
+    useEffect(() => {
+        const signal = analyzerDetails?.signal;
+        const signalId = String(signal?.signalId || '');
+        if (!autoRun || !signalId || analyzerSignalRef.current !== signalId) return;
+
+        const signalReady =
+            signal.exitStatus !== 'EARLY_EXIT_TRIGGERED' &&
+            signal.exitStatus !== 'EXPIRED' &&
+            signal.earlyExit !== true;
+
+        if (signalReady && !tradeRef.current && !sellingRef.current) {
+            analyzerSignalRef.current = signalId;
+            window.setTimeout(() => { void buy(); }, 0);
+        }
+    }, [analyzerDetails, autoRun, buy]);
+
+    useEffect(() => {
+        const tick = analyzerDetails?.lastTick;
+        if (!tick) return;
+
+        const epoch = Number(tick.epoch);
+        const quote = Number(tick.quote);
+        const d = Number(tick.digit);
+        if (!Number.isFinite(epoch) || analyzerTickRef.current === epoch) return;
+        analyzerTickRef.current = epoch;
+
+        const active = tradeRef.current;
+        if (active && Number.isInteger(d) && Number.isFinite(quote) && d === active.prediction && !sellingRef.current) {
+            sellingRef.current = true;
+            void exitOnHit(active, quote, d);
+        }
+    }, [analyzerDetails, trade]);
 
     const toggleRun = useCallback(() => {
         if (autoRun) {
