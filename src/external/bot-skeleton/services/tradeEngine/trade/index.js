@@ -98,7 +98,21 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
 
         const validated_trade_options = this.validateTradeOptions(tradeOptions);
 
-        this.tradeOptions = { ...validated_trade_options, symbol: this.options.symbol };
+        const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
+        const analyzerSignal = analyzerState?.signal;
+        const analyzerPrediction = Number(analyzerSignal?.prediction ?? analyzerSignal?.lockedDigit);
+        const analyzerSymbol = String(analyzerSignal?.symbol || '').trim();
+
+        this.tradeOptions = {
+            ...validated_trade_options,
+            symbol:
+                this.isAnalyzerEnabledForTrade() && analyzerSymbol
+                    ? analyzerSymbol
+                    : this.options.symbol,
+            ...(this.isAnalyzerEnabledForTrade() && Number.isInteger(analyzerPrediction)
+                ? { prediction: analyzerPrediction }
+                : {}),
+        };
         this.store.dispatch(start());
         this.checkLimits(validated_trade_options);
 
