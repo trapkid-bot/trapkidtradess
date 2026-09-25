@@ -12,6 +12,7 @@ const TrapKidAnalyzerDock = () => {
     const drag = React.useRef<{ dx: number; dy: number } | null>(null);
     const analyzerSignalKeyRef = React.useRef<string | null>(null);
     const analyzerExitKeyRef = React.useRef<string | null>(null);
+    const mountedAtRef = React.useRef(Date.now());
 
     React.useEffect(() => {
         let cancelled = false;
@@ -75,7 +76,12 @@ const TrapKidAnalyzerDock = () => {
                     });
 
                     const previousSignalKey = analyzerSignalKeyRef.current;
-                    const isNewSignal = !!signalKey && previousSignalKey !== signalKey;
+                    const isFirstSignal = previousSignalKey === null;
+                    const isNewSignal = !!signalKey && !isFirstSignal && previousSignalKey !== signalKey;
+                    const initialSignalIsFresh =
+                        isFirstSignal &&
+                        Number.isFinite(lockedAt) &&
+                        lockedAt >= mountedAtRef.current - 10000;
 
                     // A new Analyze cycle starts with a clean exit state.
                     // This prevents EARLY_SELL_READY from the previous cycle
@@ -129,7 +135,7 @@ const TrapKidAnalyzerDock = () => {
 
                     if (
                         signalKey &&
-                        isNewSignal &&
+                        (isNewSignal || initialSignalIsFresh) &&
                         String(globalObserver.getState('trapkid_analyzer')?.commandKey || '') !== signalKey
                     ) {
                         analyzerSignalKeyRef.current = signalKey;
