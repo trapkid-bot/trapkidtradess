@@ -124,6 +124,7 @@ const MatchesTerminal = () => {
     const analyzerDrag = useRef<{ dx: number; dy: number } | null>(null);
     const analyzerSignalRef = useRef<string | null>(null);
     const analyzerTickRef = useRef<number | null>(null);
+    const analyzerRunAtRef = useRef<number | null>(null);
 
     const selectedMarket = useMemo(() => markets.find(m => m.symbol === symbol), [markets, symbol]);
     const points = useMemo(() => buildSparkline(prices), [prices]);
@@ -442,12 +443,10 @@ const MatchesTerminal = () => {
     }, [analyzerDetails?.symbol, holdTicks, requestProposal, stake, symbol]);
 
     const buy = useCallback(async () => {
-        const signal = analyzerDetails?.signal;
-        if (signal?.signalId) return buyFromAnalyzerSignal(signal);
-        setError('No locked Analyzer signal is available yet.');
-        setStatus('Waiting for Analyzer signal');
+        setError('Manual execution is disabled. DBot can only open a trade from a fresh Analyzer signal.');
+        setStatus('Waiting for a NEW Analyzer signal');
         return false;
-    }, [analyzerDetails, buyFromAnalyzerSignal]);
+    }, []);
 
     const exitOnHit = useCallback(async (active: Trade, quote: number, hitDigit: number) => {
         try {
@@ -496,6 +495,13 @@ const MatchesTerminal = () => {
         const analyzerLive = Boolean(analyzerDetails?.connected && analyzerDetails?.lastTick?.epoch);
         if (!analyzerLive) {
             setStatus('RUNNING • waiting for LIVE ANALYZER TICK STREAM before executing ' + signalId + '…');
+            return;
+        }
+
+        const lockedAt = Number(signal.lockedAt);
+        const runAt = Number(analyzerRunAtRef.current || 0);
+        if (!Number.isFinite(lockedAt) || lockedAt <= runAt) {
+            setStatus('RUNNING • waiting for a NEW Analyzer signal after RUN…');
             return;
         }
 
@@ -567,6 +573,14 @@ const MatchesTerminal = () => {
         // Reset the consumed-signal guard so RUN can execute the signal currently
         // displayed by the Analyzer, then follow every new signal exactly once.
         analyzerSignalRef.current = null;
+        analyzerTickRef.current = null;
+        analyzerRunAtRef.current = Date.now();
+        setPrediction(null);
+        setPayout(null);
+        setProposalId(null);
+        setTrade(null);
+        tradeRef.current = null;
+        sellingRef.current = false;
         setAutoRun(true);
         setError('');
         setStatus('WAITING FOR ANALYZER SIGNAL • no default market or prediction is executable.');
@@ -724,9 +738,9 @@ const MatchesTerminal = () => {
                             <div className='active-meta'>Exit price: {formatMoney(trade.bidPrice || 0, currency)}</div>
                         </div>
                     ) : (
-                        <button className='tk-buy' onClick={buy} disabled={!autoRun || !contractAvailable || !!proposalId || holdTicks < 2}>
-                            <span>{autoRun ? (prediction === null ? 'Waiting for Analyzer signal' : `Analyzer Match ${prediction}`) : 'Start DBot first'}</span>
-                            <strong>{autoRun ? (payout ? `Payout ${payout.toFixed(2)} ${currency}` : 'Waiting for Analyzer signal') : 'Analyzer-controlled execution'}</strong>
+                        <button className='tk-buy' disabled>
+                            <span>{autoRun ? 'WAITING FOR ANALYZER SIGNAL' : 'START DBOT FIRST'}</span>
+                            <strong>Only a NEW Analyzer signal can open a trade</strong>
                         </button>
                     )}
 
