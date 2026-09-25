@@ -179,25 +179,9 @@ export default class RunPanelStore {
             return;
         }
 
-        if (
-            signal.expiresAt &&
-            Number.isFinite(Number(signal.expiresAt)) &&
-            Date.now() > Number(signal.expiresAt)
-        ) {
-            observer.setState({
-                trapkid_analyzer: {
-                    ...(observer.getState('trapkid_analyzer') || {}),
-                    status: 'COMMAND_EXPIRED',
-                    commandKey,
-                },
-            });
-            observer.emit('trapkid.analyzer.updated', {
-                ...(observer.getState('trapkid_analyzer') || {}),
-                status: 'COMMAND_EXPIRED',
-                commandKey,
-            });
-            return;
-        }
+        // Analyze Market is the authorization event. Do not invalidate an
+        // already-published command merely because the Analyzer entry window
+        // has elapsed while the browser/store is starting the bot.
 
         observer.setState({
             trapkid_analyzer: {
@@ -952,9 +936,14 @@ export default class RunPanelStore {
             ? analyzerSignalId + ':' + String(analyzerLockedAt)
             : '';
 
+        const analyzerCommandWasPublished =
+            String(analyzerState.commandKey || '') === analyzerCommandKey &&
+            String(analyzerState.status || '') === 'COMMAND_RECEIVED';
+
         if (
             analyzerCommandKey &&
             (
+                analyzerCommandWasPublished ||
                 (Number.isFinite(analyzerExpiresAt) && Date.now() < analyzerExpiresAt) ||
                 (Number.isFinite(analyzerLockedAt) && Date.now() - analyzerLockedAt < 10000)
             ) &&
