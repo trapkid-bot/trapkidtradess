@@ -39,8 +39,11 @@ export default Engine =>
 
             globalObserver.emit('bot.sell');
 
-            // Prevent calling sell twice
-            if (this.store.getState().scope !== DURING_PURCHASE) {
+            // Analyzer early-sell is allowed to close the already-purchased
+            // Analyzer contract even if the legacy Builder Redux scope has
+            // already moved away from DURING_PURCHASE.
+            // Normal Builder/manual sells keep the original scope gate.
+            if (this.store.getState().scope !== DURING_PURCHASE && !analyzerEarlySell) {
                 return Promise.resolve();
             }
 
