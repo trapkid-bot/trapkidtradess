@@ -12,7 +12,8 @@ export default Engine =>
 
         // Financial-only Deriv bridge. Analyzer still controls the signal,
         // entry timing, hold state, and exit decision. Deriv is contacted only
-        // for proposal pricing, the actual financial buy, and the actual sell.
+        // for financial pricing, the authorized demo/real buy, and final
+        // financial reconciliation. Never create a second Analyzer execution.
         requestAnalyzerDeriv = (request, msgType, timeoutMs = 7000) => {
             const api = api_base?.api;
             if (!api || api.connection?.readyState !== 1) return Promise.resolve(null);
