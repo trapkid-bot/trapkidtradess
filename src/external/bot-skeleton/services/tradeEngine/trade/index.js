@@ -114,6 +114,18 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
         await this.sellAtMarket('ANALYZER_EARLY_EXIT');
+
+        // End this bot run after the single Analyzer-controlled contract.
+        // A new Analyzer signal must authorize the next run.
+        this.store.dispatch({ type: constants.STOP });
+        globalObserver.setState({
+            trapkid_analyzer: {
+                ...(globalObserver.getState('trapkid_analyzer') || {}),
+                status: 'WAITING_FOR_ANALYZER',
+                cycleFinished: true,
+            },
+        });
+        globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
     };
 
     init(...args) {
