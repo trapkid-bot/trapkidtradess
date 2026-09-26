@@ -23,10 +23,17 @@ export default Engine =>
                     String(analyzerState.status || '')
                 );
 
-            if (analyzerActive && String(analyzerState.executionTrigger || '') !== 'EARLY_SELL_READY') {
+            const analyzerEarlySell = source === 'ANALYZER_EARLY_SELL';
+
+            if (
+                analyzerActive &&
+                !analyzerEarlySell &&
+                String(analyzerState.executionTrigger || '') !== 'EARLY_SELL_READY'
+            ) {
                 // Analyzer owns the position. Builder/manual selling is blocked.
-                // The sole exception is the Analyzer's matching EARLY_SELL_READY
-                // event, which is the authorized exit for this contract.
+                // The Analyzer EARLY_SELL_READY handler calls this method with
+                // ANALYZER_EARLY_SELL, so it must never be blocked by the
+                // normal Builder/manual sell gate.
                 return Promise.resolve();
             }
 
