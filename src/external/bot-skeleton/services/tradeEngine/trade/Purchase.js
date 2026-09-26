@@ -9,12 +9,25 @@ export default Engine =>
     class Purchase extends Engine {
         purchase(contract_type) {
             const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
+            const currentSignal = analyzerState?.signal;
+            const currentSignalIsExecutable =
+                !!currentSignal?.signalId &&
+                !!currentSignal?.symbol &&
+                Number.isInteger(Number(currentSignal?.hotDigit));
+
             const analyzerMode =
                 this.isAnalyzerEnabledForTrade?.() ||
                 !!this.analyzerSignal ||
-                ['ANALYZER_PURCHASE_AUTHORIZED', 'ANALYZER_PURCHASE_BOUND', 'WAITING_FOR_ANALYZER_EXIT', 'EARLY_EXIT_COMMAND_RECEIVED', 'ANALYZER_EXECUTION', 'RUNNING'].includes(
-                    String(analyzerState.status || '')
-                );
+                currentSignalIsExecutable ||
+                [
+                    'ANALYZER_PURCHASE_AUTHORIZED',
+                    'ANALYZER_PURCHASE_BOUND',
+                    'WAITING_FOR_ANALYZER_EXIT',
+                    'WATCHING_ANALYZER_HOT_DIGIT',
+                    'EARLY_EXIT_COMMAND_RECEIVED',
+                    'ANALYZER_EXECUTION',
+                    'RUNNING',
+                ].includes(String(analyzerState.status || ''));
 
             if (analyzerMode) {
                 const analyzerStateGate = globalObserver.getState('trapkid_analyzer') || {};
@@ -40,11 +53,39 @@ export default Engine =>
                 // accepted the command but a UI refresh dropped executionArmed/trigger.
                 // Never fall back to the Builder purchase gate.
                 if (analyzerStateGate.executionArmed !== true && !boundAnalyzerCommand) {
-                    globalObserver.emit(
-                        'ui.log.error',
-                        `TRAPKID ANALYZER BUY BLOCKED → no bound Analyzer command signal=${String(analyzerStateGate.signalId || gateSignal?.signalId || '')}`
-                    );
-                    return Promise.resolve();
+                    // A valid locked signal is itself the entry authorization when
+                    // Analyze was just clicked. Do not fall back to the generic
+                    // "waiting for a signal to buy" lifecycle.
+                    const currentSignalIsLocked =
+                        !!gateSignal?.signalId &&
+                        !!gateSignal?.symbol &&
+                        Number.isInteger(Number(gateSignal?.hotDigit)) &&
+                        Number.isFinite(Number(gateSignal?.lockedAt)) &&
+                        (
+                            !Number.isFinite(Number(gateSignal?.expiresAt)) ||
+                            Date.now() < Number(gateSignal.expiresAt)
+                        );
+
+                    if (!currentSignalIsLocked) {
+                        globalObserver.emit(
+                            'ui.log.error',
+                            `TRAPKID ANALYZER BUY BLOCKED → no current locked Analyzer signal=${String(analyzerStateGate.signalId || gateSignal?.signalId || '')}`
+                        );
+                        return Promise.resolve();
+                    }
+
+                    globalObserver.setState({
+                        trapkid_analyzer: {
+                            ...analyzerStateGate,
+                            signal: gateSignal,
+                            signalId: gateSignal.signalId,
+                            commandKey: String(gateSignal.signalId) + ':' + String(gateSignal.lockedAt),
+                            executionTrigger: 'ANALYZER_ENTRY',
+                            executionArmed: true,
+                            entrySource: 'ANALYZER_ONLY',
+                            exitSource: 'ANALYZER_EARLY_SELL_ONLY',
+                        },
+                    });
                 }
 
                 // Restore the Analyzer-owned execution state after any bridge/UI refresh.
