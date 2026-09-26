@@ -29,12 +29,21 @@ const ContractStageText: React.FC<TContractStageText> = ({ contract_stage }) => 
 
     const analyzerWaiting =
         analyzerState?.executionArmed === true &&
-        ['WAITING_FOR_ANALYZER_EXIT', 'CONNECTED'].includes(String(analyzerState?.status || '')) &&
+        [
+            'COMMAND_RECEIVED',
+            'COMMAND_ACCEPTED',
+            'ANALYZER_DATA_BOUND',
+            'ANALYZER_TRADE_LOCKED',
+            'WAITING_FOR_ANALYZER_EXIT',
+            'WAITING_FOR_ANALYZER_EXIT_DIGIT',
+            'CONNECTED',
+            'CONNECTED_WAITING',
+        ].includes(String(analyzerState?.status || '')) &&
         String(analyzerState?.executionTrigger || '') !== 'EARLY_SELL_READY';
 
     const analyzerTriggerReady =
         analyzerState?.executionArmed === true &&
-        String(analyzerState?.status || '') === 'EARLY_EXIT_COMMAND_RECEIVED' &&
+        ['EARLY_EXIT_COMMAND_RECEIVED', 'ANALYZER_EXECUTION'].includes(String(analyzerState?.status || '')) &&
         String(analyzerState?.executionTrigger || '') === 'EARLY_SELL_READY';
 
     if (analyzerTriggerReady) {
