@@ -6,6 +6,15 @@ const LINK_VERSION = 'ANALYZER-DBOT-BRIDGE-01';
 
 const TrapKidAnalyzerDock = () => {
     const [details, setDetails] = React.useState<any>(null);
+    const [analyzerApi, setAnalyzerApi] = React.useState(() => {
+        try {
+            return (window.localStorage.getItem('trapkid_analyzer_url') || ANALYZER_API).replace(/\\/$/, '');
+        } catch {
+            return ANALYZER_API;
+        }
+    });
+    const [urlDraft, setUrlDraft] = React.useState(analyzerApi);
+    const [connectionError, setConnectionError] = React.useState('');
     const [open, setOpen] = React.useState(false);
     const [pos, setPos] = React.useState({ x: 22, y: 120 });
     const [lastSeen, setLastSeen] = React.useState<number | null>(null);
@@ -22,7 +31,7 @@ const TrapKidAnalyzerDock = () => {
             if (cancelled || polling) return;
             polling = true;
             try {
-                const res = await fetch(ANALYZER_API + '/api/status?client=global-link&t=' + Date.now(), {
+                const res = await fetch(analyzerApi + '/api/status?client=global-link&t=' + Date.now(), {
                     cache: 'no-store',
                     headers: { Accept: 'application/json' },
                 });
@@ -32,6 +41,7 @@ const TrapKidAnalyzerDock = () => {
                     const now = Date.now();
                     setDetails(data);
                     setLastSeen(now);
+                    setConnectionError('');
 
                     const signal = data?.signal;
                     const signalId = String(signal?.signalId || '');
@@ -166,8 +176,10 @@ const TrapKidAnalyzerDock = () => {
                         );
                     }
                 }
-            } catch {
+            } catch (error) {
                 if (!cancelled) {
+                    const message = error instanceof Error ? error.message : String(error);
+                    setConnectionError(message || 'Request failed');
                     const offline = {
                         ...(globalObserver.getState('trapkid_analyzer') || {}),
                         status: 'DISCONNECTED',
@@ -189,9 +201,19 @@ const TrapKidAnalyzerDock = () => {
             cancelled = true;
             window.clearInterval(timer);
         };
-    }, []);
+    }, [analyzerApi]);
 
     const connected = Boolean(details?.connected);
+
+    const saveAnalyzerUrl = () => {
+        const value = urlDraft.trim().replace(/\\/$/, '');
+        if (!value) return;
+        setAnalyzerApi(value);
+        try { window.localStorage.setItem('trapkid_analyzer_url', value); } catch {}
+        setDetails(null);
+        setLastSeen(null);
+        setConnectionError('Connecting…');
+    };
 
     const beginDrag = (e: React.PointerEvent<HTMLDivElement>) => {
         const rect = e.currentTarget.getBoundingClientRect();
@@ -247,7 +269,7 @@ const TrapKidAnalyzerDock = () => {
 
                     <div className='tk-analyzer-global-url'>
                         <b>LINK {LINK_VERSION}</b><br />
-                        {ANALYZER_API}/api/status
+                        {analyzerApi}/api/status
                     </div>
 
                     <div className='tk-analyzer-global-grid'>
@@ -267,7 +289,23 @@ const TrapKidAnalyzerDock = () => {
                         <strong>ANALYZER → DBOT COMMAND LINK</strong>
                         <div className='tk-link-proof'><span className={connected ? 'is-live' : 'is-offline'} /> {connected ? 'ANALYZER DATA CHANNEL LIVE' : 'ANALYZER DATA CHANNEL OFFLINE'}</div>
                         <code>GET /api/status?client=dbot</code>
-                        <small>HTTP only. No browser WebSocket is required for the Analyzer link. Last successful read: {lastSeen ? new Date(lastSeen).toLocaleTimeString() : 'waiting…'}</small>
+                        <small>HTTP only. Last successful read: {lastSeen ? new Date(lastSeen).toLocaleTimeString() : 'waiting…'}</small>
+                        <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                            <input
+                                value={urlDraft}
+                                onChange={e => setUrlDraft(e.target.value)}
+                                onPointerDown={e => e.stopPropagation()}
+                                placeholder='https://your-analyzer.trycloudflare.com'
+                                aria-label='Analyzer URL'
+                                style={{ flex: 1, minWidth: 0 }}
+                            />
+                            <button
+                                type='button'
+                                onPointerDown={e => e.stopPropagation()}
+                                onClick={e => { e.stopPropagation(); saveAnalyzerUrl(); }}
+                            >CONNECT</button>
+                        </div>
+                        {connectionError && <small style={{ display: 'block', marginTop: 6 }}>Connection: {connectionError}</small>}
                     </div>
                 </div>
             )}
