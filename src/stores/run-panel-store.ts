@@ -699,13 +699,15 @@ export default class RunPanelStore {
     };
 
     onClickSell = () => {
-        const { is_multiplier } = this.root_store.summary_card;
-
-        if (is_multiplier) {
-            this.setContractStage(contract_stages.IS_STOPPING);
+        // Analyzer owns entry and settlement. Never fall back to the removed
+        // Blockly/Deriv sell path while an Analyzer execution is active.
+        if (this.dbot?.analyzerEngine) {
+            return;
         }
 
-        this.dbot.interpreter.bot.getInterface().sellAtMarket();
+        // Legacy DBot execution is disabled, so there is no interpreter sell
+        // target here.
+        return;
     };
 
     clear = () => {
