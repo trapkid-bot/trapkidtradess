@@ -10,7 +10,7 @@ export default Engine =>
         // Read-only Deriv pricing lookup. This uses a dedicated public
         // proposal socket so payout quoting cannot depend on or interfere with
         // the Analyzer execution/settlement lifecycle.
-        fetchAnalyzerPayoutQuote = signal => {
+        fetchAnalyzerPayoutQuote(signal) {
             if (!signal?.symbol) return Promise.resolve(null);
 
             const amount = Number(this.tradeOptions?.amount);
