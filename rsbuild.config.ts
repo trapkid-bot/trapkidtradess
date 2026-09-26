@@ -11,9 +11,9 @@ const isStaticBuild = process.env.NEXT_PUBLIC_APP_BUILD === 'true';
 // Keep ANALYZER_URL as the canonical deployment variable, while also exposing
 // the public names consumed by the browser bundle.
 const analyzerApiUrl =
+  process.env.ANALYZER_URL ||
   process.env.NEXT_PUBLIC_ANALYZER_API_URL ||
   process.env.PUBLIC_ANALYZER_URL ||
-  process.env.ANALYZER_URL ||
   '';
 
 const analyzerWsUrl =
