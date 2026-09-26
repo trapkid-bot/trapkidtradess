@@ -64,15 +64,19 @@ export default Engine =>
                 Date.now() >= expiresAt
             ) return null;
 
+            const rawEntryDigit = signal.entryDigit ?? signal.lockedDigit ?? signal.prediction;
+            const entryDigit = Number.isInteger(Number(rawEntryDigit)) ? Number(rawEntryDigit) : null;
+
             return {
                 ...signal,
                 symbol: signal.symbol || state.symbol,
-                prediction: Number.isInteger(Number(signal.prediction))
-                    ? Number(signal.prediction)
-                    : Number(signal.lockedDigit),
+                // Analyzer entryDigit is authoritative. Never replace it with
+                // Builder/local market analysis when binding a DIGITMATCH trade.
+                entryDigit,
+                prediction: entryDigit,
                 lockedDigit: Number.isInteger(Number(signal.lockedDigit))
                     ? Number(signal.lockedDigit)
-                    : null,
+                    : entryDigit,
                 hotDigit: Number.isInteger(Number(signal.hotDigit))
                     ? Number(signal.hotDigit)
                     : Number.isInteger(Number(state.hotDigit))
@@ -89,8 +93,8 @@ export default Engine =>
                 throw new Error('TrapKid Analyzer: no active Analyzer signal. Trade blocked.');
             }
 
-            if (!Number.isInteger(signal.prediction) || signal.prediction < 0 || signal.prediction > 9) {
-                throw new Error('TrapKid Analyzer: signal has no valid prediction. Trade blocked.');
+            if (!Number.isInteger(signal.entryDigit) || signal.entryDigit < 0 || signal.entryDigit > 9) {
+                throw new Error('TrapKid Analyzer: signal has no valid locked entry digit. Trade blocked.');
             }
 
             if (!signal.symbol) {
