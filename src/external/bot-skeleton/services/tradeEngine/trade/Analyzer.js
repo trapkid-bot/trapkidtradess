@@ -64,7 +64,11 @@ export default Engine =>
             const lockExpiry = Number.isFinite(expiresAt)
                 ? expiresAt
                 : lockedAt + 30000;
-            if (Date.now() >= lockExpiry) return null;
+
+            // A signal that is already bound to this execution cycle remains
+            // valid until Analyzer sends EARLY_SELL_READY. Expiry is only an
+            // entry freshness guard; it must not kill an already-authorized buy.
+            if (!signalAlreadyBound && Date.now() >= lockExpiry) return null;
 
             const rawHotDigit = signal.hotDigit ?? state.hotDigit;
             const hotDigit = Number.isInteger(Number(rawHotDigit)) ? Number(rawHotDigit) : null;
