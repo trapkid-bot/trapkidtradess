@@ -2,90 +2,75 @@ import { LogTypes } from '../../../constants/messages';
 import { contract, contractStatus, info, log } from '../utils/broadcast';
 import { getUUID } from '../utils/helpers';
 import { observer as globalObserver } from '../../../utils/observer';
+import { api_base } from '../../api/api-base';
 
 let purchase_reference;
 
 export default Engine =>
     class Purchase extends Engine {
-        // Read-only Deriv pricing lookup. This uses a dedicated public
-        // proposal socket so payout quoting cannot depend on or interfere with
-        // the Analyzer execution/settlement lifecycle.
-        fetchAnalyzerPayoutQuote(signal) {
-            if (!signal?.symbol) return Promise.resolve(null);
+        // Read-only Deriv pricing lookup. This never buys, sells, subscribes to
+        // ticks, or observes an open contract. It only fills the potential
+        // payout displayed for the Analyzer-owned local contract.
+        fetchAnalyzerPayoutQuote = signal => {
+            const api = api_base?.api;
+            if (!api || !signal?.symbol) return Promise.resolve(null);
 
             const amount = Number(this.tradeOptions?.amount);
             const duration = Number(this.tradeOptions?.duration);
             const duration_unit = this.tradeOptions?.duration_unit || 't';
-            const currency = this.tradeOptions?.currency || 'USD';
-            const hotDigit = Number(signal?.hotDigit);
-
             if (!Number.isFinite(amount) || amount <= 0) return Promise.resolve(null);
             if (!Number.isFinite(duration) || duration <= 0) return Promise.resolve(null);
-            if (!Number.isInteger(hotDigit) || hotDigit < 0 || hotDigit > 9) return Promise.resolve(null);
+            if (!Number.isInteger(Number(signal.hotDigit))) return Promise.resolve(null);
 
+            const req_id = Number(String(Date.now()).slice(-9));
             const request = {
                 proposal: 1,
                 amount,
                 basis: this.tradeOptions?.basis || 'stake',
                 contract_type: 'DIGITMATCH',
-                currency,
+                currency: this.tradeOptions?.currency || 'USD',
                 duration,
                 duration_unit,
                 underlying_symbol: String(signal.symbol),
-                barrier: String(hotDigit),
-                req_id: Number(String(Date.now()).slice(-9)),
+                barrier: String(Number(signal.hotDigit)),
+                req_id,
             };
 
             return new Promise(resolve => {
                 let finished = false;
                 let timeout;
-                let socket;
 
                 const finish = proposal => {
                     if (finished) return;
                     finished = true;
                     if (timeout) clearTimeout(timeout);
                     try {
-                        socket?.close();
+                        subscription?.unsubscribe?.();
                     } catch {
-                        // Ignore best-effort close errors for this read-only quote socket.
+                        // Ignore cleanup errors; this is a best-effort read-only quote.
                     }
                     resolve(proposal || null);
                 };
 
+                let subscription;
                 try {
-                    socket = new WebSocket('wss://api.derivws.com/trading/v1/options/ws/public');
-
-                    socket.addEventListener('open', () => {
-                        if (!finished) socket.send(JSON.stringify(request));
-                    });
-
-                    socket.addEventListener('message', event => {
-                        try {
-                            const data = JSON.parse(event.data);
-                            if (Number(data?.req_id) !== Number(request.req_id)) return;
-                            if (data?.msg_type !== 'proposal') return;
-                            if (data?.error) {
-                                finish(null);
-                                return;
-                            }
-                            finish(data?.proposal || null);
-                        } catch {
+                    subscription = api.onMessage().subscribe(({ data }) => {
+                        if (Number(data?.req_id) !== req_id || data?.msg_type !== 'proposal') return;
+                        if (data?.error) {
                             finish(null);
+                            return;
                         }
+                        finish(data?.proposal || null);
                     });
 
-                    socket.addEventListener('error', () => finish(null));
-                    socket.addEventListener('close', () => {
-                        if (!finished) finish(null);
-                    });
-
+                    api.send(request);
                     timeout = setTimeout(() => finish(null), 5000);
                 } catch {
                     finish(null);
                 }
             });
         };
+
         updateAnalyzerPayoutFromDeriv = (signal, contractId) => {
             void this.fetchAnalyzerPayoutQuote(signal).then(proposal => {
                 const payout = Number(proposal?.payout);
@@ -94,8 +79,7 @@ export default Engine =>
                 const currentContract = this.data?.contract;
                 if (
                     !currentContract ||
-                    String(currentContract.contract_id) !== String(contractId) ||
-                    currentContract.is_sold
+                    String(currentContract.contract_id) !== String(contractId)
                 ) {
                     return;
                 }
@@ -103,6 +87,11 @@ export default Engine =>
                 this.data.contract = {
                     ...currentContract,
                     payout,
+                    analyzer_payout_source: 'DERIV_PROPOSAL',
+                    analyzer_payout_quote_id: proposal?.id ?? null,
+                    analyzer_payout_ask_price: Number.isFinite(Number(proposal?.ask_price))
+                        ? Number(proposal.ask_price)
+                        : null,
                 };
 
                 globalObserver.setState({
@@ -110,6 +99,7 @@ export default Engine =>
                         ...(globalObserver.getState('trapkid_analyzer') || {}),
                         analyzerPotentialPayout: payout,
                         payout,
+                        payoutSource: 'DERIV_PROPOSAL',
                     },
                 });
 
