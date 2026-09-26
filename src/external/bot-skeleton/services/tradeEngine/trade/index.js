@@ -82,50 +82,103 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
     onAnalyzerEarlyExit = async command => {
         if (!(this.isAnalyzerEnabledForTrade?.() || this.analyzerSignal) || !this.contractId || this.isSold) return;
 
-        const exit = this.getAnalyzerExit?.();
         const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
         const signal = this.analyzerSignal || analyzerState.signal;
         const commandSignalId = String(command?.signalId || command?.signal?.signalId || '');
         const activeSignalId = String(signal?.signalId || '');
 
+        if (!signal || !commandSignalId || commandSignalId !== activeSignalId) return;
+
+        const exit = this.getAnalyzerExit?.();
         if (
             !exit ||
-            !signal ||
-            !commandSignalId ||
-            commandSignalId !== activeSignalId ||
-            String(exit.signalId) !== activeSignalId
+            String(exit.signalId) !== activeSignalId ||
+            Number(exit.hotDigit) !== Number(signal.hotDigit) ||
+            Number(exit.digit) !== Number(signal.hotDigit)
         ) {
             return;
         }
 
-        // This signal is now in its final Analyzer-controlled exit phase.
-        // No subsequent bot loop may start another purchase for this signal.
+        // EARLY_SELL_READY is an instruction to START watching for the
+        // Analyzer's hot/exit digit. It is NOT itself the sell trigger.
+        // Every other digit is deliberately ignored.
+        const previousSubscription = this.analyzerExitTickSubscription;
+        if (previousSubscription) {
+            previousSubscription.unsubscribe?.();
+            this.analyzerExitTickSubscription = null;
+        }
+
         globalObserver.setState({
             trapkid_analyzer: {
                 ...analyzerState,
-                status: 'EARLY_EXIT_EXECUTING',
-                cycleFinished: true,
+                status: 'WAITING_FOR_ANALYZER_EXIT_DIGIT',
+                cycleFinished: false,
                 purchaseConsumedKey: String(signal.signalId) + ':' + String(signal.lockedAt),
                 exitDigit: exit.digit,
                 hotDigit: exit.hotDigit,
                 commandKey: exit.commandKey,
+                exitSource: 'ANALYZER_EARLY_SELL_ONLY',
             },
         });
         globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
-        await this.sellAtMarket('ANALYZER_EARLY_EXIT');
+        const symbol = String(signal.symbol || analyzerState.symbol || '');
+        const hotDigit = Number(exit.hotDigit);
+        const pipSize = Number(signal.pipSize ?? signal.pip_size ?? 0.01);
+        const decimalPlaces = Number.isFinite(pipSize) && pipSize > 0
+            ? Math.max(0, (String(pipSize).split('.')[1] || '').length)
+            : 2;
 
-        // End this bot run after the single Analyzer-controlled contract.
-        // A new Analyzer signal must authorize the next run.
-        this.store.dispatch({ type: constants.STOP });
-        globalObserver.setState({
-            trapkid_analyzer: {
-                ...(globalObserver.getState('trapkid_analyzer') || {}),
-                status: 'WAITING_FOR_ANALYZER',
-                cycleFinished: true,
-            },
-        });
-        globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
+        const getDigitFromTick = tick => {
+            const quote = tick?.quote;
+            if (quote === undefined || quote === null) return null;
+            const formatted = Number(quote).toFixed(decimalPlaces);
+            return Number(formatted[formatted.length - 1]);
+        };
+
+        const onTick = message => {
+            const tick = message?.data?.tick;
+            if (!tick || (symbol && String(tick.symbol || '') !== symbol)) return;
+
+            const currentDigit = getDigitFromTick(tick);
+
+            // Ignore every digit except the Analyzer-authorized hot/exit digit.
+            if (currentDigit !== hotDigit) return;
+
+            this.analyzerExitTickSubscription?.unsubscribe?.();
+            this.analyzerExitTickSubscription = null;
+
+            globalObserver.setState({
+                trapkid_analyzer: {
+                    ...(globalObserver.getState('trapkid_analyzer') || {}),
+                    status: 'EARLY_EXIT_EXECUTING',
+                    cycleFinished: true,
+                    matchedExitDigit: currentDigit,
+                    exitDigit: hotDigit,
+                    hotDigit,
+                },
+            });
+            globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
+
+            void this.sellAtMarket('ANALYZER_EARLY_EXIT').then(() => {
+                this.store.dispatch({ type: constants.STOP });
+                globalObserver.setState({
+                    trapkid_analyzer: {
+                        ...(globalObserver.getState('trapkid_analyzer') || {}),
+                        status: 'WAITING_FOR_ANALYZER',
+                        cycleFinished: true,
+                        matchedExitDigit: hotDigit,
+                    },
+                });
+                globalObserver.emit(
+                    'trapkid.analyzer.updated',
+                    globalObserver.getState('trapkid_analyzer')
+                );
+            });
+        };
+
+        this.analyzerExitTickSubscription = api_base.api.onMessage().subscribe(onTick);
+        api_base.pushSubscription(this.analyzerExitTickSubscription);
     };
 
     init(...args) {
