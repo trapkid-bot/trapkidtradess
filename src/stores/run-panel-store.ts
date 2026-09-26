@@ -256,7 +256,7 @@ export default class RunPanelStore {
 
         this.registerBotListeners();
 
-        if (!this.dbot.shouldRunBot()) {
+        if (sourceCommand?.source !== 'TRAPKID_ANALYZER_HTTP' && !this.dbot.shouldRunBot()) {
             this.unregisterBotListeners();
             return;
         }
