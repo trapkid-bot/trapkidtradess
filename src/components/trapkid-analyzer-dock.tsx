@@ -8,7 +8,9 @@ const TrapKidAnalyzerDock = () => {
     const [details, setDetails] = React.useState<any>(null);
     const [analyzerApi, setAnalyzerApi] = React.useState(() => {
         try {
-            const saved = window.localStorage.getItem('trapkid_analyzer_url') || '';\n            const legacy = /thesis-quality-remote-rendered\\.trycloudflare\\.com/i.test(saved);\n            return (!legacy && saved ? saved : ANALYZER_API).replace(/\\/$/, '');
+            const saved = window.localStorage.getItem('trapkid_analyzer_url') || '';
+            const legacy = /thesis-quality-remote-rendered\.trycloudflare\.com/i.test(saved);
+            return (!legacy && saved ? saved : ANALYZER_API).replace(/\/$/, '');
         } catch {
             return ANALYZER_API;
         }
