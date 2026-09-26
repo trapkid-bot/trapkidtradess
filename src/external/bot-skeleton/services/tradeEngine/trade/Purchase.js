@@ -520,6 +520,18 @@ export default Engine =>
                         5000
                     );
 
+                    if (response?.error) {
+                        // A short-lived Deriv contract may already be settled before
+                        // the Analyzer emits EARLY_SELL_READY. Do not keep polling a
+                        // closed contract for the full 180s window; reconcile it now
+                        // from Deriv's closed-contract history instead.
+                        globalObserver.emit(
+                            'ui.log',
+                            'TRAPKID DERIV OPEN-CONTRACT → closed/unavailable; reconciling final financial result'
+                        );
+                        break;
+                    }
+
                     const openContract = response?.proposal_open_contract;
                     if (openContract) {
                         const status = String(openContract.status || '').toLowerCase();
@@ -598,7 +610,7 @@ export default Engine =>
                                 },
                             });
 
-                            void this.refreshDerivAccountBalance(3);
+                            await this.refreshDerivAccountBalance(3);
 
                             globalObserver.emit(
                                 'ui.log',
@@ -692,7 +704,23 @@ export default Engine =>
                         },
                     });
 
-                    void this.refreshDerivAccountBalance(3);
+                    const reconciledBalance = await this.refreshDerivAccountBalance(3);
+                    if (Number.isFinite(reconciledBalance)) {
+                        const currentContract = this.data?.contract;
+                        if (
+                            currentContract &&
+                            String(currentContract.contract_id) === String(
+                                this.analyzerContractId || this.contractId || currentContract.contract_id
+                            )
+                        ) {
+                            this.data.contract = {
+                                ...currentContract,
+                                deriv_balance_after_sell: reconciledBalance,
+                                financial_status: 'DERIV_SETTLEMENT_RECONCILED',
+                            };
+                            contract(this.data.contract);
+                        }
+                    }
                     return reconciled;
                 }
 
