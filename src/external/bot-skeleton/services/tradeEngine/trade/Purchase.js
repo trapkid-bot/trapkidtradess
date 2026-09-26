@@ -72,6 +72,62 @@ export default Engine =>
             }
         };
 
+        refreshDerivAccountBalance = async (attempts = 3) => {
+            const api = api_base?.api;
+            if (!api || api.connection?.readyState !== 1) return null;
+
+            const maxAttempts = Math.max(1, Number(attempts) || 1);
+            for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+                try {
+                    const result = await Promise.race([
+                        api.balance(),
+                        new Promise((_, reject) =>
+                            setTimeout(() => reject(new Error('Deriv balance refresh timeout')), 5000)
+                        ),
+                    ]);
+
+                    const balanceValue = Number(result?.balance?.balance);
+                    const currency = result?.balance?.currency || this.tradeOptions?.currency || 'USD';
+                    const loginid = result?.balance?.loginid || api_base.account_id || null;
+
+                    if (Number.isFinite(balanceValue)) {
+                        api_base.account_info = {
+                            ...(api_base.account_info || {}),
+                            balance: balanceValue,
+                            currency,
+                            loginid,
+                        };
+                        this.updateDerivAccountBalance(balanceValue);
+
+                        globalObserver.setState({
+                            trapkid_analyzer: {
+                                ...(globalObserver.getState('trapkid_analyzer') || {}),
+                                balance: balanceValue,
+                                analyzerBalance: balanceValue,
+                                derivBalance: balanceValue,
+                                currency,
+                                derivBalanceSource: 'DERIV_BALANCE',
+                            },
+                        });
+
+                        globalObserver.emit(
+                            'ui.log',
+                            'TRAPKID DERIV BALANCE SYNC → ' + balanceValue
+                        );
+                        return balanceValue;
+                    }
+                } catch {
+                    // Retry only this financial balance read; never touch Analyzer execution.
+                }
+
+                if (attempt < maxAttempts - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 350));
+                }
+            }
+
+            return null;
+        };
+
         fetchAnalyzerPayoutQuote = signal => {
             if (!signal?.symbol) return Promise.resolve(null);
 
@@ -187,6 +243,7 @@ export default Engine =>
                 }
 
                 if (Number.isFinite(balanceAfter)) this.updateDerivAccountBalance(balanceAfter);
+                void this.refreshDerivAccountBalance(3);
 
                 globalObserver.setState({
                     trapkid_analyzer: {
