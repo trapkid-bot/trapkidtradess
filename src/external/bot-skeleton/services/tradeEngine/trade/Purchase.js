@@ -311,13 +311,118 @@ export default Engine =>
                 );
 
                 if (this.data?.contract?.is_sold) {
-                    void this.settleAnalyzerDerivContract();
+                    void this.sellAnalyzerDerivContract();
                 }
 
                 return buy;
             })();
 
             return this.analyzerDerivBuyPromise;
+        };
+
+        sellAnalyzerDerivContract = async () => {
+            if (this.analyzerDerivSellPromise) return this.analyzerDerivSellPromise;
+
+            this.analyzerDerivSellPromise = (async () => {
+                const buy = this.analyzerDerivBuyPromise
+                    ? await this.analyzerDerivBuyPromise.catch(() => null)
+                    : this.derivBuy;
+                const derivContractId = this.derivContractId || buy?.contract_id;
+                if (!derivContractId) return null;
+
+                const response = await this.requestAnalyzerDeriv(
+                    {
+                        sell: Number(derivContractId),
+                        price: 0,
+                    },
+                    'sell',
+                    7000
+                );
+
+                if (response?.sell) {
+                    const soldFor = Number(response.sell.sold_for);
+                    const balanceAfter = Number(response.sell.balance_after);
+                    const transactionId = response.sell.transaction_id ?? null;
+
+                    if (Number.isFinite(balanceAfter)) {
+                        this.updateDerivAccountBalance(balanceAfter);
+                    }
+
+                    const currentContract = this.data?.contract;
+                    if (
+                        currentContract &&
+                        String(currentContract.contract_id) ===
+                            String(this.analyzerContractId || this.contractId || currentContract.contract_id)
+                    ) {
+                        this.data.contract = {
+                            ...currentContract,
+                            transaction_ids: {
+                                ...(currentContract.transaction_ids || {}),
+                                sell: transactionId ?? currentContract.transaction_ids?.sell ?? null,
+                            },
+                            payout: Number.isFinite(soldFor) ? soldFor : currentContract.payout,
+                            sell_price: Number.isFinite(soldFor) ? soldFor : currentContract.sell_price,
+                            bid_price: Number.isFinite(soldFor) ? soldFor : currentContract.bid_price,
+                            profit:
+                                Number.isFinite(soldFor) && Number.isFinite(Number(currentContract.buy_price))
+                                    ? soldFor - Number(currentContract.buy_price)
+                                    : currentContract.profit,
+                            deriv_contract_id: String(derivContractId),
+                            deriv_transaction_id:
+                                transactionId ??
+                                currentContract.deriv_transaction_id ??
+                                null,
+                            deriv_sell_transaction_id: transactionId,
+                            deriv_sell_price: Number.isFinite(soldFor) ? soldFor : null,
+                            deriv_balance_after_sell: Number.isFinite(balanceAfter) ? balanceAfter : null,
+                            financial_status: 'DERIV_SELL_CONFIRMED',
+                        };
+                        contract(this.data.contract);
+                    }
+
+                    globalObserver.setState({
+                        trapkid_analyzer: {
+                            ...(globalObserver.getState('trapkid_analyzer') || {}),
+                            derivContractId: String(derivContractId),
+                            derivTransactionId: transactionId ?? this.derivBuyTransactionId ?? null,
+                            derivSoldFor: Number.isFinite(soldFor) ? soldFor : null,
+                            realizedPayout: Number.isFinite(soldFor) ? soldFor : null,
+                            derivBalanceAfterSell: Number.isFinite(balanceAfter) ? balanceAfter : null,
+                            derivFinancialStatus: 'DERIV_SELL_CONFIRMED',
+                            payout: Number.isFinite(soldFor) ? soldFor : null,
+                            profit:
+                                Number.isFinite(soldFor) && Number.isFinite(Number(this.data?.contract?.buy_price))
+                                    ? soldFor - Number(this.data.contract.buy_price)
+                                    : null,
+                        },
+                    });
+
+                    globalObserver.emit(
+                        'ui.log',
+                        'TRAPKID DERIV FINANCIAL SELL → ' +
+                            String(derivContractId) +
+                            ' → sold_for=' +
+                            (Number.isFinite(soldFor) ? soldFor : '—') +
+                            ' → balance_after=' +
+                            (Number.isFinite(balanceAfter) ? balanceAfter : '—')
+                    );
+
+                    return {
+                        ...response.sell,
+                        contract_id: String(derivContractId),
+                        sold_for: Number.isFinite(soldFor) ? soldFor : null,
+                        balance_after: Number.isFinite(balanceAfter) ? balanceAfter : null,
+                        transaction_id: transactionId,
+                    };
+                }
+
+                // The contract may have expired before the Analyzer exit arrived.
+                // In that case, keep the existing read-only financial reconciliation
+                // as the fallback instead of fabricating a payout.
+                return this.settleAnalyzerDerivContract?.();
+            })();
+
+            return this.analyzerDerivSellPromise;
         };
 
         reconcileDerivClosedContract = async (derivContractId, attempts = 5) => {
