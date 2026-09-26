@@ -60,11 +60,24 @@ export default Engine =>
                 analyzerSignal?.sellPrice ??
                 analyzerSignal?.sell_price
             );
+            // Keep the authoritative Deriv buy payout visible immediately while
+            // the final financial settlement is still pending. The settlement
+            // promise will replace this with the final Deriv proceeds once closed.
+            const derivBuyPayout = Number(this.derivBuy?.payout);
+            const existingFinancialPayout = Number(
+                contract.payout ??
+                analyzerState?.analyzerPotentialPayout ??
+                analyzerState?.payout
+            );
             const payout = Number.isFinite(derivPayout)
                 ? derivPayout
-                : Number.isFinite(analyzerPayoutValue)
-                  ? analyzerPayoutValue
-                  : Number(contract.payout) || 0;
+                : Number.isFinite(derivBuyPayout) && derivBuyPayout >= 0
+                  ? derivBuyPayout
+                  : Number.isFinite(analyzerPayoutValue)
+                    ? analyzerPayoutValue
+                    : Number.isFinite(existingFinancialPayout)
+                      ? existingFinancialPayout
+                      : 0;
             const derivProfit = Number(derivSell?.profit);
             const finalProfit = Number.isFinite(derivProfit)
                 ? derivProfit
