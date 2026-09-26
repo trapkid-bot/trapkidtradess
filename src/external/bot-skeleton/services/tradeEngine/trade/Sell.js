@@ -56,12 +56,21 @@ export default Engine =>
                 analyzerSignal?.signalId
             );
 
+            const exitCode =
+                exit?.exitCode ||
+                analyzerState?.exit?.exitCode ||
+                analyzerSignal?.exitCode ||
+                null;
+            const exitDigit = Number(exit?.digit ?? analyzerState?.exit?.digit);
+            const settledAtMs = Number(exit?.epoch) > 0 ? Number(exit.epoch) * 1000 : Date.now();
+
             this.data.contract = {
                 ...contract,
+                id: contractId,
                 contract_id: contractId,
                 transaction_ids: {
                     ...(contract.transaction_ids || {}),
-                    sell: contract.transaction_ids?.sell || contractId,
+                    sell: exitCode || contractId,
                 },
                 analyzer_contract_id: contractId,
                 analyzer_entry_code:
@@ -69,21 +78,25 @@ export default Engine =>
                     analyzerSignal?.entryCode ||
                     analyzerSignal?.entry_code ||
                     analyzerSignal?.signalId,
-                analyzer_exit_code:
-                    exit?.exitCode ||
-                    analyzerState?.exit?.exitCode ||
-                    analyzerSignal?.exitCode ||
-                    null,
+                analyzer_exit_code: exitCode,
                 analyzer_entry_quote:
                     this.tradeOptions?.analyzerEntryQuote ??
                     analyzerSignal?.entryQuote ??
                     analyzerSignal?.entry_quote ??
                     analyzerSignal?.quote,
                 analyzer_exit_quote: Number.isFinite(exitQuoteValue) ? exitQuoteValue : null,
+                analyzer_exit_digit: Number.isInteger(exitDigit) ? exitDigit : null,
+                analyzer_exit_status: 'EARLY_SELL_READY',
                 sell_price: payout,
+                bid_price: Number.isFinite(exitQuoteValue) ? exitQuoteValue : payout,
+                profit: payout - stake,
+                exit_spot: Number.isFinite(exitQuoteValue) ? exitQuoteValue : null,
+                exit_tick: Number.isInteger(exitDigit) ? exitDigit : null,
+                exit_tick_time: Math.floor(settledAtMs / 1000),
                 status: 'sold',
                 is_sold: true,
                 is_expired: false,
+                is_settleable: false,
                 is_valid_to_sell: false,
             };
 
@@ -93,11 +106,14 @@ export default Engine =>
             this.contractId = '';
             this.updateTotals(this.data.contract);
 
+            // Publish the settled Analyzer contract so Summary and Transactions
+            // receive the exact exit code/quote/digit that closed this local contract.
             contractStatus({
                 id: 'contract.sold',
                 data: contractId,
                 contract: this.data.contract,
             });
+            globalObserver.emit('bot.contract', this.data.contract);
 
             globalObserver.setState({
                 trapkid_analyzer: {
