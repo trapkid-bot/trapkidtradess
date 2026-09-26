@@ -8,7 +8,8 @@ const TrapKidAnalyzerDock = () => {
     const [details, setDetails] = React.useState<any>(null);
     const [open, setOpen] = React.useState(false);
     const [pos, setPos] = React.useState({ x: 22, y: 120 });
-    const [lastSeen, setLastSeen] = React.useState<number | null>(null);\n    const drag = React.useRef<{ dx: number; dy: number } | null>(null);
+    const [lastSeen, setLastSeen] = React.useState<number | null>(null);
+    const drag = React.useRef<{ dx: number; dy: number } | null>(null);
     const analyzerSignalKeyRef = React.useRef<string | null>(null);
     const analyzerExitKeyRef = React.useRef<string | null>(null);
     const mountedAtRef = React.useRef(Date.now());
