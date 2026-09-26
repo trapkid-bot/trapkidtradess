@@ -189,9 +189,6 @@ export default Engine =>
                 // already-authorized exit immediately after contractId exists.
                 const postPurchaseState = globalObserver.getState('trapkid_analyzer') || {};
                 const pendingExit = postPurchaseState.pendingEarlyExit;
-                const purchasedSignalKey = this.analyzerSignal
-                    ? String(this.analyzerSignal.signalId) + ':' + String(this.analyzerSignal.lockedAt)
-                    : '';
                 const pendingMatches =
                     pendingExit?.status === 'EARLY_SELL_READY' &&
                     String(pendingExit.signalId || '') === String(this.analyzerSignal?.signalId || '') &&
