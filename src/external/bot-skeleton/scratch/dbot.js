@@ -20,6 +20,7 @@ class DBot {
         this.before_run_funcs = [];
         this.symbol = null;
         this.is_bot_running = false;
+        this.analyzerEngine = null;
     }
 
     /**
@@ -343,6 +344,7 @@ class DBot {
         // that are never needed for Analyzer-owned execution. Use a lightweight
         // TradeEngine directly so the normal site runtime is not duplicated.
         const tradeEngine = new TradeEngine({ observer: globalObserver });
+        this.analyzerEngine = tradeEngine;
 
         try {
             tradeEngine.init('ANALYZER', tradeOptions);
@@ -350,11 +352,13 @@ class DBot {
 
             Promise.resolve(tradeEngine.start(tradeOptions))
                 .then(() => {
+                    if (this.analyzerEngine === tradeEngine) this.analyzerEngine = null;
                     this.is_bot_running = false;
                     api_base.setIsRunning(false);
                     globalObserver.emit('bot.stop');
                 })
                 .catch(error => {
+                    if (this.analyzerEngine === tradeEngine) this.analyzerEngine = null;
                     this.is_bot_running = false;
                     api_base.setIsRunning(false);
                     globalObserver.emit('ui.log.error', error?.message || 'TRAPKID ANALYZER execution failed.');
@@ -476,18 +480,34 @@ class DBot {
     async stopBot() {
         if (api_base.is_stopping) return;
 
+        if (this.analyzerEngine) {
+            const engine = this.analyzerEngine;
+            this.analyzerEngine = null;
+            this.is_bot_running = false;
+            api_base.setIsRunning(false);
+            if (engine.resolveAnalyzerCycle) {
+                const resolve = engine.resolveAnalyzerCycle;
+                engine.resolveAnalyzerCycle = null;
+                resolve();
+            }
+            globalObserver.emit('ui.log', 'TRAPKID ANALYZER EXECUTION STOPPED');
+            globalObserver.emit('bot.stop');
+            return;
+        }
+
         api_base.setIsRunning(false);
 
-        await this.interpreter.stop();
-        this.is_bot_running = false;
-        this.interpreter = null;
-        this.interpreter = Interpreter();
-        if (!this.interpreter.bot.tradeEngine.analyzerOnly && typeof this.interpreter.bot.tradeEngine.watchTicks === 'function') {
-            await this.interpreter.bot.tradeEngine.watchTicks(this.symbol);
+        if (this.interpreter) {
+            await this.interpreter.stop();
+            this.is_bot_running = false;
+            this.interpreter = null;
+            this.interpreter = Interpreter();
+            if (!this.interpreter.bot.tradeEngine.analyzerOnly && typeof this.interpreter.bot.tradeEngine.watchTicks === 'function') {
+                await this.interpreter.bot.tradeEngine.watchTicks(this.symbol);
+            }
         }
         forgetAccumulatorsProposalRequest(this);
     }
-
     /**
      * Immediately instructs the interpreter to terminate the WS connection and bot.
      */
