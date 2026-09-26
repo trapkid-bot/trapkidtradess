@@ -2,11 +2,118 @@ import { LogTypes } from '../../../constants/messages';
 import { contract, contractStatus, info, log } from '../utils/broadcast';
 import { getUUID } from '../utils/helpers';
 import { observer as globalObserver } from '../../../utils/observer';
+import { api_base } from '../../api/api-base';
 
 let purchase_reference;
 
 export default Engine =>
     class Purchase extends Engine {
+        // Read-only Deriv pricing lookup. This never buys, sells, subscribes to
+        // ticks, or observes an open contract. It only fills the potential
+        // payout displayed for the Analyzer-owned local contract.
+        fetchAnalyzerPayoutQuote = signal => {
+            const api = api_base?.api;
+            if (!api || !signal?.symbol) return Promise.resolve(null);
+
+            const amount = Number(this.tradeOptions?.amount);
+            const duration = Number(this.tradeOptions?.duration);
+            const duration_unit = this.tradeOptions?.duration_unit || 't';
+            if (!Number.isFinite(amount) || amount <= 0) return Promise.resolve(null);
+            if (!Number.isFinite(duration) || duration <= 0) return Promise.resolve(null);
+            if (!Number.isInteger(Number(signal.hotDigit))) return Promise.resolve(null);
+
+            const req_id = Number(String(Date.now()).slice(-9));
+            const request = {
+                proposal: 1,
+                amount,
+                basis: this.tradeOptions?.basis || 'stake',
+                contract_type: 'DIGITMATCH',
+                currency: this.tradeOptions?.currency || 'USD',
+                duration,
+                duration_unit,
+                underlying_symbol: String(signal.symbol),
+                barrier: String(Number(signal.hotDigit)),
+                req_id,
+            };
+
+            return new Promise(resolve => {
+                let finished = false;
+                let timeout;
+
+                const finish = proposal => {
+                    if (finished) return;
+                    finished = true;
+                    if (timeout) clearTimeout(timeout);
+                    try {
+                        subscription?.unsubscribe?.();
+                    } catch {
+                        // Ignore cleanup errors; this is a best-effort read-only quote.
+                    }
+                    resolve(proposal || null);
+                };
+
+                let subscription;
+                try {
+                    subscription = api.onMessage().subscribe(({ data }) => {
+                        if (Number(data?.req_id) !== req_id || data?.msg_type !== 'proposal') return;
+                        if (data?.error) {
+                            finish(null);
+                            return;
+                        }
+                        finish(data?.proposal || null);
+                    });
+
+                    api.send(request);
+                    timeout = setTimeout(() => finish(null), 5000);
+                } catch {
+                    finish(null);
+                }
+            });
+        };
+
+        updateAnalyzerPayoutFromDeriv = (signal, contractId) => {
+            void this.fetchAnalyzerPayoutQuote(signal).then(proposal => {
+                const payout = Number(proposal?.payout);
+                if (!Number.isFinite(payout) || payout <= 0) return;
+
+                const currentContract = this.data?.contract;
+                if (
+                    !currentContract ||
+                    String(currentContract.contract_id) !== String(contractId) ||
+                    currentContract.is_sold
+                ) {
+                    return;
+                }
+
+                this.data.contract = {
+                    ...currentContract,
+                    payout,
+                    analyzer_payout_source: 'DERIV_PROPOSAL',
+                    analyzer_payout_quote_id: proposal?.id ?? null,
+                    analyzer_payout_ask_price: Number.isFinite(Number(proposal?.ask_price))
+                        ? Number(proposal.ask_price)
+                        : null,
+                };
+
+                globalObserver.setState({
+                    trapkid_analyzer: {
+                        ...(globalObserver.getState('trapkid_analyzer') || {}),
+                        analyzerPotentialPayout: payout,
+                        payout,
+                        payoutSource: 'DERIV_PROPOSAL',
+                    },
+                });
+
+                // Same local contract identity; this only refreshes the
+                // Summary/Transactions display with the read-only Deriv quote.
+                contract(this.data.contract);
+                globalObserver.emit(
+                    'ui.log',
+                    `TRAPKID ANALYZER PAYOUT QUOTE → ${payout}`
+                );
+            });
+        };
+
         purchase(contract_type) {
             const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
             const currentSignal = analyzerState?.signal;
@@ -390,6 +497,12 @@ export default Engine =>
                 'ui.log',
                 `TRAPKID ANALYZER CONTRACT OPEN → ${String(entryCode)} → quote=${Number.isFinite(entryQuote) ? entryQuote : '—'}`
             );
+
+            // Deriv is used here only as a read-only financial quote source.
+            // The Analyzer/local engine remains the sole execution and settlement
+            // authority. Do not await this request; entry/hold/exit must continue
+            // exactly as before even if Deriv is unavailable.
+            this.updateAnalyzerPayoutFromDeriv(signal, contractId);
 
             const postEntryState = globalObserver.getState('trapkid_analyzer') || {};
             const pendingExit = postEntryState.pendingEarlyExit;
