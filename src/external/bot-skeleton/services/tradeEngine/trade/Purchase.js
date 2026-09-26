@@ -22,13 +22,13 @@ export default Engine =>
 
             if (analyzerMode) {
                 const analyzerStateGate = globalObserver.getState('trapkid_analyzer') || {};
-                // Hard execution gate: Analyze only locks data. Run arms the
-                // cycle, and EARLY_SELL_READY is the only event allowed to
-                // reach purchase().
+                // Analyzer entry is authorized by the execution trigger, not
+                // by a transient UI/status label. The Analyzer bridge may move
+                // the status to WAITING_FOR_ANALYZER_EXIT while the proposal is
+                // still arriving; that must never cancel the already-authorized BUY.
                 if (
                     analyzerStateGate.executionArmed !== true ||
-                    !['ANALYZER_ENTRY', 'EARLY_SELL_READY'].includes(String(analyzerStateGate.executionTrigger || '')) ||
-                    !['ANALYZER_PURCHASE_AUTHORIZED', 'EARLY_EXIT_COMMAND_RECEIVED'].includes(String(analyzerStateGate.status || ''))
+                    !['ANALYZER_ENTRY', 'EARLY_SELL_READY'].includes(String(analyzerStateGate.executionTrigger || ''))
                 ) {
                     return Promise.resolve();
                 }
@@ -183,11 +183,46 @@ export default Engine =>
                 });
                 globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
-                // EARLY_SELL_READY was the entry trigger. The purchased
-                // DIGITMATCH is intentionally left to Deriv's one-tick
-                // settlement; do not start an exit watcher here.
+                // EARLY_SELL_READY is an EXIT event, never an entry event.
+                // If Analyzer emitted it while the proposal/buy was still in
+                // flight, the exit handler stores it as pending. Execute that
+                // already-authorized exit immediately after contractId exists.
+                const postPurchaseState = globalObserver.getState('trapkid_analyzer') || {};
+                const pendingExit = postPurchaseState.pendingEarlyExit;
+                const purchasedSignalKey = this.analyzerSignal
+                    ? String(this.analyzerSignal.signalId) + ':' + String(this.analyzerSignal.lockedAt)
+                    : '';
+                const pendingMatches =
+                    pendingExit?.status === 'EARLY_SELL_READY' &&
+                    String(pendingExit.signalId || '') === String(this.analyzerSignal?.signalId || '') &&
+                    Number(pendingExit.digit) === Number(this.analyzerSignal?.hotDigit);
 
                 this.store.dispatch(purchaseSuccessful());
+
+                if (pendingMatches && this.contractId && !this.isSold) {
+                    globalObserver.setState({
+                        trapkid_analyzer: {
+                            ...(globalObserver.getState('trapkid_analyzer') || {}),
+                            status: 'EARLY_EXIT_COMMAND_RECEIVED',
+                            signal: this.analyzerSignal,
+                            signalId: this.analyzerSignal?.signalId,
+                            commandKey: purchasedSignalKey,
+                            symbol: this.analyzerSignal?.symbol,
+                            prediction: Number(this.analyzerSignal?.hotDigit),
+                            hotDigit: Number(this.analyzerSignal?.hotDigit),
+                            entrySource: 'ANALYZER_ONLY',
+                            exitSource: 'ANALYZER_EARLY_SELL_ONLY',
+                            executionTrigger: 'EARLY_SELL_READY',
+                            holdUntilAnalyzerExit: false,
+                            executionArmed: true,
+                            pendingEarlyExit: null,
+                        },
+                    });
+                    globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
+                    void this.sellAtMarket('ANALYZER_EARLY_SELL').catch(error => {
+                        globalObserver.emit('ui.log.error', error?.message || 'Analyzer early sell failed.');
+                    });
+                }
 
                 if (this.is_proposal_subscription_required) {
                     this.renewProposalsOnPurchase();
