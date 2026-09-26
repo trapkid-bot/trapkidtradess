@@ -301,12 +301,34 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
                             globalObserver.emit('ui.log.error', error?.message || 'Analyzer entry purchase failed.');
                         });
                     } else {
-                        void this.watch('before').then(ready => {
-                            if (!ready) return;
-                            return this.purchase('DIGITMATCH');
-                        }).catch(error => {
-                            globalObserver.emit('ui.log.error', error?.message || 'Analyzer proposal purchase failed.');
-                        });
+                        // Proposal responses can arrive before the legacy watcher
+                        // subscribes. Check the current Redux state first so an
+                        // already-ready Analyzer proposal can never be missed.
+                        const purchaseWhenReady = () => {
+                            const state = this.store.getState();
+                            if (state.proposalsReady) {
+                                void this.purchase('DIGITMATCH').catch(error => {
+                                    globalObserver.emit(
+                                        'ui.log.error',
+                                        error?.message || 'Analyzer proposal purchase failed.'
+                                    );
+                                });
+                                return true;
+                            }
+                            return false;
+                        };
+
+                        if (!purchaseWhenReady()) {
+                            void this.watch('before').then(ready => {
+                                if (!ready) return;
+                                return this.purchase('DIGITMATCH');
+                            }).catch(error => {
+                                globalObserver.emit(
+                                    'ui.log.error',
+                                    error?.message || 'Analyzer proposal purchase failed.'
+                                );
+                            });
+                        }
                     }
                     return undefined;
                 })
