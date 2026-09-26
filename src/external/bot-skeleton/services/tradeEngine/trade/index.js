@@ -163,8 +163,15 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             analyzerState.purchaseConsumedKey === commandKey ||
             this.analyzerPurchaseKey === commandKey;
 
-        if (!analyzerPurchaseBound || analyzerState.purchaseInFlightKey) {
-            return;
+        // EARLY_SELL_READY is authoritative once the local Analyzer contract
+        // exists. Do not let a stale purchase-in-flight flag block settlement.
+        // The contract was already opened from this exact signal, so READY
+        // must immediately close that existing contract.
+        if (!analyzerPurchaseBound) {
+            const contractSignalKey = this.analyzerCommandKey ||
+                this.tradeOptions?.analyzerCommandKey ||
+                String(this.analyzerSignal?.signalId || '') + ':' + String(this.analyzerSignal?.lockedAt || '');
+            if (contractSignalKey !== commandKey) return;
         }
 
         // The contract is already open. EARLY_SELL_READY now closes that
