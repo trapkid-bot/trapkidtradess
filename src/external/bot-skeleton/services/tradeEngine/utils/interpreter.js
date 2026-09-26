@@ -78,7 +78,12 @@ const Interpreter = () => {
             func(...function_args.map(arg => js_interpreter.pseudoToNative(arg)))
                 .then(rv => {
                     callback(js_interpreter.nativeToPseudo(rv));
-                    loop();
+                    // Analyzer-only compatibility methods can resolve immediately.
+                    // Never recurse into the interpreter in the same microtask;
+                    // yielding to the browser prevents Analyze from freezing the UI.
+                    setTimeout(() => {
+                        if (!$scope.stopped) loop();
+                    }, 0);
                 })
                 .catch(e => {
                     // e.error for errors get from API, e for code errors
