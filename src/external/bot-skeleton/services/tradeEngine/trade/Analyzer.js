@@ -92,6 +92,18 @@ export default Engine =>
             };
         }
 
+        async waitForAnalyzerSignal(timeoutMs = 10000) {
+            const startedAt = Date.now();
+            while (Date.now() - startedAt < timeoutMs) {
+                const signal = this.getExternalAnalyzerSignal();
+                if (signal?.signalId && Number.isInteger(signal.hotDigit) && signal.symbol) {
+                    return signal;
+                }
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            return null;
+        }
+
         async prepareAnalyzerPrediction() {
             if (!this.isAnalyzerEnabledForTrade()) return null;
 
