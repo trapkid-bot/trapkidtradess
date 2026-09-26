@@ -47,6 +47,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         if (
             ![
                 'WAITING_FOR_ANALYZER_EXIT',
+                'WATCHING_ANALYZER_HOT_DIGIT',
                 'COMMAND_RECEIVED',
                 'COMMAND_ACCEPTED',
                 'ANALYZER_DATA_BOUND',
