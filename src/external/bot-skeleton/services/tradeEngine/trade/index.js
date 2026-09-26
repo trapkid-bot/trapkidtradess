@@ -3,66 +3,17 @@ import { thunk } from 'redux-thunk';
 import { getLocalizedErrorMessage } from '@/constants/backend-error-messages';
 import { createError } from '../../../utils/error';
 import { observer as globalObserver } from '../../../utils/observer';
-import { checkBlocksForProposalRequest, doUntilDone } from '../utils/helpers';
 import { expectInitArg } from '../utils/sanitize';
-import { proposalsReady, start } from './state/actions';
-import * as constants from './state/constants';
+import { expectInitArg } from '../utils/sanitize';
+import { start } from './state/actions';
 import rootReducer from './state/reducers';
 import Balance from './Balance';
-import OpenContract from './OpenContract';
-import Proposal from './Proposal';
 import Purchase from './Purchase';
 import Sell from './Sell';
-import Ticks from './Ticks';
 import Total from './Total';
 import Analyzer from './Analyzer';
 
-const watchBefore = store =>
-    watchScope({
-        store,
-        stopScope: constants.DURING_PURCHASE,
-        passScope: constants.BEFORE_PURCHASE,
-        passFlag: 'proposalsReady',
-    });
-
-const watchDuring = store =>
-    watchScope({
-        store,
-        stopScope: constants.STOP,
-        passScope: constants.DURING_PURCHASE,
-        passFlag: 'openContract',
-    });
-
-/* The watchScope function is called randomly and resets the prevTick
- * which leads to the same problem we try to solve. So prevTick is isolated
- */
-let prevTick;
-const watchScope = ({ store, stopScope, passScope, passFlag }) => {
-    // in case watch is called after stop is fired
-    if (store.getState().scope === stopScope) {
-        return Promise.resolve(false);
-    }
-    return new Promise(resolve => {
-        const unsubscribe = store.subscribe(() => {
-            const newState = store.getState();
-
-            if (newState.newTick === prevTick) return;
-            prevTick = newState.newTick;
-
-            if (newState.scope === passScope && newState[passFlag]) {
-                unsubscribe();
-                resolve(true);
-            }
-
-            if (newState.scope === stopScope) {
-                unsubscribe();
-                resolve(false);
-            }
-        });
-    });
-};
-
-export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Proposal(Analyzer(Ticks(Total(class {})))))))) {
+export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(class {}))))) {
     constructor($scope) {
         super();
         this.observer = $scope.observer;
@@ -285,17 +236,6 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
 
         const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
         const analyzerSignal = analyzerState?.signal;
-        const analyzerCommandKey =
-            analyzerSignal?.signalId && Number.isFinite(Number(analyzerSignal?.lockedAt))
-                ? String(analyzerSignal.signalId) + ':' + String(analyzerSignal.lockedAt)
-                : '';
-        const analyzerCommandActive =
-            !!analyzerSignal?.signalId &&
-            String(analyzerState.commandKey || '') === analyzerCommandKey &&
-            ['COMMAND_RECEIVED', 'COMMAND_ACCEPTED', 'ANALYZER_EXECUTION', 'ANALYZER_DATA_BOUND', 'ANALYZER_TRADE_LOCKED'].includes(
-                String(analyzerState.status || '')
-            );
-
         {
             this.prepareAnalyzerPrediction()
                 .then(() => {
@@ -342,7 +282,6 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
                     // Analyzer-controlled entry. Analyzer already supplies the
                     // exact symbol, DIGITMATCH type and hotDigit.
                     this.is_proposal_subscription_required = false;
-                    this.store.dispatch(proposalsReady());
 
                     void this.purchase('DIGITMATCH').catch(error => {
                         globalObserver.emit(
@@ -366,22 +305,4 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         // execution/settlement authority for the complete trade lifecycle.
     }
 
-    watch(watchName) {
-        if (watchName === 'before') {
-            return watchBefore(this.store);
-        }
-        return watchDuring(this.store);
-    }
-
-    makeDirectPurchaseDecision() {
-        const { has_payout_block, is_basis_payout } = checkBlocksForProposalRequest();
-        this.is_proposal_subscription_required = has_payout_block || is_basis_payout;
-
-        if (this.is_proposal_subscription_required) {
-            this.makeProposals({ ...this.options, ...this.tradeOptions });
-            this.checkProposalReady();
-        } else {
-            this.store.dispatch(proposalsReady());
-        }
-    }
 }
