@@ -15,6 +15,7 @@ const getAnalyzerTradeDuration = trade_option => {
             'COMMAND_ACCEPTED',
             'COMMAND_RECEIVED',
             'ANALYZER_DATA_BOUND',
+            'WAITING_FOR_ANALYZER_EXIT',
             'ANALYZER_EXECUTION',
             'ANALYZER_TRADE_LOCKED',
             'ANALYZER_PURCHASE_AUTHORIZED',
