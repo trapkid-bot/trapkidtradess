@@ -260,7 +260,13 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
         const analyzerSignal = analyzerState?.signal;
         {
-            this.prepareAnalyzerPrediction()
+            this.waitForAnalyzerSignal?.(10000)
+                .then(signal => {
+                    if (!signal) {
+                        throw new Error('TrapKid Analyzer: waiting for a fresh locked signal timed out.');
+                    }
+                    return this.prepareAnalyzerPrediction();
+                })
                 .then(() => {
                     const analyzerSignal = this.analyzerSignal || globalObserver.getState('trapkid_analyzer')?.signal;
                     if (!analyzerSignal?.signalId) {
