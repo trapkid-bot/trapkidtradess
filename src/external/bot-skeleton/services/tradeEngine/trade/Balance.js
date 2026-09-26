@@ -1,34 +1,23 @@
 import { getFormattedText } from '@/components/shared';
-import DBotStore from '../../../scratch/dbot-store';
-import { api_base } from '../../api/api-base';
 import { info } from '../utils/broadcast';
+import { observer as globalObserver } from '../../../utils/observer';
 
 let balance_string = '';
 
 export default Engine =>
     class Balance extends Engine {
         observeBalance() {
-            if (!api_base.api) return;
-            const subscription = api_base.api.onMessage().subscribe(({ data }) => {
-                if (data?.msg_type === 'balance' && data?.balance) {
-                    const {
-                        balance: { balance: b, currency },
-                    } = data;
-
-                    balance_string = getFormattedText(b, currency);
-
-                    if (this.accountInfo) info({ accountID: this.accountInfo.loginid, balance: balance_string });
-                }
-            });
-            api_base.pushSubscription(subscription);
+            // Analyzer-only: balance is local Analyzer state, never a Deriv
+            // balance subscription.
         }
 
         // eslint-disable-next-line class-methods-use-this
         getBalance(type) {
-            const { client } = DBotStore.instance;
-            const balance = (client && client.balance) || 0;
+            const state = globalObserver.getState('trapkid_analyzer') || {};
+            const balance = Number(state.analyzerBalance ?? state.balance ?? 0);
+            const currency = state.currency || 'USD';
 
-            balance_string = getFormattedText(balance, client.currency, false);
+            balance_string = getFormattedText(balance, currency, false);
             return type === 'STR' ? balance_string : balance;
         }
     };
