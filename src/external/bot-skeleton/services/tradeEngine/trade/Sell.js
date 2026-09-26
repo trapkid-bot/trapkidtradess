@@ -24,20 +24,10 @@ export default Engine =>
                 );
 
             if (analyzerActive) {
-                const exit = this.getAnalyzerExit?.();
-
-                // Analyzer is the only authority allowed to close this contract.
-                if (
-                    source !== 'ANALYZER_EARLY_EXIT' ||
-                    !exit ||
-                    String(exit.signalId) !== String(analyzerSignal.signalId) ||
-                    !Number.isInteger(Number(exit.digit)) ||
-                    Number(exit.digit) < 0 ||
-                    Number(exit.digit) > 9 ||
-                    Number(exit.digit) !== Number(analyzerSignal.hotDigit)
-                ) {
-                    return Promise.resolve();
-                }
+                // Analyzer execution is entry-gated. After the one-tick
+                // contract is purchased, no Builder/manual/Analyzer sell
+                // path is allowed to close it early.
+                return Promise.resolve();
             }
 
             globalObserver.emit('bot.sell');
