@@ -3,7 +3,6 @@ import { thunk } from 'redux-thunk';
 import { getLocalizedErrorMessage } from '@/constants/backend-error-messages';
 import { createError } from '../../../utils/error';
 import { observer as globalObserver } from '../../../utils/observer';
-import { api_base } from '../../api/api-base';
 import { checkBlocksForProposalRequest, doUntilDone } from '../utils/helpers';
 import { expectInitArg } from '../utils/sanitize';
 import { proposalsReady, start } from './state/actions';
@@ -68,6 +67,10 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         super();
         this.observer = $scope.observer;
         this.$scope = $scope;
+        // Analyzer-only engine: no Deriv subscriptions, account login, proposal
+        // polling, open-contract polling, or broker settlement callbacks.
+        this.analyzerOnly = true;
+        this.accountInfo = { loginid: 'ANALYZER', currency: 'USD' };
         this.observe();
         this.data = {
             contract: {},
@@ -248,12 +251,14 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
     };
 
     init(...args) {
-        const [token, options] = expectInitArg(args);
+        const [, options] = expectInitArg(args);
         const { symbol } = options;
 
         this.initArgs = args;
         this.options = options;
-        this.startPromise = this.loginAndGetBalance(token);
+        // The execution engine is intentionally independent of Deriv.
+        // Analyzer supplies the signal, contract identity and settlement.
+        this.startPromise = Promise.resolve();
 
         if (!this.checkTicksPromiseExists()) this.watchTicks(symbol);
     }
@@ -356,44 +361,9 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         this.makeDirectPurchaseDecision();
     }
 
-    loginAndGetBalance(token) {
-        if (this.token === token) {
-            return Promise.resolve();
-        }
-        // for strategies using total runs, GetTotalRuns function is trying to get loginid and it gets called before Proposals calls.
-        // the below required loginid to be set in Proposal calls where loginAndGetBalance gets resolved.
-        // Earlier this used to happen as soon as we get ticks_history response and by the time GetTotalRuns gets called we have required info.
-        this.accountInfo = api_base.account_info;
-        this.token = api_base.token;
-        return new Promise(resolve => {
-            // Try to recover from a situation where API doesn't give us a correct response on
-            // "proposal_open_contract" which would make the bot run forever. When there's a "sell"
-            // event, wait a couple seconds for the API to give us the correct "proposal_open_contract"
-            // response, if there's none after x seconds. Send an explicit request, which _should_
-            // solve the issue. This is a backup!
-            const subscription = api_base.api.onMessage().subscribe(({ data }) => {
-                if (data.msg_type === 'transaction' && data.transaction.action === 'sell') {
-                    this.transaction_recovery_timeout = setTimeout(() => {
-                        const { contract } = this.data;
-                        const is_same_contract = contract.contract_id === data.transaction.contract_id;
-                        const is_open_contract = contract.status === 'open';
-                        if (is_same_contract && is_open_contract) {
-                            doUntilDone(() => {
-                                api_base.api.send({ proposal_open_contract: 1, contract_id: contract.contract_id });
-                            }, ['PriceMoved']);
-                        }
-                    }, 1500);
-                }
-                resolve();
-            });
-            api_base.pushSubscription(subscription);
-        });
-    }
-
     observe() {
-        this.observeOpenContract();
-        this.observeBalance();
-        this.observeProposals();
+        // No Deriv observers in Analyzer-only mode. The Analyzer is the
+        // execution/settlement authority for the complete trade lifecycle.
     }
 
     watch(watchName) {
