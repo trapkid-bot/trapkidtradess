@@ -185,6 +185,34 @@ const ContractCardBody = ({
                         <Money currency={currency} amount={payout} />
                     </ContractCardItem>
                 </div>
+
+                {(contract_info as any)?.analyzer_source === 'ANALYZER_ONLY' && (
+                    <div
+                        className='dc-contract-card-items-wrapper'
+                        style={{ marginTop: 8 }}
+                        data-testid='tk-analyzer-contract-details'
+                    >
+                        <ContractCardItem header='ENTRY CODE'>
+                            <span style={{ fontSize: 11, wordBreak: 'break-all' }}>
+                                {(contract_info as any)?.analyzer_entry_code || '—'}
+                            </span>
+                        </ContractCardItem>
+                        <ContractCardItem header='ENTRY QUOTE'>
+                            <span>{(contract_info as any)?.analyzer_entry_quote ?? '—'}</span>
+                        </ContractCardItem>
+                        <ContractCardItem header='EXIT CODE'>
+                            <span style={{ fontSize: 11, wordBreak: 'break-all' }}>
+                                {(contract_info as any)?.analyzer_exit_code || 'WAITING'}
+                            </span>
+                        </ContractCardItem>
+                        <ContractCardItem header='EXIT QUOTE'>
+                            <span>{(contract_info as any)?.analyzer_exit_quote ?? 'WAITING'}</span>
+                        </ContractCardItem>
+                        <ContractCardItem header='EXIT DIGIT'>
+                            <span>{(contract_info as any)?.analyzer_exit_digit ?? 'WAITING'}</span>
+                        </ContractCardItem>
+                    </div>
+                )}
                 <MobileWrapper>
                     <div className='dc-contract-card__status'>
                         {is_sold ? (
