@@ -2,6 +2,7 @@ import { LogTypes } from '../../../constants/messages';
 import { contract, contractStatus, info, log } from '../utils/broadcast';
 import { getUUID } from '../utils/helpers';
 import { observer as globalObserver } from '../../../utils/observer';
+import { api_base } from '../../api/api-base';
 
 let purchase_reference;
 
@@ -10,11 +11,11 @@ export default Engine =>
         // Read-only Deriv pricing lookup. This never buys, sells, subscribes to
         // ticks, or observes an open contract. It only fills the potential
         // payout displayed for the Analyzer-owned local contract.
-        fetchAnalyzerPayoutQuote = async signal        // Read-only Deriv pricing lookup. This uses a dedicated public
+        // Read-only Deriv pricing lookup. This uses a dedicated public
         // proposal socket so payout quoting cannot depend on or interfere with
         // the Analyzer execution/settlement lifecycle.
-        fetchAnalyzerPayoutQuote = async signal => {
-            if (!signal?.symbol) return null;
+        fetchAnalyzerPayoutQuote = signal => {
+            if (!signal?.symbol) return Promise.resolve(null);
 
             const amount = Number(this.tradeOptions?.amount);
             const duration = Number(this.tradeOptions?.duration);
@@ -22,9 +23,9 @@ export default Engine =>
             const currency = this.tradeOptions?.currency || 'USD';
             const hotDigit = Number(signal?.hotDigit);
 
-            if (!Number.isFinite(amount) || amount <= 0) return null;
-            if (!Number.isFinite(duration) || duration <= 0) return null;
-            if (!Number.isInteger(hotDigit) || hotDigit < 0 || hotDigit > 9) return null;
+            if (!Number.isFinite(amount) || amount <= 0) return Promise.resolve(null);
+            if (!Number.isFinite(duration) || duration <= 0) return Promise.resolve(null);
+            if (!Number.isInteger(hotDigit) || hotDigit < 0 || hotDigit > 9) return Promise.resolve(null);
 
             const request = {
                 proposal: 1,
@@ -89,7 +90,7 @@ export default Engine =>
                 }
             });
         };
-, contractId) => {
+        updateAnalyzerPayoutFromDeriv = (signal, contractId) => {
             void this.fetchAnalyzerPayoutQuote(signal).then(proposal => {
                 const payout = Number(proposal?.payout);
                 if (!Number.isFinite(payout) || payout <= 0) return;
@@ -97,7 +98,8 @@ export default Engine =>
                 const currentContract = this.data?.contract;
                 if (
                     !currentContract ||
-                    String(currentContract.contract_id) !== String(contractId)
+                    String(currentContract.contract_id) !== String(contractId) ||
+                    currentContract.is_sold
                 ) {
                     return;
                 }
