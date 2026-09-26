@@ -30,6 +30,11 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         this.is_proposal_requested_for_accumulators = false;
         globalObserver.register('trapkid.analyzer.exit', this.onAnalyzerEarlyExit);
         this.store = createStore(rootReducer, applyMiddleware(thunk));
+        // Keep Analyze running while the Analyzer-owned local contract is open.
+        // The cycle resolves only after Analyzer emits EARLY_SELL_READY and the
+        // local Analyzer settlement completes.
+        this.analyzerCyclePromise = Promise.resolve();
+        this.resolveAnalyzerCycle = null;
     }
 
     onAnalyzerEarlyExit = async command => {
@@ -197,9 +202,17 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
         if (this.contractId && !this.isSold) {
-            void this.sellAtMarket('ANALYZER_EARLY_SELL').catch(error => {
-                globalObserver.emit('ui.log.error', error?.message || 'Analyzer early sell failed.');
-            });
+            void this.sellAtMarket('ANALYZER_EARLY_SELL')
+                .then(() => {
+                    if (this.resolveAnalyzerCycle) {
+                        const resolve = this.resolveAnalyzerCycle;
+                        this.resolveAnalyzerCycle = null;
+                        resolve();
+                    }
+                })
+                .catch(error => {
+                    globalObserver.emit('ui.log.error', error?.message || 'Analyzer early sell failed.');
+                });
         }
     };
 
@@ -232,6 +245,13 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         this.tradeOptions = {
             ...validated_trade_options,
         };
+
+        // A new Analyze click starts a fresh Analyzer-owned execution cycle.
+        // Do not let the Blockly program finish immediately after the local BUY;
+        // it must remain active until Analyzer supplies the exit signal.
+        this.analyzerCyclePromise = new Promise(resolve => {
+            this.resolveAnalyzerCycle = resolve;
+        });
 
         this.store.dispatch(start());
         this.checkLimits(validated_trade_options);
@@ -285,13 +305,35 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                     // exact symbol, DIGITMATCH type and hotDigit.
                     this.is_proposal_subscription_required = false;
 
-                    void this.purchase('DIGITMATCH').catch(error => {
-                        globalObserver.emit(
-                            'ui.log.error',
-                            error?.message || 'Analyzer entry purchase failed.'
-                        );
-                    });
-                    return undefined;
+                    return this.purchase('DIGITMATCH')
+                        .then(() => {
+                            const stateAfterPurchase = globalObserver.getState('trapkid_analyzer') || {};
+                            const pendingExit = stateAfterPurchase.pendingEarlyExit;
+
+                            // If Analyzer emitted EARLY_SELL_READY while the local
+                            // contract was being created, consume that exact exit
+                            // immediately after the contract becomes open.
+                            if (pendingExit?.status === 'EARLY_SELL_READY') {
+                                return this.onAnalyzerEarlyExit({
+                                    signalId: analyzerSignal.signalId,
+                                    exit: pendingExit,
+                                });
+                            }
+
+                            // Keep Analyze active until Analyzer settles the contract.
+                            return this.analyzerCyclePromise;
+                        })
+                        .catch(error => {
+                            globalObserver.emit(
+                                'ui.log.error',
+                                error?.message || 'Analyzer entry purchase failed.'
+                            );
+                            if (this.resolveAnalyzerCycle) {
+                                const resolve = this.resolveAnalyzerCycle;
+                                this.resolveAnalyzerCycle = null;
+                                resolve();
+                            }
+                        });
                 })
                 .catch(error => {
                     globalObserver.emit('ui.log.error', error?.message || 'TrapKid analyzer failed to prepare a prediction.');
