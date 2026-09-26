@@ -568,13 +568,6 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         return Promise.resolve(value);
     }
 
-    watch(watchName) {
-        // Blockly's legacy watch() is an execution-control hook. Analyzer-only
-        // mode has no Deriv contract/tick observer to watch, so keep the hook
-        // asynchronous without reintroducing Deriv lifecycle handling.
-        return Promise.resolve(watchName);
-    }
-
     observe() {
         // No Deriv observers in Analyzer-only mode. The Analyzer is the
         // execution/settlement authority for the complete trade lifecycle.
