@@ -298,36 +298,55 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
                     if (!this.is_proposal_subscription_required) {
                         this.store.dispatch(proposalsReady());
                         void this.purchase('DIGITMATCH').catch(error => {
-                            globalObserver.emit('ui.log.error', error?.message || 'Analyzer entry purchase failed.');
+                            globalObserver.emit(
+                                'ui.log.error',
+                                error?.message || 'Analyzer entry purchase failed.'
+                            );
                         });
                     } else {
-                        // Proposal responses can arrive before the legacy watcher
-                        // subscribes. Check the current Redux state first so an
-                        // already-ready Analyzer proposal can never be missed.
-                        const purchaseWhenReady = () => {
-                            const state = this.store.getState();
-                            if (state.proposalsReady) {
-                                void this.purchase('DIGITMATCH').catch(error => {
-                                    globalObserver.emit(
-                                        'ui.log.error',
-                                        error?.message || 'Analyzer proposal purchase failed.'
-                                    );
-                                });
-                                return true;
-                            }
-                            return false;
-                        };
+                        // Analyzer entry is proposal-driven, not tick-watcher-driven.
+                        // Wait for the actual DIGITMATCH proposal requested from the
+                        // locked Analyzer signal, then BUY it immediately.
+                        const purchaseAnalyzerWhenReady = () => {
+                            const signal =
+                                this.analyzerSignal ||
+                                globalObserver.getState('trapkid_analyzer')?.signal;
+                            const purchaseReference = this.getPurchaseReference?.();
+                            const proposals = Array.isArray(this.data?.proposals)
+                                ? this.data.proposals
+                                : [];
 
-                        if (!purchaseWhenReady()) {
-                            void this.watch('before').then(ready => {
-                                if (!ready) return;
-                                return this.purchase('DIGITMATCH');
-                            }).catch(error => {
+                            const proposalReady =
+                                !!purchaseReference &&
+                                proposals.some(
+                                    proposal =>
+                                        proposal?.purchase_reference === purchaseReference &&
+                                        proposal?.contract_type === 'DIGITMATCH'
+                                );
+
+                            if (!signal?.signalId || !proposalReady) return false;
+
+                            void this.purchase('DIGITMATCH').catch(error => {
                                 globalObserver.emit(
                                     'ui.log.error',
                                     error?.message || 'Analyzer proposal purchase failed.'
                                 );
                             });
+                            return true;
+                        };
+
+                        // Proposal replies are asynchronous. Poll the actual proposal
+                        // cache so a proposal that arrives before any Redux/tick watcher
+                        // can never be missed.
+                        if (!purchaseAnalyzerWhenReady()) {
+                            let attempts = 0;
+                            const timer = setInterval(() => {
+                                attempts += 1;
+
+                                if (purchaseAnalyzerWhenReady() || attempts >= 200) {
+                                    clearInterval(timer);
+                                }
+                            }, 50);
                         }
                     }
                     return undefined;
