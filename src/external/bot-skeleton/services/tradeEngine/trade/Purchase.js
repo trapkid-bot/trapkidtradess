@@ -284,6 +284,68 @@ export default Engine =>
             return this.analyzerDerivBuyPromise;
         };
 
+        reconcileDerivClosedContract = async (derivContractId, attempts = 5) => {
+            const contractId = String(derivContractId || '');
+            if (!contractId) return null;
+
+            const maxAttempts = Math.max(1, Number(attempts) || 1);
+            for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+                const response = await this.requestAnalyzerDeriv(
+                    {
+                        profit_table: 1,
+                        contract_type: ['DIGITMATCH'],
+                        limit: 50,
+                        sort: 'DESC',
+                    },
+                    'profit_table',
+                    5000
+                );
+
+                if (!response?.error) {
+                    const transactions = response?.profit_table?.transactions || [];
+                    const match = transactions.find(transaction =>
+                        String(
+                            transaction?.contract_id ??
+                            transaction?.id ??
+                            ''
+                        ) === contractId
+                    );
+
+                    if (match) {
+                        const finalPayout = Number(
+                            match.sell_price ??
+                            match.payout
+                        );
+                        const buyPrice = Number(match.buy_price);
+                        const profit = Number(match.profit);
+
+                        globalObserver.emit(
+                            'ui.log',
+                            'TRAPKID DERIV FINANCIAL RECONCILIATION → ' +
+                                contractId +
+                                ' → payout=' +
+                                (Number.isFinite(finalPayout) ? finalPayout : '—')
+                        );
+
+                        return {
+                            ...match,
+                            contract_id: contractId,
+                            sold_for: Number.isFinite(finalPayout) ? finalPayout : null,
+                            transaction_id: match.transaction_id ?? null,
+                            buy_price: Number.isFinite(buyPrice) ? buyPrice : null,
+                            profit: Number.isFinite(profit) ? profit : null,
+                        };
+                    }
+                }
+
+                if (attempt < maxAttempts - 1) {
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+            }
+
+            return null;
+        };
+
         settleAnalyzerDerivContract = async () => {
             if (this.analyzerDerivSellPromise) return this.analyzerDerivSellPromise;
 
@@ -307,12 +369,101 @@ export default Engine =>
                         'TRAPKID DERIV FINANCIAL SELL → ' +
                             (response.error.message || response.error.code || 'rejected')
                     );
+
+                    const reconciled = await this.reconcileDerivClosedContract(derivContractId);
+                    if (reconciled) {
+                        const reconciledPayout = Number(reconciled.sold_for);
+                        const currentContract = this.data?.contract;
+                        if (
+                            currentContract &&
+                            String(currentContract.contract_id) === String(this.analyzerContractId || this.contractId || currentContract.contract_id)
+                        ) {
+                            this.data.contract = {
+                                ...currentContract,
+                                payout: Number.isFinite(reconciledPayout) ? reconciledPayout : currentContract.payout,
+                                sell_price: Number.isFinite(reconciledPayout) ? reconciledPayout : currentContract.sell_price,
+                                bid_price: Number.isFinite(reconciledPayout) ? reconciledPayout : currentContract.bid_price,
+                                buy_price: Number.isFinite(Number(reconciled.buy_price))
+                                    ? Number(reconciled.buy_price)
+                                    : currentContract.buy_price,
+                                profit: Number.isFinite(Number(reconciled.profit))
+                                    ? Number(reconciled.profit)
+                                    : currentContract.profit,
+                                deriv_contract_id: String(derivContractId),
+                                deriv_sell_transaction_id: reconciled.transaction_id ?? currentContract.deriv_sell_transaction_id ?? null,
+                                deriv_sell_price: Number.isFinite(reconciledPayout) ? reconciledPayout : null,
+                                financial_status: 'DERIV_SETTLEMENT_RECONCILED',
+                            };
+                            contract(this.data.contract);
+                        }
+
+                        globalObserver.setState({
+                            trapkid_analyzer: {
+                                ...(globalObserver.getState('trapkid_analyzer') || {}),
+                                derivContractId: String(derivContractId),
+                                derivTransactionId: reconciled.transaction_id ?? null,
+                                derivSoldFor: Number.isFinite(reconciledPayout) ? reconciledPayout : null,
+                                derivFinancialStatus: 'DERIV_SETTLEMENT_RECONCILED',
+                                realizedPayout: Number.isFinite(reconciledPayout) ? reconciledPayout : null,
+                                payout: Number.isFinite(reconciledPayout) ? reconciledPayout : null,
+                                profit: Number.isFinite(Number(reconciled.profit)) ? Number(reconciled.profit) : null,
+                            },
+                        });
+
+                        void this.refreshDerivAccountBalance(3);
+                        return reconciled;
+                    }
+
                     void this.refreshDerivAccountBalance(3);
                     return null;
                 }
 
                 const sold = response?.sell;
                 if (!sold?.contract_id) {
+                    const reconciled = await this.reconcileDerivClosedContract(derivContractId);
+                    if (reconciled) {
+                        const reconciledPayout = Number(reconciled.sold_for);
+                        const currentContract = this.data?.contract;
+                        if (
+                            currentContract &&
+                            String(currentContract.contract_id) === String(this.analyzerContractId || this.contractId || currentContract.contract_id)
+                        ) {
+                            this.data.contract = {
+                                ...currentContract,
+                                payout: Number.isFinite(reconciledPayout) ? reconciledPayout : currentContract.payout,
+                                sell_price: Number.isFinite(reconciledPayout) ? reconciledPayout : currentContract.sell_price,
+                                bid_price: Number.isFinite(reconciledPayout) ? reconciledPayout : currentContract.bid_price,
+                                buy_price: Number.isFinite(Number(reconciled.buy_price))
+                                    ? Number(reconciled.buy_price)
+                                    : currentContract.buy_price,
+                                profit: Number.isFinite(Number(reconciled.profit))
+                                    ? Number(reconciled.profit)
+                                    : currentContract.profit,
+                                deriv_contract_id: String(derivContractId),
+                                deriv_sell_transaction_id: reconciled.transaction_id ?? currentContract.deriv_sell_transaction_id ?? null,
+                                deriv_sell_price: Number.isFinite(reconciledPayout) ? reconciledPayout : null,
+                                financial_status: 'DERIV_SETTLEMENT_RECONCILED',
+                            };
+                            contract(this.data.contract);
+                        }
+
+                        globalObserver.setState({
+                            trapkid_analyzer: {
+                                ...(globalObserver.getState('trapkid_analyzer') || {}),
+                                derivContractId: String(derivContractId),
+                                derivTransactionId: reconciled.transaction_id ?? null,
+                                derivSoldFor: Number.isFinite(reconciledPayout) ? reconciledPayout : null,
+                                derivFinancialStatus: 'DERIV_SETTLEMENT_RECONCILED',
+                                realizedPayout: Number.isFinite(reconciledPayout) ? reconciledPayout : null,
+                                payout: Number.isFinite(reconciledPayout) ? reconciledPayout : null,
+                                profit: Number.isFinite(Number(reconciled.profit)) ? Number(reconciled.profit) : null,
+                            },
+                        });
+
+                        void this.refreshDerivAccountBalance(3);
+                        return reconciled;
+                    }
+
                     void this.refreshDerivAccountBalance(3);
                     return null;
                 }
