@@ -1,15 +1,14 @@
 import React from 'react';
 import { observer as globalObserver } from '@/external/bot-skeleton/utils/observer';
 
-const DEFAULT_ANALYZER_API = (process.env.NEXT_PUBLIC_ANALYZER_API_URL || process.env.PUBLIC_ANALYZER_URL || process.env.ANALYZER_URL || 'https://advised-winners-stamps-absorption.trycloudflare.com').trim();
+const ANALYZER_API = (process.env.NEXT_PUBLIC_ANALYZER_API_URL || process.env.ANALYZER_URL || 'https://advised-winners-stamps-absorption.trycloudflare.com').trim();
 const LINK_VERSION = 'ANALYZER-DBOT-BRIDGE-01';
 
 const TrapKidAnalyzerDock = () => {
     const [details, setDetails] = React.useState<any>(null);
     const [open, setOpen] = React.useState(false);
     const [pos, setPos] = React.useState({ x: 22, y: 120 });
-    const [lastSeen, setLastSeen] = React.useState<number | null>(null);\n    const [analyzerApi, setAnalyzerApi] = React.useState<string>(() => {\n        try { return localStorage.getItem('trapkid.analyzer.url') || DEFAULT_ANALYZER_API; } catch { return DEFAULT_ANALYZER_API; }\n    });\n    const [connectAttempt, setConnectAttempt] = React.useState(0);
-    const drag = React.useRef<{ dx: number; dy: number } | null>(null);
+    const [lastSeen, setLastSeen] = React.useState<number | null>(null);\n    const drag = React.useRef<{ dx: number; dy: number } | null>(null);
     const analyzerSignalKeyRef = React.useRef<string | null>(null);
     const analyzerExitKeyRef = React.useRef<string | null>(null);
     const mountedAtRef = React.useRef(Date.now());
@@ -22,7 +21,7 @@ const TrapKidAnalyzerDock = () => {
             if (cancelled || polling) return;
             polling = true;
             try {
-                const res = await fetch(analyzerApi + '/api/status?client=dbot&t=' + Date.now(), {
+                const res = await fetch(ANALYZER_API + '/api/status?client=global-link&t=' + Date.now(), {
                     cache: 'no-store',
                     headers: { Accept: 'application/json' },
                 });
@@ -247,7 +246,7 @@ const TrapKidAnalyzerDock = () => {
 
                     <div className='tk-analyzer-global-url'>
                         <b>LINK {LINK_VERSION}</b><br />
-                        {analyzerApi}/api/status
+                        {ANALYZER_API}/api/status
                     </div>
 
                     <div className='tk-analyzer-global-grid'>
