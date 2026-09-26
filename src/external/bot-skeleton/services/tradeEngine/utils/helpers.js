@@ -89,6 +89,19 @@ export const tradeOptionToBuy = (contract_type, trade_option) => {
             ...getAnalyzerTradeDuration({ ...trade_option, contractTypes: [contract_type] }),
             multiplier: trade_option.multiplier,
             underlying_symbol: trade_option.symbol,
+            // Preserve the Analyzer command identity on the actual Deriv BUY
+            // request so the executed contract is traceable to the exact
+            // Analyzer signal. This is metadata only; it does not replace
+            // Deriv's own contract/transaction ID.
+            ...(trade_option.analyzerSignalId || trade_option.analyzerCommandKey
+                ? {
+                    passthrough: {
+                        trapkid_source: 'ANALYZER_ONLY',
+                        signal_id: trade_option.analyzerSignalId,
+                        command_key: trade_option.analyzerCommandKey,
+                    },
+                }
+                : {}),
         },
     };
     if (trade_option.prediction !== undefined) {
