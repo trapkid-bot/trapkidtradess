@@ -3,6 +3,7 @@ import { config } from '../constants/config';
 import { api_base } from '../services/api/api-base';
 import ApiHelpers from '../services/api/api-helpers';
 import Interpreter from '../services/tradeEngine/utils/interpreter';
+import TradeEngine from '../services/tradeEngine/trade';
 import { compareXml, observer as globalObserver } from '../utils';
 import { getSavedWorkspaces, saveWorkspaceToRecent } from '../utils/local-storage';
 import { isDbotRTL } from '../utils/workspace';
@@ -337,11 +338,11 @@ class DBot {
         this.is_bot_running = true;
         api_base.setIsRunning(true);
 
-        // Create a clean Analyzer-only TradeEngine instance, but DO NOT run
-        // Blockly's generated infinite loop. TradeEngine.start owns the whole
-        // lifecycle and returns only after Analyzer settlement.
-        this.interpreter = Interpreter();
-        const tradeEngine = this.interpreter.bot.tradeEngine;
+        // Analyzer trades do not need the Blockly interpreter or its TicksService.
+        // Creating those objects on every Analyzer run adds API message listeners
+        // that are never needed for Analyzer-owned execution. Use a lightweight
+        // TradeEngine directly so the normal site runtime is not duplicated.
+        const tradeEngine = new TradeEngine({ observer: globalObserver });
 
         try {
             tradeEngine.init('ANALYZER', tradeOptions);
