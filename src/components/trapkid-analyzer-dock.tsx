@@ -8,7 +8,7 @@ const TrapKidAnalyzerDock = () => {
     const [details, setDetails] = React.useState<any>(null);
     const [analyzerApi, setAnalyzerApi] = React.useState(() => {
         try {
-            return (window.localStorage.getItem('trapkid_analyzer_url') || ANALYZER_API).replace(/\\/$/, '');
+            return (window.localStorage.getItem('trapkid_analyzer_url') || ANALYZER_API).replace(/\/$/, '');
         } catch {
             return ANALYZER_API;
         }
