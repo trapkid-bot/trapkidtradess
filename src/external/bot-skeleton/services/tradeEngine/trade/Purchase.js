@@ -230,7 +230,7 @@ export default Engine =>
                     status: 'WAITING_FOR_ANALYZER_EXIT',
                     signal,
                     signalId: signal.signalId,
-                    commandKey: analyzerCommandKey,
+                    commandKey: this.analyzerCommandKey,
                     purchaseInFlightKey: null,
                     purchaseConsumedKey: analyzerCommandKey,
                     executionArmed: true,
