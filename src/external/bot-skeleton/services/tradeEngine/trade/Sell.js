@@ -1,4 +1,4 @@
-import { contractStatus, log } from '../utils/broadcast';
+import { contractStatus } from '../utils/broadcast';
 import { sell } from './state/actions';
 import { observer as globalObserver } from '../../../utils/observer';
 
@@ -30,6 +30,7 @@ export default Engine =>
             const exit = this.getAnalyzerExit?.();
             const contract = this.data?.contract || {};
             const stake = Number(contract.buy_price ?? this.tradeOptions?.amount ?? 0);
+
             const payoutValue = Number(
                 exit?.payout ??
                 exit?.sellPrice ??
@@ -42,6 +43,7 @@ export default Engine =>
                 analyzerSignal?.sell_price
             );
             const payout = Number.isFinite(payoutValue) ? payoutValue : stake;
+
             const exitQuoteValue = Number(exit?.quote ?? analyzerState?.exit?.quote);
             const contractId = String(
                 this.analyzerContractId ||
@@ -131,6 +133,5 @@ export default Engine =>
 
             this.store.dispatch(sell());
             return Promise.resolve();
-        }
         }
     };
