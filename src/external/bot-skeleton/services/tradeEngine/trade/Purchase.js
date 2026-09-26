@@ -232,7 +232,7 @@ export default Engine =>
                     signalId: signal.signalId,
                     commandKey: this.analyzerCommandKey,
                     purchaseInFlightKey: null,
-                    purchaseConsumedKey: analyzerCommandKey,
+                    purchaseConsumedKey: this.analyzerCommandKey,
                     executionArmed: true,
                     executionTrigger: 'ANALYZER_ENTRY',
                     holdUntilAnalyzerExit: true,
