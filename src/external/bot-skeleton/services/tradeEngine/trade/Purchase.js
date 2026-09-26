@@ -143,9 +143,23 @@ export default Engine =>
                 // Hot digit is the sole canonical Analyzer prediction.
                 this.tradeOptions.prediction = signal.hotDigit;
                 this.tradeOptions.symbol = signal.symbol;
-                // Carry the exact Analyzer identity into the actual BUY request.
+                // Analyzer owns the complete execution identity. Preserve its
+                // entry/contract metadata instead of generating a new DBot
+                // identity or replacing Analyzer's quote/code.
                 this.tradeOptions.analyzerSignalId = String(signal.signalId);
                 this.tradeOptions.analyzerCommandKey = analyzerSignalKey;
+                this.tradeOptions.analyzerContractId =
+                    signal.contractId ?? signal.contract_id ?? signal.analyzerContractId ?? String(signal.signalId);
+                this.tradeOptions.analyzerEntryCode =
+                    signal.entryCode ?? signal.entry_code ?? signal.signalId;
+                this.tradeOptions.analyzerEntryQuote =
+                    signal.entryQuote ?? signal.entry_quote ?? signal.quote;
+                this.tradeOptions.analyzerLockedQuote =
+                    signal.lockedQuote ?? signal.locked_quote ?? signal.quote;
+                if (Number.isFinite(Number(signal.duration)) && Number(signal.duration) > 0) {
+                    this.tradeOptions.duration = Number(signal.duration);
+                    this.tradeOptions.duration_unit = signal.duration_unit || signal.durationUnit || 't';
+                }
 
                 globalObserver.setState({
                     trapkid_analyzer: {
