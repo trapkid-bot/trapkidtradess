@@ -79,10 +79,27 @@ const TrapKidAnalyzerDock = () => {
                             'EARLY_EXIT_EXECUTING',
                         ].includes(String(currentAnalyzerState.status || ''));
 
+                    // Keep the global observer intentionally small. The Analyzer
+                    // endpoint can contain hundreds of ticks/history items; copying that
+                    // payload into the application-wide observer every poll causes heavy
+                    // garbage collection and UI stalls. Full data stays in local details.
                     const mergedAnalyzerState = {
                         ...currentAnalyzerState,
-                        ...data,
-                        ...(isNewSignal || initialSignalIsFresh ? { exit: null } : {}),
+                        ok: data?.ok,
+                        connected: Boolean(data?.connected),
+                        connecting: Boolean(data?.connecting),
+                        historyLoaded: Boolean(data?.historyLoaded),
+                        symbol: data?.symbol || signal?.symbol || currentAnalyzerState.symbol || null,
+                        serverTime: data?.serverTime,
+                        currency: data?.currency || currentAnalyzerState.currency || 'USD',
+                        balance: data?.balance ?? currentAnalyzerState.balance,
+                        analyzerBalance: data?.analyzerBalance ?? currentAnalyzerState.analyzerBalance,
+                        lastTick: data?.lastTick || currentAnalyzerState.lastTick || null,
+                        analysis: data?.analysis || currentAnalyzerState.analysis || null,
+                        signal: signal || null,
+                        exit: (isNewSignal || initialSignalIsFresh)
+                            ? null
+                            : data?.exit || currentAnalyzerState.exit || null,
                         status: preservedCommandStatus
                             ? currentAnalyzerState.status
                             : signalKey
