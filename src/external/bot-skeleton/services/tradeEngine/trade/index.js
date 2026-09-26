@@ -260,7 +260,8 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         // Analyzer supplies the signal, contract identity and settlement.
         this.startPromise = Promise.resolve();
 
-        if (!this.checkTicksPromiseExists()) this.watchTicks(symbol);
+        // Analyzer supplies market/ticks/signals. Do not start the DBot
+        // Deriv tick monitor.
     }
 
     start(tradeOptions) {
@@ -295,7 +296,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
                 String(analyzerState.status || '')
             );
 
-        if (analyzerCommandActive || this.isAnalyzerEnabledForTrade(this.tradeOptions)) {
+        {
             this.prepareAnalyzerPrediction()
                 .then(() => {
                     const analyzerSignal = this.analyzerSignal || globalObserver.getState('trapkid_analyzer')?.signal;
@@ -358,7 +359,6 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
             return;
         }
 
-        this.makeDirectPurchaseDecision();
     }
 
     observe() {
