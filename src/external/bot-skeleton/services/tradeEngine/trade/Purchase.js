@@ -462,7 +462,12 @@ export default Engine =>
                             match.payout
                         );
                         const buyPrice = Number(match.buy_price);
-                        const profit = Number(match.profit);
+                        const reportedProfit = Number(match.profit);
+                        const profit = Number.isFinite(reportedProfit)
+                            ? reportedProfit
+                            : Number.isFinite(finalPayout) && Number.isFinite(buyPrice)
+                              ? finalPayout - buyPrice
+                              : NaN;
 
                         globalObserver.emit(
                             'ui.log',
