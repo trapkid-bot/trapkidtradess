@@ -102,16 +102,15 @@ export default Engine =>
                 this.analyzerCommandKey =
                     String(signal.signalId) + ':' + String(signal.lockedAt);
 
-                const analyzerSignalKey =
-                    String(signal.signalId) + ':' + String(signal.lockedAt);
                 const currentAnalyzerState = globalObserver.getState('trapkid_analyzer') || {};
+                const analyzerCommandKey = this.analyzerCommandKey;
 
                 // One Analyzer signal can create exactly one contract.
                 // Keep this guard in shared observer state so it survives
                 // engine/restart callbacks.
                 if (
-                    currentAnalyzerState.purchaseConsumedKey === analyzerSignalKey ||
-                    currentAnalyzerState.purchaseInFlightKey === analyzerSignalKey
+                    currentAnalyzerState.purchaseConsumedKey === analyzerCommandKey ||
+                    currentAnalyzerState.purchaseInFlightKey === analyzerCommandKey
                 ) {
                     return Promise.resolve();
                 }
@@ -125,8 +124,8 @@ export default Engine =>
                         status: 'ANALYZER_EXECUTION',
                         signal,
                         signalId: signal.signalId,
-                        commandKey: analyzerSignalKey,
-                        purchaseInFlightKey: analyzerSignalKey,
+                        commandKey: analyzerCommandKey,
+                        purchaseInFlightKey: analyzerCommandKey,
                         entryPrediction: signal.prediction,
                         entrySource: 'ANALYZER_ONLY',
                         exitSource: 'ANALYZER_EARLY_SELL_ONLY',
@@ -143,7 +142,7 @@ export default Engine =>
                 // entry/contract metadata instead of generating a new DBot
                 // identity or replacing Analyzer's quote/code.
                 this.tradeOptions.analyzerSignalId = String(signal.signalId);
-                this.tradeOptions.analyzerCommandKey = analyzerSignalKey;
+                this.tradeOptions.analyzerCommandKey = analyzerCommandKey;
                 this.tradeOptions.analyzerContractId =
                     signal.contractId ?? signal.contract_id ?? signal.analyzerContractId ?? String(signal.signalId);
                 this.tradeOptions.analyzerEntryCode =
@@ -231,9 +230,9 @@ export default Engine =>
                     status: 'WAITING_FOR_ANALYZER_EXIT',
                     signal,
                     signalId: signal.signalId,
-                    commandKey: analyzerSignalKey,
+                    commandKey: analyzerCommandKey,
                     purchaseInFlightKey: null,
-                    purchaseConsumedKey: analyzerSignalKey,
+                    purchaseConsumedKey: analyzerCommandKey,
                     executionArmed: true,
                     executionTrigger: 'ANALYZER_ENTRY',
                     holdUntilAnalyzerExit: true,
