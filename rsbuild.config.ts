@@ -46,7 +46,7 @@ export default defineConfig({
         NEXT_PUBLIC_APP_BUILD: JSON.stringify(process.env.NEXT_PUBLIC_APP_BUILD ?? ''),
         // Analyzer URLs are embedded into the static browser bundle at build time.
         NEXT_PUBLIC_ANALYZER_WS_URL: JSON.stringify(analyzerWsUrl),
-        NEXT_PUBLIC_ANALYZER_API_URL: JSON.stringify(analyzerApiUrl),
+        NEXT_PUBLIC_ANALYZER_API_URL: JSON.stringify(analyzerApiUrl),\n        PUBLIC_ANALYZER_URL: JSON.stringify(process.env.PUBLIC_ANALYZER_URL ?? analyzerApiUrl),\n        ANALYZER_URL: JSON.stringify(process.env.ANALYZER_URL ?? analyzerApiUrl),
         GD_CLIENT_ID: JSON.stringify(process.env.GD_CLIENT_ID),
         GD_APP_ID: JSON.stringify(process.env.GD_APP_ID),
         GD_API_KEY: JSON.stringify(process.env.GD_API_KEY),
