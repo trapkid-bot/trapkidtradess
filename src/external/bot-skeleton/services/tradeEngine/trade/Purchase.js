@@ -197,7 +197,11 @@ export default Engine =>
                     buy,
                 });
 
+                // Keep Deriv's returned contract handle only as the transport
+                // handle needed to close the already-authorized position.
+                // Analyzer remains the logical contract/entry identity.
                 this.contractId = buy.contract_id;
+                this.derivContractId = buy.contract_id;
 
                 if (this.analyzerSignal) {
                     this.analyzerPurchaseKey =
@@ -216,7 +220,10 @@ export default Engine =>
                         signalId: this.analyzerSignal?.signalId,
                         commandKey: this.analyzerCommandKey,
                         entryPrediction: this.tradeOptions.prediction,
-                        lockedQuote: this.analyzerSignal?.lockedQuote,
+                        analyzerContractId: this.tradeOptions.analyzerContractId || this.analyzerSignal?.contractId || this.analyzerSignal?.contract_id || this.analyzerSignal?.signalId,
+                        analyzerEntryCode: this.tradeOptions.analyzerEntryCode || this.analyzerSignal?.entryCode || this.analyzerSignal?.entry_code || this.analyzerSignal?.signalId,
+                        analyzerEntryQuote: this.tradeOptions.analyzerEntryQuote || this.analyzerSignal?.entryQuote || this.analyzerSignal?.entry_quote || this.analyzerSignal?.quote,
+                        lockedQuote: this.tradeOptions.analyzerLockedQuote || this.analyzerSignal?.lockedQuote,
                         entrySource: 'ANALYZER_ONLY',
                         exitSource: 'ANALYZER_EARLY_SELL_ONLY',
                         executionTrigger: null,
