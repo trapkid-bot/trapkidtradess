@@ -103,7 +103,10 @@ export const tradeOptionToBuy = (contract_type, trade_option) => {
             }
             : {}),
     };
-    if (trade_option.prediction !== undefined) {
+    // DIGITMATCH uses the Analyzer digit as the barrier. Do not send
+    // selected_tick on this contract type; Deriv validates it as a
+    // different contract parameter and rejects the BUY.
+    if (!['TICKLOW', 'TICKHIGH', 'DIGITMATCH'].includes(contract_type) && trade_option.prediction !== undefined) {
         buy.parameters.selected_tick = trade_option.prediction;
     }
     if (!['TICKLOW', 'TICKHIGH'].includes(contract_type) && trade_option.prediction !== undefined) {
