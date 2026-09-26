@@ -57,6 +57,8 @@ const TrapKidAnalyzerDock = () => {
                             'COMMAND_RECEIVED',
                             'COMMAND_ACCEPTED',
                             'RUNNING',
+                            'WAITING_FOR_ANALYZER_EXIT',
+                            'ANALYZER_EXECUTION',
                             'ANALYZER_DATA_BOUND',
                             'ANALYZER_PURCHASE_BOUND',
                             'EARLY_EXIT_COMMAND_RECEIVED',
