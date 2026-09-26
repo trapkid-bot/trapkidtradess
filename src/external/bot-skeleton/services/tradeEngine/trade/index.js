@@ -98,8 +98,25 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
                 'WAITING_FOR_ANALYZER_EXIT_DIGIT',
             ].includes(String(analyzerState.status || ''))
         ) return;
-        if (analyzerState.executionArmed !== true) return;
         const signal = this.analyzerSignal || analyzerState.signal;
+        const boundSignalKey =
+            signal?.signalId && Number.isFinite(Number(signal?.lockedAt))
+                ? String(signal.signalId) + ':' + String(signal.lockedAt)
+                : '';
+        const boundAnalyzerExit =
+            !!boundSignalKey &&
+            String(analyzerState.commandKey || '') === boundSignalKey &&
+            (
+                analyzerState.executionArmed === true ||
+                analyzerState.purchaseConsumedKey === boundSignalKey ||
+                analyzerState.purchaseInFlightKey === boundSignalKey ||
+                this.analyzerPurchaseKey === boundSignalKey
+            );
+
+        // Once the exact Analyzer signal is bound to this contract, the
+        // Analyzer exit event remains authoritative even if a UI/state refresh
+        // dropped executionArmed. Builder execution rules must not block it.
+        if (!boundAnalyzerExit) return;
         const commandSignalId = String(command?.signalId || command?.signal?.signalId || '');
         const activeSignalId = String(signal?.signalId || '');
 
@@ -163,10 +180,11 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
             globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
             return;
         }
-        if (
-            analyzerState.purchaseConsumedKey !== commandKey ||
-            analyzerState.purchaseInFlightKey
-        ) {
+        const analyzerPurchaseBound =
+            analyzerState.purchaseConsumedKey === commandKey ||
+            this.analyzerPurchaseKey === commandKey;
+
+        if (!analyzerPurchaseBound || analyzerState.purchaseInFlightKey) {
             return;
         }
 
