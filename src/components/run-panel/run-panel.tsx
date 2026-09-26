@@ -114,12 +114,14 @@ const TrapKidAnalyzerStatus = () => {
             style={{
                 margin: '8px 12px',
                 padding: '10px 12px',
-                borderRadius: 8,
-                background: 'var(--general-section-1)',
-                border: '1px solid var(--general-section-3)',
+                borderRadius: 10,
+                background: 'rgba(18, 28, 38, 0.98)',
+                border: '2px solid #18d9a8',
+                boxShadow: '0 0 0 1px rgba(24, 217, 168, 0.22), 0 8px 24px rgba(0, 0, 0, 0.28)',
+                color: '#f5f8fb',
             }}
         >
-            <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 4 }}>TRAPKID ANALYZER → DBOT</div>
+            <div style={{ fontSize: 13, fontWeight: 800, marginBottom: 6, color: '#5ff0c4', letterSpacing: 0.3 }}>TRAPKID ANALYZER → DBOT</div>
             <div style={{ fontSize: 12 }}>
                 <strong>{statusText}</strong>
             </div>
@@ -138,10 +140,13 @@ const TrapKidAnalyzerStatus = () => {
                 Entry source: <strong>{state.signal?.signalId ? 'ANALYZER ONLY' : 'BLOCKED — NO ANALYZER SIGNAL'}</strong>
             </div>
             <div style={{ fontSize: 11, marginTop: 3 }}>
-                Exit: <strong>{state.exit?.status || state.signal?.exitStatus || 'WAITING FOR ANALYZER EARLY EXIT'}</strong>
+                Locked quote: <strong>{state.lockedQuote ?? state.signal?.lockedQuote ?? '—'}</strong>
+            </div>
+            <div style={{ fontSize: 11, marginTop: 3 }}>
+                Exit: <strong>{state.exit?.status || 'WAITING FOR ANALYZER EARLY EXIT'}</strong>
                 {' · '}Hot digit: <strong>{state.hotDigit ?? state.signal?.hotDigit ?? '—'}</strong>
             </div>
-            <div style={{ fontSize: 10, marginTop: 3, opacity: 0.7 }}>
+            <div style={{ fontSize: 10, marginTop: 5, color: '#cbd5e1', opacity: 0.95 }}>
                 {state.signal?.signalId
                     ? (state.exit?.status === 'EARLY_SELL_READY'
                         ? 'Analyzer exit signal is ready — waiting for Analyzer-controlled exit'
