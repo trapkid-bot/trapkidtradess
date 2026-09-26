@@ -1,14 +1,14 @@
 import React from 'react';
 import { observer as globalObserver } from '@/external/bot-skeleton/utils/observer';
 
-const ANALYZER_API = (process.env.NEXT_PUBLIC_ANALYZER_API_URL || process.env.ANALYZER_URL || 'https://advised-winners-stamps-absorption.trycloudflare.com').trim();
+const ANALYZER_API = (process.env.ANALYZER_URL || process.env.NEXT_PUBLIC_ANALYZER_API_URL || 'https://advised-winners-stamps-absorption.trycloudflare.com').trim();
 const LINK_VERSION = 'ANALYZER-DBOT-BRIDGE-01';
 
 const TrapKidAnalyzerDock = () => {
     const [details, setDetails] = React.useState<any>(null);
     const [analyzerApi, setAnalyzerApi] = React.useState(() => {
         try {
-            return (window.localStorage.getItem('trapkid_analyzer_url') || ANALYZER_API).replace(/\/$/, '');
+            const saved = window.localStorage.getItem('trapkid_analyzer_url') || '';\n            const legacy = /thesis-quality-remote-rendered\\.trycloudflare\\.com/i.test(saved);\n            return (!legacy && saved ? saved : ANALYZER_API).replace(/\\/$/, '');
         } catch {
             return ANALYZER_API;
         }
