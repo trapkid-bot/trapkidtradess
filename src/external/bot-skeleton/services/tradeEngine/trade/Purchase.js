@@ -143,6 +143,9 @@ export default Engine =>
                 // Hot digit is the sole canonical Analyzer prediction.
                 this.tradeOptions.prediction = signal.hotDigit;
                 this.tradeOptions.symbol = signal.symbol;
+                // Carry the exact Analyzer identity into the actual BUY request.
+                this.tradeOptions.analyzerSignalId = String(signal.signalId);
+                this.tradeOptions.analyzerCommandKey = analyzerSignalKey;
 
                 globalObserver.setState({
                     trapkid_analyzer: {
