@@ -1,9 +1,9 @@
 import { getLocalizedErrorMessage } from '@/constants/backend-error-messages';
 import { LogTypes } from '../../../constants/messages';
-import { api_base } from '../../api/api-base';
 import { contractStatus, log } from '../utils/broadcast';
 import { doUntilDone, recoverFromError } from '../utils/helpers';
 import { DURING_PURCHASE } from './state/constants';
+import { sell } from './state/actions';
 import { observer as globalObserver } from '../../../utils/observer';
 
 export default Engine =>
@@ -52,97 +52,116 @@ export default Engine =>
                 return Promise.resolve();
             }
 
-            let delay_index = 1;
+            // Analyzer-only settlement: no Deriv SELL request, no broker
+            // contract lookup, and no broker expiry/settlement state.
+            if (analyzerEarlySell && analyzerActive) {
+                const signal = analyzerSignal;
+                const exit = this.getAnalyzerExit?.();
+                const contract = this.data?.contract || {};
+                const stake = Number(contract.buy_price ?? this.tradeOptions?.amount ?? 0);
+                const analyzerPayout = Number(
+                    exit?.payout ??
+                    exit?.sellPrice ??
+                    exit?.sell_price ??
+                    analyzerState?.exit?.payout ??
+                    analyzerState?.exit?.sellPrice ??
+                    analyzerState?.exit?.sell_price ??
+                    signal?.payout ??
+                    signal?.sellPrice ??
+                    signal?.sell_price
+                );
+                const payout = Number.isFinite(analyzerPayout) ? analyzerPayout : stake;
+                const exitQuote = Number(exit?.quote ?? analyzerState?.exit?.quote);
+                const soldFor = payout;
+                const contractId =
+                    String(
+                        this.analyzerContractId ||
+                        this.tradeOptions?.analyzerContractId ||
+                        signal?.contractId ||
+                        signal?.contract_id ||
+                        this.contractId ||
+                        signal?.entryCode ||
+                        signal?.signalId
+                    );
 
-            return new Promise(resolve => {
-                const onContractSold = sell_response => {
-                    delay_index = 1;
-
-                    if (sell_response) {
-                        const { sold_for } = sell_response.sell;
-                        log(LogTypes.SELL, { sold_for });
-                    }
-
-                    contractStatus('purchase.sold');
-                    this.waitForAfter();
-                    resolve();
+                this.data.contract = {
+                    ...contract,
+                    contract_id: contractId,
+                    transaction_ids: {
+                        ...(contract.transaction_ids || {}),
+                        buy: contract.transaction_ids?.buy || String(
+                            this.tradeOptions?.analyzerEntryCode || signal?.entryCode || signal?.signalId
+                        ),
+                        sell: contract.transaction_ids?.sell || contractId,
+                    },
+                    analyzer_contract_id: contractId,
+                    analyzer_entry_code:
+                        this.tradeOptions?.analyzerEntryCode ||
+                        signal?.entryCode ||
+                        signal?.entry_code ||
+                        signal?.signalId,
+                    analyzer_exit_code:
+                        exit?.exitCode ||
+                        analyzerState?.exit?.exitCode ||
+                        signal?.exitCode ||
+                        null,
+                    analyzer_entry_quote:
+                        this.tradeOptions?.analyzerEntryQuote ??
+                        signal?.entryQuote ??
+                        signal?.entry_quote ??
+                        signal?.quote,
+                    analyzer_exit_quote: Number.isFinite(exitQuote) ? exitQuote : null,
+                    sell_price: soldFor,
+                    status: 'sold',
+                    is_sold: true,
+                    is_expired: false,
+                    is_valid_to_sell: false,
                 };
 
-                const contract_id = this.contractId;
+                this.isSold = true;
+                this.isExpired = false;
+                this.isSellAvailable = false;
+                this.contractId = '';
+                this.updateTotals(this.data.contract);
+                contractStatus({
+                    id: 'contract.sold',
+                    data: this.data.contract.transaction_ids.sell,
+                    contract: this.data.contract,
+                });
 
-                const sellContractAndGetContractInfo = () => {
-                    return doUntilDone(() => api_base.api.send({ sell: contract_id, price: 0 }))
-                        .then(sell_response => {
-                            doUntilDone(() => api_base.api.send({ proposal_open_contract: 1, contract_id })).then(
-                                () => sell_response
-                            );
-                        })
-                        .catch(e => {
-                            const error = e.error;
-                            if (error.code === 'InvalidOfferings') {
-                                // "InvalidOfferings" may occur when user tries to sell the contract too close
-                                // to the expiry time. We shouldn't interrupt the bot but instead let the contract
-                                // finish.
-                                return Promise.resolve();
-                            }
+                globalObserver.setState({
+                    trapkid_analyzer: {
+                        ...analyzerState,
+                        status: 'ANALYZER_SETTLED',
+                        signal,
+                        signalId: signal?.signalId,
+                        commandKey: analyzerState.commandKey,
+                        executionTrigger: 'ANALYZER_SETTLED',
+                        holdUntilAnalyzerExit: false,
+                        settlementSource: 'ANALYZER',
+                        analyzerContractId: contractId,
+                        analyzerEntryCode: this.data.contract.analyzer_entry_code,
+                        analyzerExitCode: this.data.contract.analyzer_exit_code,
+                        analyzerEntryQuote: this.data.contract.analyzer_entry_quote,
+                        analyzerExitQuote: this.data.contract.analyzer_exit_quote,
+                        payout: soldFor,
+                        profit: soldFor - stake,
+                        exit: exit || analyzerState.exit,
+                    },
+                });
+                globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
+                globalObserver.emit('ui.log', `TRAPKID ANALYZER SETTLED → ${contractId} → payout=${soldFor}`);
 
-                            const sell_error = {
-                                name: error.code,
-                                message: getLocalizedErrorMessage(error.code, error.details),
-                                msg_type: e.msg_type,
-                                error: { ...error.error },
-                            };
-
-                            if (error.code === 'RateLimit') {
-                                return Promise.reject(sell_error);
-                            }
-
-                            // For every other error, check whether the contract is not actually already sold.
-                            return doUntilDone(() =>
-                                api_base.api.send({
-                                    proposal_open_contract: 1,
-                                    contract_id,
-                                })
-                            ).then(proposal_open_contract_response => {
-                                const { proposal_open_contract } = proposal_open_contract_response;
-
-                                if (!proposal_open_contract.is_sold) {
-                                    return Promise.reject(sell_error);
-                                }
-
-                                // If the contract is sold at this point it means there was a race condition.
-                                // Pretend this sell request was successful and mislead the trade engine into
-                                // moving onto the next scope.
-                                return Promise.resolve({
-                                    sell: {
-                                        sold_for: proposal_open_contract.sell_price,
-                                    },
-                                });
-                            });
-                        });
-                };
-
-                const errors_to_ignore = ['NoOpenPosition', 'InvalidSellContractProposal', 'UnrecognisedRequest'];
-
-                // Restart buy/sell on error is enabled, don't recover from sell error.
-                if (!this.options.timeMachineEnabled) {
-                    // eslint-disable-next-line no-promise-executor-return
-                    return doUntilDone(sellContractAndGetContractInfo, errors_to_ignore)
-                        .then(sell_response => onContractSold(sell_response))
-                        .catch(error => error);
+                if (this.afterPromise) {
+                    this.afterPromise();
+                    this.afterPromise = null;
                 }
+                this.store.dispatch(sell());
+                this.waitForAfter = () => Promise.resolve();
+                return Promise.resolve();
+            }
 
-                // If above checkbox not checked, try to recover from sell error.
-                const recoverFn = (error_code, makeDelay) => {
-                    return makeDelay().then(() => this.observer.emit('REVERT', 'during'));
-                };
-                // eslint-disable-next-line no-promise-executor-return
-                return recoverFromError(
-                    sellContractAndGetContractInfo,
-                    recoverFn,
-                    errors_to_ignore,
-                    delay_index++
-                ).then(sell_response => onContractSold(sell_response));
-            });
+            return Promise.resolve();
+
         }
     };
