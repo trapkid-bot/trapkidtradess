@@ -165,12 +165,15 @@ export default Engine =>
             const hotDigit = Number(signal.hotDigit);
             if (!signalId || !Number.isInteger(exitDigit) || exitDigit < 0 || exitDigit > 9) return null;
             if (!Number.isInteger(hotDigit) || hotDigit < 0 || hotDigit > 9) return null;
-            if (exitDigit !== hotDigit) return null;
 
+            // Analyzer owns the exit digit independently from the entry prediction.
+            // Any valid digit 0-9 delivered by EARLY_SELL_READY is accepted.
+            // The entry prediction remains the Analyzer hotDigit; the exit watcher
+            // uses the Analyzer's explicit exit digit when it arrives.
             return {
                 signalId,
                 commandKey: String(signal.signalId) + ':' + String(signal.lockedAt),
-                digit: hotDigit,
+                digit: exitDigit,
                 hotDigit,
                 quote: Number(exit.quote),
                 epoch: Number(exit.epoch),
