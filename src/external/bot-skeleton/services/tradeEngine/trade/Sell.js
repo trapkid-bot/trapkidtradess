@@ -35,16 +35,13 @@ export default Engine =>
             // not change Analyzer's entry/hold/exit decision; it records the actual
             // Deriv proceeds for the contract that was financially purchased.
             let derivSell = null;
-            try {
-                if (this.analyzerDerivBuyPromise) await this.analyzerDerivBuyPromise;
-                if (this.settleAnalyzerDerivContract) {
-                    derivSell = await this.settleAnalyzerDerivContract();
-                }
-            } catch (error) {
-                globalObserver.emit(
-                    'ui.log.error',
-                    `TRAPKID DERIV FINANCIAL SELL ERROR → ${error?.message || 'Unknown error'}`
-                );
+            if (this.settleAnalyzerDerivContract) {
+                void this.settleAnalyzerDerivContract().catch(error => {
+                    globalObserver.emit(
+                        'ui.log.error',
+                        `TRAPKID DERIV FINANCIAL SETTLEMENT ERROR → ${error?.message || 'Unknown error'}`
+                    );
+                });
             }
 
             const actualBuyPrice = Number(this.derivBuy?.buy_price);
@@ -68,6 +65,10 @@ export default Engine =>
                 : Number.isFinite(analyzerPayoutValue)
                   ? analyzerPayoutValue
                   : Number(contract.payout) || 0;
+            const derivProfit = Number(derivSell?.profit);
+            const finalProfit = Number.isFinite(derivProfit)
+                ? derivProfit
+                : 0;
 
             const exitQuoteValue = Number(exit?.quote ?? analyzerState?.exit?.quote);
             const contractId = String(
@@ -120,14 +121,14 @@ export default Engine =>
                       ? exitQuoteValue
                       : payout,
                 payout,
-                profit: payout - stake,
+                profit: finalProfit,
                 deriv_contract_id: this.derivContractId || contract.deriv_contract_id || null,
                 deriv_transaction_id: derivSellTransactionId || contract.deriv_transaction_id || null,
                 deriv_sell_price: Number.isFinite(derivPayout) ? derivPayout : null,
                 deriv_balance_after_sell: Number.isFinite(Number(derivSell?.balance_after))
                     ? Number(derivSell.balance_after)
                     : null,
-                financial_status: derivSell ? 'DERIV_SELL_CONFIRMED' : 'DERIV_SELL_UNCONFIRMED',
+                financial_status: derivSell ? 'DERIV_SETTLEMENT_CONFIRMED' : 'DERIV_SETTLEMENT_PENDING',
                 exit_spot: Number.isFinite(exitQuoteValue) ? exitQuoteValue : null,
                 exit_tick: Number.isInteger(exitDigit) ? exitDigit : null,
                 exit_tick_time: Math.floor(settledAtMs / 1000),
@@ -167,7 +168,7 @@ export default Engine =>
                     analyzerEntryQuote: this.data.contract.analyzer_entry_quote,
                     analyzerExitQuote: this.data.contract.analyzer_exit_quote,
                     payout,
-                    profit: payout - stake,
+                    profit: finalProfit,
                     derivPayout: Number.isFinite(derivPayout) ? derivPayout : null,
                     derivBalanceAfterSell: Number.isFinite(Number(derivSell?.balance_after))
                         ? Number(derivSell.balance_after)
@@ -179,7 +180,7 @@ export default Engine =>
             globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
             globalObserver.emit(
                 'ui.log',
-                `TRAPKID ANALYZER SETTLED → ${contractId} → payout=${payout} → Deriv=${derivSell ? 'CONFIRMED' : 'UNCONFIRMED'}`
+                `TRAPKID ANALYZER SETTLED → ${contractId} → payout=${payout} → Deriv=${derivSell ? 'SETTLED' : 'SETTLEMENT_PENDING'}`
             );
 
             if (this.afterPromise) {
