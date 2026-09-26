@@ -248,7 +248,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // Deriv tick monitor.
     }
 
-    start(tradeOptions) {
+    async start(tradeOptions) {
         if (!this.options) {
             throw createError('NotInitialized', getLocalizedErrorMessage('NotInitialized'));
         }
