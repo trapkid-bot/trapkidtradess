@@ -227,7 +227,7 @@ export default Engine =>
             globalObserver.setState({
                 trapkid_analyzer: {
                     ...(globalObserver.getState('trapkid_analyzer') || {}),
-                    status: 'WAITING_FOR_ANALYZER_EXIT',
+                    status: 'WATCHING_ANALYZER_HOT_DIGIT',
                     signal,
                     signalId: signal.signalId,
                     commandKey: this.analyzerCommandKey,
