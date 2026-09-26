@@ -157,7 +157,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
                     cycleFinished: true,
                     matchedExitDigit: currentDigit,
                     exitDigit,
-                    hotDigit,
+                    hotDigit: signal.hotDigit,
                 },
             });
             globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
@@ -244,8 +244,8 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
                         prediction: Number(analyzerSignal.prediction),
                         // Long safety expiry. Analyzer EARLY_SELL_READY
                         // remains the intended and only close path.
-                        duration: 7,
-                        duration_unit: 'd',
+                        duration: 60,
+                        duration_unit: 's',
                     };
 
                     globalObserver.setState({
