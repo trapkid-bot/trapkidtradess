@@ -3,7 +3,7 @@ import { LabelPairedLoaderMdBoldIcon } from '@deriv/quill-icons/LabelPaired';
 import { localize } from '@deriv-com/translations';
 import './contract-card-loading.scss';
 
-export const message_running_bot = localize('Your bot is running and waiting for a signal to buy a contract.');
+export const message_running_bot = localize('Analyzer is running — contract entry is active and waiting for the hot digit / EARLY_SELL_READY exit.');
 
 const ContractCardRunningBot = () => (
     <div className='db-contract-card-running-loader'>
