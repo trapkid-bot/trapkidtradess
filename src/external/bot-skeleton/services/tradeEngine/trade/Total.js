@@ -23,7 +23,8 @@ export default Engine =>
             this.sessionRuns = 0;
             this.sessionProfit = 0;
 
-            globalObserver.register('statistics.clear', this.clearStatistics.bind(this));
+            this.statisticsClearHandler = this.clearStatistics.bind(this);
+            globalObserver.register('statistics.clear', this.statisticsClearHandler);
         }
 
         clearStatistics() {
@@ -123,6 +124,16 @@ export default Engine =>
             }
 
             return tradeOptions;
+        }
+
+        disposeTotalObserver() {
+            if (
+                this.statisticsClearHandler &&
+                globalObserver.isRegistered('statistics.clear')
+            ) {
+                globalObserver.unregister('statistics.clear', this.statisticsClearHandler);
+            }
+            this.statisticsClearHandler = null;
         }
 
         getAccountStat() {
