@@ -2,7 +2,6 @@ import { save_types } from '../constants';
 import { config } from '../constants/config';
 import { api_base } from '../services/api/api-base';
 import ApiHelpers from '../services/api/api-helpers';
-import Interpreter from '../services/tradeEngine/utils/interpreter';
 import TradeEngine from '../services/tradeEngine/trade';
 import { compareXml, observer as globalObserver } from '../utils';
 import { getSavedWorkspaces, saveWorkspaceToRecent } from '../utils/local-storage';
@@ -29,7 +28,9 @@ class DBot {
     async initWorkspace(public_path, store, api_helpers_store, is_mobile, is_dark_mode) {
         await loadBlockly(is_dark_mode);
         const recent_files = await getSavedWorkspaces();
-        this.interpreter = Interpreter();
+        // Analyzer-only DBot: do not create the legacy Blockly interpreter here.
+        // Interpreter construction creates TicksService and attaches a Deriv
+        // message listener; Analyzer execution does not need that runtime.
 
         // eslint-disable-next-line @typescript-eslint/no-this-alias
         var that = this;
@@ -75,20 +76,9 @@ class DBot {
                                 // Error getting trade type categories
                                 console.error('Error fetching trade type categories:', error);
                             });
+                        // Analyzer-only DBot: market changes do not start, stop,
+                        // or resubscribe to the legacy Deriv tick stream.
                         that.symbol = symbol;
-                        if (
-                            !that.is_bot_running &&
-                            that.interpreter &&
-                            !this.workspace.options.readOnly &&
-                            symbol !== that.interpreter.bot.tradeEngine.symbol
-                        ) {
-                            const run_button = document.querySelector('#db-animation__run-button');
-                            if (run_button) run_button.disabled = true;
-
-                            that.interpreter.unsubscribeFromTicksService().then(async () => {
-                                await that.interpreter?.bot.tradeEngine.watchTicks(symbol);
-                            });
-                        }
                     } else if (is_trade_type_cat_list_change && event.blockId === this.id) {
                         contracts_for
                             ?.getTradeTypes?.(market, submarket, symbol, category)
@@ -262,10 +252,9 @@ class DBot {
     }
 
     async initializeInterpreter() {
-        if (this.interpreter) {
-            await this.interpreter.terminateSession();
-        }
-        this.interpreter = Interpreter();
+        // Legacy Blockly interpreter is intentionally disabled for Analyzer-only
+        // execution. Analyzer trades use the lightweight TradeEngine directly.
+        this.interpreter = null;
     }
     /**
      * Runs the bot. Does a sanity check before attempting to generate the
@@ -337,7 +326,6 @@ class DBot {
 
         this.symbol = String(signal.symbol);
         this.is_bot_running = true;
-        api_base.setIsRunning(true);
 
         // Analyzer trades do not need the Blockly interpreter or its TicksService.
         // Creating those objects on every Analyzer run adds API message listeners
@@ -352,50 +340,35 @@ class DBot {
 
             Promise.resolve(tradeEngine.start(tradeOptions))
                 .then(() => {
+                    tradeEngine.dispose?.();
                     if (this.analyzerEngine === tradeEngine) this.analyzerEngine = null;
                     this.is_bot_running = false;
-                    api_base.setIsRunning(false);
                     globalObserver.emit('bot.stop');
                 })
                 .catch(error => {
+                    tradeEngine.dispose?.();
                     if (this.analyzerEngine === tradeEngine) this.analyzerEngine = null;
                     this.is_bot_running = false;
-                    api_base.setIsRunning(false);
                     globalObserver.emit('ui.log.error', error?.message || 'TRAPKID ANALYZER execution failed.');
                     globalObserver.emit('bot.stop');
                 });
         } catch (error) {
+            this.analyzerEngine?.dispose?.();
+            this.analyzerEngine = null;
             this.is_bot_running = false;
-            api_base.setIsRunning(false);
             globalObserver.emit('ui.log.error', error?.message || 'TRAPKID ANALYZER execution failed.');
             globalObserver.emit('bot.stop');
         }
     }
 
     runBot() {
-        if (api_base.is_stopping) return;
-
-        try {
-            api_base.is_stopping = false;
-            const code = this.generateCode();
-            const tradeEngine = this.interpreter?.bot?.tradeEngine;
-            const usesLegacyTickEngine = !tradeEngine?.analyzerOnly && typeof tradeEngine?.checkTicksPromiseExists === 'function';
-            if (usesLegacyTickEngine && !tradeEngine.checkTicksPromiseExists()) this.interpreter = Interpreter();
-
-            this.is_bot_running = true;
-
-            api_base.setIsRunning(true);
-            this.interpreter.run(code).catch(error => {
-                globalObserver.emit('Error', error);
-                this.stopBot();
-            });
-        } catch (error) {
-            globalObserver.emit('Error', error);
-
-            if (this.interpreter) {
-                this.stopBot();
-            }
-        }
+        // There is no second execution engine. The DBot cannot start the
+        // legacy Deriv/Blockly tick runtime; Analyze -> Analyzer is the only
+        // supported execution path.
+        globalObserver.emit(
+            'ui.log.error',
+            'TRAPKID DBOT: legacy Deriv tick execution is disabled. Run from Analyzer.'
+        );
     }
 
     /**
@@ -484,7 +457,7 @@ class DBot {
             const engine = this.analyzerEngine;
             this.analyzerEngine = null;
             this.is_bot_running = false;
-            api_base.setIsRunning(false);
+            engine.dispose?.();
             if (engine.resolveAnalyzerCycle) {
                 const resolve = engine.resolveAnalyzerCycle;
                 engine.resolveAnalyzerCycle = null;
@@ -495,31 +468,28 @@ class DBot {
             return;
         }
 
-        api_base.setIsRunning(false);
-
-        if (this.interpreter) {
-            await this.interpreter.stop();
-            this.is_bot_running = false;
-            this.interpreter = null;
-            this.interpreter = Interpreter();
-            if (!this.interpreter.bot.tradeEngine.analyzerOnly && typeof this.interpreter.bot.tradeEngine.watchTicks === 'function') {
-                await this.interpreter.bot.tradeEngine.watchTicks(this.symbol);
-            }
-        }
+        this.is_bot_running = false;
+        // No legacy interpreter/tick runtime is stopped or recreated here.
         forgetAccumulatorsProposalRequest(this);
     }
     /**
      * Immediately instructs the interpreter to terminate the WS connection and bot.
      */
     async terminateBot() {
-        if (this.interpreter) {
-            await this.interpreter.terminateSession();
-            this.interpreter = null;
-            this.interpreter = Interpreter();
-            if (!this.interpreter.bot.tradeEngine.analyzerOnly && typeof this.interpreter.bot.tradeEngine.watchTicks === 'function') {
-                await this.interpreter.bot.tradeEngine.watchTicks(this.symbol);
+        if (this.analyzerEngine) {
+            const engine = this.analyzerEngine;
+            this.analyzerEngine = null;
+            this.is_bot_running = false;
+            engine.dispose?.();
+            if (engine.resolveAnalyzerCycle) {
+                const resolve = engine.resolveAnalyzerCycle;
+                engine.resolveAnalyzerCycle = null;
+                resolve();
             }
+            globalObserver.emit('bot.stop');
         }
+        // No legacy interpreter/tick runtime is recreated here.
+        this.interpreter = null;
     }
 
     terminateConnection = () => {
