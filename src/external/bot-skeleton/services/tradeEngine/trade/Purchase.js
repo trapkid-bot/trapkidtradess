@@ -311,7 +311,10 @@ export default Engine =>
                 );
 
                 if (this.data?.contract?.is_sold) {
-                    void this.sellAnalyzerDerivContract();
+                    // Analyzer may close its local lifecycle before the Deriv buy response
+                    // arrives. Keep the financial contract tied to Deriv expiry; never issue
+                    // an early Deriv sell from this race path.
+                    void this.settleAnalyzerDerivContract();
                 }
 
                 return buy;
