@@ -93,7 +93,6 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         if (
             !exit ||
             String(exit.signalId) !== activeSignalId ||
-            Number(exit.hotDigit) !== Number(signal.hotDigit) ||
             !Number.isInteger(Number(exit.digit)) ||
             Number(exit.digit) < 0 ||
             Number(exit.digit) > 9
@@ -102,7 +101,8 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         }
 
         // EARLY_SELL_READY is an instruction to START watching for the
-        // Analyzer's hot/exit digit. It is NOT itself the sell trigger.
+        // Analyzer-provided exit digit. It is NOT itself the sell trigger.
+        // The exit digit may be different from the entry hot digit.
         // Every other digit is deliberately ignored.
         const previousSubscription = this.analyzerExitTickSubscription;
         if (previousSubscription) {
@@ -144,7 +144,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
 
             const currentDigit = getDigitFromTick(tick);
 
-            // Ignore every digit except the Analyzer-authorized hot/exit digit.
+            // Ignore every digit except the Analyzer-authorized exit digit.
             if (currentDigit !== exitDigit) return;
 
             this.analyzerExitTickSubscription?.unsubscribe?.();
