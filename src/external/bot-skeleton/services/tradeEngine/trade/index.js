@@ -313,7 +313,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             `TRAPKID ANALYZER SIGNAL ACCEPTED → ${currentSignal.signalId} → hotDigit=${currentSignal.hotDigit}`
         );
 
-        Promise.resolve(this.prepareAnalyzerPrediction())
+        return Promise.resolve(this.prepareAnalyzerPrediction())
                 .then(() => {
                     const analyzerSignal = this.analyzerSignal || globalObserver.getState('trapkid_analyzer')?.signal;
                     if (!analyzerSignal?.signalId) {
@@ -402,8 +402,12 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                 .catch(error => {
                     globalObserver.emit('ui.log.error', error?.message || 'TrapKid analyzer failed to prepare a prediction.');
                     this.store.dispatch({ type: 'STOP' });
+                    if (this.resolveAnalyzerCycle) {
+                        const resolve = this.resolveAnalyzerCycle;
+                        this.resolveAnalyzerCycle = null;
+                        resolve();
+                    }
                 });
-            return;
         }
 
     // Compatibility method required by the Blockly interpreter. The old
