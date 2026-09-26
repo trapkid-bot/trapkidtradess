@@ -5,26 +5,24 @@ import { observer as globalObserver } from '../../../utils/observer';
 import { api_base } from '../../api/api-base';
 
 let purchase_reference;
-let financial_request_id = Date.now() % 1000000000;
 
 export default Engine =>
     class Purchase extends Engine {
-        // Deriv is used only for the financial leg of an Analyzer trade.
-        // Analyzer remains the execution/exit authority. This layer only obtains
-        // the Deriv price, performs the real financial buy, and records the
-        // corresponding financial fields/balance returned by Deriv.
-        requestAnalyzerDeriv = (request, msgType, timeoutMs = 5000) => {
+
+        // Financial-only Deriv bridge. Analyzer still controls the signal,
+        // entry timing, hold state, and exit decision. Deriv is contacted only
+        // for proposal pricing, the actual financial buy, and the actual sell.
+        requestAnalyzerDeriv = (request, msgType, timeoutMs = 7000) => {
             const api = api_base?.api;
             if (!api || api.connection?.readyState !== 1) return Promise.resolve(null);
 
-            const req_id = Number(String(++financial_request_id).slice(-9));
+            const req_id = Number(String(Date.now()).slice(-9));
             const payload = { ...request, req_id };
 
             return new Promise(resolve => {
                 let finished = false;
                 let timeout;
                 let subscription;
-
                 const finish = response => {
                     if (finished) return;
                     finished = true;
@@ -32,7 +30,7 @@ export default Engine =>
                     try {
                         subscription?.unsubscribe?.();
                     } catch {
-                        // Best-effort subscription cleanup.
+                        // Best-effort cleanup of this one-shot financial listener.
                     }
                     resolve(response || null);
                 };
@@ -54,16 +52,19 @@ export default Engine =>
             const numericBalance = Number(balance);
             if (!Number.isFinite(numericBalance)) return;
 
+            api_base.account_info = {
+                ...(api_base.account_info || {}),
+                balance: numericBalance,
+            };
+
             const clientStore = globalObserver.getState('client.store');
             if (!clientStore) return;
 
             clientStore.setBalance?.(String(numericBalance));
-            const loginid = clientStore.loginid;
-            const currentAccounts = clientStore.account_list || [];
-            if (loginid && currentAccounts.length) {
+            if (clientStore.loginid && Array.isArray(clientStore.account_list)) {
                 clientStore.setAccountList?.(
-                    currentAccounts.map(account =>
-                        String(account.loginid) === String(loginid)
+                    clientStore.account_list.map(account =>
+                        String(account.loginid) === String(clientStore.loginid)
                             ? { ...account, balance: numericBalance }
                             : account
                     )
@@ -78,8 +79,7 @@ export default Engine =>
             const duration = Number(this.tradeOptions?.duration);
             const duration_unit = this.tradeOptions?.duration_unit || 't';
             const currency = this.tradeOptions?.currency || 'USD';
-            const hotDigit = Number(signal?.hotDigit);
-
+            const hotDigit = Number(signal.hotDigit);
             if (!Number.isFinite(amount) || amount <= 0) return Promise.resolve(null);
             if (!Number.isFinite(duration) || duration <= 0) return Promise.resolve(null);
             if (!Number.isInteger(hotDigit) || hotDigit < 0 || hotDigit > 9) return Promise.resolve(null);
@@ -100,144 +100,211 @@ export default Engine =>
             );
         };
 
-        openAnalyzerDerivContract = async signal => {
-            const proposalResponse = await this.fetchAnalyzerPayoutQuote(signal);
-            const proposal = proposalResponse?.proposal;
-            if (!proposal) return null;
+        openAnalyzerDerivContract = async (signal, contractId) => {
+            if (this.analyzerDerivBuyPromise) return this.analyzerDerivBuyPromise;
 
-            const potentialPayout = Number(proposal.payout);
-            const askPrice = Number(proposal.ask_price);
-            const proposalId = proposal.id;
-            const localContract = this.data?.contract;
+            this.analyzerDerivBuyPromise = (async () => {
+                const proposalResponse = await this.fetchAnalyzerPayoutQuote(signal);
+                const proposal = proposalResponse?.proposal;
+                if (!proposal) {
+                    globalObserver.emit('ui.log.error', 'TRAPKID DERIV FINANCIAL QUOTE → unavailable');
+                    return null;
+                }
 
-            if (localContract && String(localContract.contract_id) === String(this.contractId)) {
-                this.data.contract = {
-                    ...localContract,
-                    payout: Number.isFinite(potentialPayout) ? potentialPayout : localContract.payout,
-                    analyzer_payout_source: 'DERIV_PROPOSAL',
-                    analyzer_payout_quote_id: proposalId ?? null,
-                    analyzer_payout_ask_price: Number.isFinite(askPrice) ? askPrice : null,
-                    financial_status: 'DERIV_PROPOSAL_RECEIVED',
-                };
-                contract(this.data.contract);
-            }
+                const potentialPayout = Number(proposal.payout);
+                const askPrice = Number(proposal.ask_price);
+                const proposalId = proposal.id;
 
-            if (!proposalId || !Number.isFinite(askPrice) || askPrice <= 0) return null;
+                const quoteContract = this.data?.contract;
+                if (quoteContract && String(quoteContract.contract_id) === String(contractId)) {
+                    this.data.contract = {
+                        ...quoteContract,
+                        payout: Number.isFinite(potentialPayout) ? potentialPayout : quoteContract.payout,
+                        analyzer_payout_source: 'DERIV_PROPOSAL',
+                        analyzer_payout_quote_id: proposalId ?? null,
+                        analyzer_payout_ask_price: Number.isFinite(askPrice) ? askPrice : null,
+                        financial_status: 'DERIV_PROPOSAL_RECEIVED',
+                    };
+                    contract(this.data.contract);
+                }
 
-            const buyResponse = await this.requestAnalyzerDeriv(
-                {
-                    buy: String(proposalId),
-                    price: askPrice,
-                },
-                'buy'
-            );
-            const buy = buyResponse?.buy;
-            if (!buy?.contract_id) return null;
+                if (!proposalId || !Number.isFinite(askPrice) || askPrice <= 0) {
+                    globalObserver.emit('ui.log.error', 'TRAPKID DERIV FINANCIAL BUY → invalid proposal');
+                    return null;
+                }
 
-            this.derivContractId = String(buy.contract_id);
-            this.derivBuyTransactionId = buy.transaction_id ?? null;
-            this.derivBuy = buy;
+                const buyResponse = await this.requestAnalyzerDeriv(
+                    {
+                        buy: String(proposalId),
+                        price: askPrice,
+                    },
+                    'buy'
+                );
+                if (buyResponse?.error) {
+                    globalObserver.emit(
+                        'ui.log.error',
+                        'TRAPKID DERIV FINANCIAL BUY → ' +
+                            (buyResponse.error.message || buyResponse.error.code || 'rejected')
+                    );
+                    return null;
+                }
 
-            const actualBuyPrice = Number(buy.buy_price);
-            const actualPayout = Number(buy.payout);
-            const balanceAfter = Number(buy.balance_after);
+                const buy = buyResponse?.buy;
+                if (!buy?.contract_id) {
+                    globalObserver.emit('ui.log.error', 'TRAPKID DERIV FINANCIAL BUY → no contract returned');
+                    return null;
+                }
 
-            const currentContract = this.data?.contract;
-            if (currentContract && String(currentContract.contract_id) === String(this.contractId)) {
-                this.data.contract = {
-                    ...currentContract,
-                    buy_price: Number.isFinite(actualBuyPrice) ? actualBuyPrice : currentContract.buy_price,
-                    payout: Number.isFinite(actualPayout)
-                        ? actualPayout
-                        : Number.isFinite(potentialPayout)
-                          ? potentialPayout
-                          : currentContract.payout,
-                    analyzer_payout_source: 'DERIV_BUY',
-                    analyzer_payout_quote_id: proposalId ?? null,
-                    analyzer_payout_ask_price: Number.isFinite(askPrice) ? askPrice : null,
-                    deriv_contract_id: String(buy.contract_id),
-                    deriv_transaction_id: buy.transaction_id ?? null,
-                    deriv_buy_price: Number.isFinite(actualBuyPrice) ? actualBuyPrice : null,
-                    deriv_potential_payout: Number.isFinite(actualPayout) ? actualPayout : null,
-                    deriv_balance_after_buy: Number.isFinite(balanceAfter) ? balanceAfter : null,
-                    financial_status: 'DERIV_BUY_CONFIRMED',
-                };
+                this.derivContractId = String(buy.contract_id);
+                this.derivBuyTransactionId = buy.transaction_id ?? null;
+                this.derivBuy = buy;
 
-                contract(this.data.contract);
-            }
+                const actualBuyPrice = Number(buy.buy_price);
+                const actualPayout = Number(buy.payout);
+                const balanceAfter = Number(buy.balance_after);
+                const currentContract = this.data?.contract;
 
-            if (Number.isFinite(balanceAfter)) this.updateDerivAccountBalance(balanceAfter);
+                if (currentContract && String(currentContract.contract_id) === String(contractId)) {
+                    this.data.contract = {
+                        ...currentContract,
+                        buy_price: Number.isFinite(actualBuyPrice) ? actualBuyPrice : currentContract.buy_price,
+                        payout: Number.isFinite(actualPayout)
+                            ? actualPayout
+                            : Number.isFinite(potentialPayout)
+                              ? potentialPayout
+                              : currentContract.payout,
+                        analyzer_payout_source: 'DERIV_BUY',
+                        analyzer_payout_quote_id: proposalId ?? null,
+                        analyzer_payout_ask_price: Number.isFinite(askPrice) ? askPrice : null,
+                        deriv_contract_id: String(buy.contract_id),
+                        deriv_transaction_id: buy.transaction_id ?? null,
+                        deriv_buy_price: Number.isFinite(actualBuyPrice) ? actualBuyPrice : null,
+                        deriv_potential_payout: Number.isFinite(actualPayout) ? actualPayout : null,
+                        deriv_balance_after_buy: Number.isFinite(balanceAfter) ? balanceAfter : null,
+                        financial_status: 'DERIV_BUY_CONFIRMED',
+                    };
+                    contract(this.data.contract);
+                }
 
-            globalObserver.setState({
-                trapkid_analyzer: {
-                    ...(globalObserver.getState('trapkid_analyzer') || {}),
-                    derivContractId: String(buy.contract_id),
-                    derivTransactionId: buy.transaction_id ?? null,
-                    derivBuyPrice: Number.isFinite(actualBuyPrice) ? actualBuyPrice : null,
-                    analyzerPotentialPayout: Number.isFinite(actualPayout)
-                        ? actualPayout
-                        : Number.isFinite(potentialPayout)
-                          ? potentialPayout
-                          : null,
-                    payout: Number.isFinite(actualPayout)
-                        ? actualPayout
-                        : Number.isFinite(potentialPayout)
-                          ? potentialPayout
-                          : null,
-                    payoutSource: 'DERIV_BUY',
-                    derivBalanceAfterBuy: Number.isFinite(balanceAfter) ? balanceAfter : null,
-                },
-            });
+                if (Number.isFinite(balanceAfter)) this.updateDerivAccountBalance(balanceAfter);
 
-            globalObserver.emit(
-                'ui.log',
-                `TRAPKID DERIV FINANCIAL BUY → ${String(buy.contract_id)} → stake=${Number.isFinite(actualBuyPrice) ? actualBuyPrice : askPrice} → payout=${Number.isFinite(actualPayout) ? actualPayout : potentialPayout}`
-            );
+                globalObserver.setState({
+                    trapkid_analyzer: {
+                        ...(globalObserver.getState('trapkid_analyzer') || {}),
+                        derivContractId: String(buy.contract_id),
+                        derivTransactionId: buy.transaction_id ?? null,
+                        derivBuyPrice: Number.isFinite(actualBuyPrice) ? actualBuyPrice : null,
+                        analyzerPotentialPayout: Number.isFinite(actualPayout)
+                            ? actualPayout
+                            : Number.isFinite(potentialPayout)
+                              ? potentialPayout
+                              : null,
+                        payout: Number.isFinite(actualPayout)
+                            ? actualPayout
+                            : Number.isFinite(potentialPayout)
+                              ? potentialPayout
+                              : null,
+                        payoutSource: 'DERIV_BUY',
+                        derivBalanceAfterBuy: Number.isFinite(balanceAfter) ? balanceAfter : null,
+                    },
+                });
 
-            return buy;
+                globalObserver.emit(
+                    'ui.log',
+                    'TRAPKID DERIV FINANCIAL BUY → ' +
+                        String(buy.contract_id) +
+                        ' → stake=' +
+                        (Number.isFinite(actualBuyPrice) ? actualBuyPrice : askPrice) +
+                        ' → payout=' +
+                        (Number.isFinite(actualPayout) ? actualPayout : potentialPayout)
+                );
+
+                if (this.data?.contract?.is_sold) {
+                    void this.settleAnalyzerDerivContract();
+                }
+
+                return buy;
+            })();
+
+            return this.analyzerDerivBuyPromise;
         };
 
         settleAnalyzerDerivContract = async () => {
-            const derivContractId = this.derivContractId;
-            if (!derivContractId) return null;
+            if (this.analyzerDerivSellPromise) return this.analyzerDerivSellPromise;
 
-            const response = await this.requestAnalyzerDeriv(
-                {
-                    sell: Number(derivContractId),
-                    price: 0,
-                },
-                'sell'
-            );
-            const sold = response?.sell;
-            if (!sold?.contract_id) return null;
+            this.analyzerDerivSellPromise = (async () => {
+                const buy = this.analyzerDerivBuyPromise
+                    ? await this.analyzerDerivBuyPromise.catch(() => null)
+                    : this.derivBuy;
+                const derivContractId = this.derivContractId || buy?.contract_id;
+                if (!derivContractId) return null;
 
-            const soldFor = Number(sold.sold_for);
-            const balanceAfter = Number(sold.balance_after);
-            if (Number.isFinite(balanceAfter)) this.updateDerivAccountBalance(balanceAfter);
+                const response = await this.requestAnalyzerDeriv(
+                    {
+                        sell: Number(derivContractId),
+                        price: 0,
+                    },
+                    'sell'
+                );
+                if (response?.error) {
+                    globalObserver.emit(
+                        'ui.log.error',
+                        'TRAPKID DERIV FINANCIAL SELL → ' +
+                            (response.error.message || response.error.code || 'rejected')
+                    );
+                    return null;
+                }
 
-            globalObserver.setState({
-                trapkid_analyzer: {
-                    ...(globalObserver.getState('trapkid_analyzer') || {}),
-                    derivTransactionId: sold.transaction_id ?? null,
-                    derivSoldFor: Number.isFinite(soldFor) ? soldFor : null,
-                    derivBalanceAfterSell: Number.isFinite(balanceAfter) ? balanceAfter : null,
-                    payout: Number.isFinite(soldFor) ? soldFor : undefined,
-                    payoutSource: 'DERIV_SELL',
-                },
-            });
+                const sold = response?.sell;
+                if (!sold?.contract_id) return null;
 
-            globalObserver.emit(
-                'ui.log',
-                `TRAPKID DERIV FINANCIAL SELL → ${String(sold.contract_id)} → payout=${Number.isFinite(soldFor) ? soldFor : '—'}`
-            );
+                const soldFor = Number(sold.sold_for);
+                const balanceAfter = Number(sold.balance_after);
+                if (Number.isFinite(balanceAfter)) this.updateDerivAccountBalance(balanceAfter);
 
-            return sold;
+                const currentContract = this.data?.contract;
+                if (
+                    currentContract &&
+                    String(currentContract.contract_id) ===
+                        String(this.analyzerContractId || this.contractId || currentContract.contract_id)
+                ) {
+                    this.data.contract = {
+                        ...currentContract,
+                        deriv_sell_transaction_id: sold.transaction_id ?? null,
+                        deriv_sold_for: Number.isFinite(soldFor) ? soldFor : null,
+                        deriv_balance_after_sell: Number.isFinite(balanceAfter) ? balanceAfter : null,
+                        financial_status: 'DERIV_SELL_CONFIRMED',
+                    };
+                    contract(this.data.contract);
+                }
+
+                globalObserver.setState({
+                    trapkid_analyzer: {
+                        ...(globalObserver.getState('trapkid_analyzer') || {}),
+                        derivTransactionId: sold.transaction_id ?? null,
+                        derivSoldFor: Number.isFinite(soldFor) ? soldFor : null,
+                        derivBalanceAfterSell: Number.isFinite(balanceAfter) ? balanceAfter : null,
+                        derivFinancialStatus: 'DERIV_SELL_CONFIRMED',
+                        realizedPayout: Number.isFinite(soldFor) ? soldFor : null,
+                    },
+                });
+
+                globalObserver.emit(
+                    'ui.log',
+                    'TRAPKID DERIV FINANCIAL SELL → ' +
+                        String(sold.contract_id) +
+                        ' → realized=' +
+                        (Number.isFinite(soldFor) ? soldFor : '—')
+                );
+
+                return sold;
+            })();
+
+            return this.analyzerDerivSellPromise;
         };
 
-        financialAnalyzerBuyPromise = signal => {
-            this.analyzerDerivBuyPromise = this.openAnalyzerDerivContract(signal);
-            return this.analyzerDerivBuyPromise;
-        };
+        financialAnalyzerBuyPromise = (signal, contractId) =>
+            this.openAnalyzerDerivContract(signal, contractId);
 
         purchase(contract_type) {
             const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
@@ -623,10 +690,9 @@ export default Engine =>
                 `TRAPKID ANALYZER CONTRACT OPEN → ${String(entryCode)} → quote=${Number.isFinite(entryQuote) ? entryQuote : '—'}`
             );
 
-            // Start the Deriv financial leg asynchronously. Analyzer entry/hold/exit
-            // remains the execution lifecycle; this only records the real Deriv
-            // proposal/buy and its returned financial values.
-            this.financialAnalyzerBuyPromise(signal);
+            // Financial leg only. Do not await it: Analyzer owns execution timing
+            // and this bridge only mirrors the authorized trade financially at Deriv.
+            this.financialAnalyzerBuyPromise(signal, contractId);
 
             const postEntryState = globalObserver.getState('trapkid_analyzer') || {};
             const pendingExit = postEntryState.pendingEarlyExit;
