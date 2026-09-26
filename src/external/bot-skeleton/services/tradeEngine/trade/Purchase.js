@@ -27,19 +27,26 @@ export default Engine =>
                 // the status to WAITING_FOR_ANALYZER_EXIT while the proposal is
                 // still arriving; that must never cancel the already-authorized BUY.
                 const gateSignal = analyzerStateGate.signal;
-                const exactAnalyzerCommand =
+                const signalIdMatches =
                     !!gateSignal?.signalId &&
-                    String(analyzerStateGate.commandKey || '') ===
-                        String(gateSignal.signalId) + ':' + String(gateSignal.lockedAt) &&
                     String(analyzerStateGate.signalId || '') === String(gateSignal.signalId);
+                const lockedAtMatches =
+                    Number.isFinite(Number(gateSignal?.lockedAt)) &&
+                    Number(gateSignal.lockedAt) === Number(analyzerStateGate.lockedAt);
+                const commandMatches =
+                    signalIdMatches &&
+                    String(analyzerStateGate.commandKey || '') ===
+                        String(gateSignal.signalId) + ':' + String(gateSignal.lockedAt);
+                const boundAnalyzerCommand = signalIdMatches && (commandMatches || lockedAtMatches);
 
-                // Analyzer owns this execution path. Do not fall back to any Builder
-                // purchase gate. A live, exactly-bound Analyzer command is sufficient
-                // authorization even if a bridge/UI refresh dropped executionArmed.
-                if (analyzerStateGate.executionArmed !== true && !exactAnalyzerCommand) {
+                // Analyzer owns this execution path. A live signal bound to the same
+                // signalId is sufficient authorization when the bridge has already
+                // accepted the command but a UI refresh dropped executionArmed/trigger.
+                // Never fall back to the Builder purchase gate.
+                if (analyzerStateGate.executionArmed !== true && !boundAnalyzerCommand) {
                     globalObserver.emit(
                         'ui.log.error',
-                        `TRAPKID ANALYZER BUY BLOCKED → no bound Analyzer command signal=${String(analyzerStateGate.signalId || '')}`
+                        `TRAPKID ANALYZER BUY BLOCKED → no bound Analyzer command signal=${String(analyzerStateGate.signalId || gateSignal?.signalId || '')}`
                     );
                     return Promise.resolve();
                 }
