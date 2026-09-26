@@ -1,7 +1,6 @@
 import { LogTypes } from '../../../constants/messages';
 import { contractStatus, info, log } from '../utils/broadcast';
 import { getUUID } from '../utils/helpers';
-import { purchaseSuccessful } from './state/actions';
 import { observer as globalObserver } from '../../../utils/observer';
 
 let purchase_reference;
@@ -179,127 +178,14 @@ export default Engine =>
             // Analyzer direct BUY does not depend on the Builder Redux purchase
             // scope. Never dispatch SELL/START here: those legacy state transitions
             // can interfere with the Analyzer-owned execution lifecycle.
-            if (!analyzerMode && this.store.getState().scope !== BEFORE_PURCHASE) {
-                return Promise.resolve();
-            }
-
-
-            const onSuccess = response => {
-                // Don't unnecessarily send a forget request for a purchased contract.
-                const { buy } = response;
-
-                contractStatus({
-                    id: 'contract.purchase_received',
-                    data: buy.transaction_id,
-                    buy,
-                });
-
-                // Keep Deriv's returned contract handle only as the transport
-                // handle needed to close the already-authorized position.
-                // Analyzer remains the logical contract/entry identity.
-                if (analyzerMode) {
-                    // Analyzer contract identity is the real execution identity.
-                    // There is deliberately no broker/Deriv contract handle.
-                    this.contractId =
-                        this.tradeOptions.analyzerContractId ||
-                        this.tradeOptions.analyzerEntryCode ||
-                        this.analyzerSignal?.signalId;
-                    this.analyzerContractId = this.contractId;
-                } else {
-                    this.contractId = buy.contract_id;
-                }
-
-                if (this.analyzerSignal) {
-                    this.analyzerPurchaseKey =
-                        String(this.analyzerSignal.signalId) + ':' + String(this.analyzerSignal.lockedAt);
-                }
-
-                const purchasedSignalKey = this.analyzerSignal
-                    ? String(this.analyzerSignal.signalId) + ':' + String(this.analyzerSignal.lockedAt)
-                    : '';
-
-                globalObserver.setState({
-                    trapkid_analyzer: {
-                        ...(globalObserver.getState('trapkid_analyzer') || {}),
-                        status: 'RUNNING',
-                        signal: this.analyzerSignal || globalObserver.getState('trapkid_analyzer')?.signal,
-                        signalId: this.analyzerSignal?.signalId,
-                        commandKey: this.analyzerCommandKey,
-                        entryPrediction: this.tradeOptions.prediction,
-                        analyzerContractId: this.tradeOptions.analyzerContractId || this.analyzerSignal?.contractId || this.analyzerSignal?.contract_id || this.analyzerSignal?.signalId,
-                        analyzerEntryCode: this.tradeOptions.analyzerEntryCode || this.analyzerSignal?.entryCode || this.analyzerSignal?.entry_code || this.analyzerSignal?.signalId,
-                        analyzerEntryQuote: this.tradeOptions.analyzerEntryQuote || this.analyzerSignal?.entryQuote || this.analyzerSignal?.entry_quote || this.analyzerSignal?.quote,
-                        lockedQuote: this.tradeOptions.analyzerLockedQuote || this.analyzerSignal?.lockedQuote,
-                        entrySource: 'ANALYZER_ONLY',
-                        exitSource: 'ANALYZER_EARLY_SELL_ONLY',
-                        executionTrigger: null,
-                        purchaseInFlightKey: null,
-                        purchaseConsumedKey: purchasedSignalKey || undefined,
-                    },
-                });
-                globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
-
-                // EARLY_SELL_READY is an EXIT event, never an entry event.
-                // If Analyzer emitted it while the proposal/buy was still in
-                // flight, the exit handler stores it as pending. Execute that
-                // already-authorized exit immediately after contractId exists.
-                const postPurchaseState = globalObserver.getState('trapkid_analyzer') || {};
-                const pendingExit = postPurchaseState.pendingEarlyExit;
-                const pendingMatches =
-                    pendingExit?.status === 'EARLY_SELL_READY' &&
-                    String(pendingExit.signalId || '') === String(this.analyzerSignal?.signalId || '') &&
-                    Number(pendingExit.digit) === Number(this.analyzerSignal?.hotDigit);
-
-                this.store.dispatch(purchaseSuccessful());
-
-                if (pendingMatches && this.contractId && !this.isSold) {
-                    globalObserver.setState({
-                        trapkid_analyzer: {
-                            ...(globalObserver.getState('trapkid_analyzer') || {}),
-                            status: 'EARLY_EXIT_COMMAND_RECEIVED',
-                            signal: this.analyzerSignal,
-                            signalId: this.analyzerSignal?.signalId,
-                            commandKey: purchasedSignalKey,
-                            symbol: this.analyzerSignal?.symbol,
-                            prediction: Number(this.analyzerSignal?.hotDigit),
-                            hotDigit: Number(this.analyzerSignal?.hotDigit),
-                            entrySource: 'ANALYZER_ONLY',
-                            exitSource: 'ANALYZER_EARLY_SELL_ONLY',
-                            executionTrigger: 'EARLY_SELL_READY',
-                            holdUntilAnalyzerExit: false,
-                            executionArmed: true,
-                            pendingEarlyExit: null,
-                        },
-                    });
-                    globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
-                    void this.sellAtMarket('ANALYZER_EARLY_SELL').catch(error => {
-                        globalObserver.emit('ui.log.error', error?.message || 'Analyzer early sell failed.');
-                    });
-                }
-
-                if (this.is_proposal_subscription_required) {
-                    this.renewProposalsOnPurchase();
-                }
-
-                delayIndex = 0;
-                log(LogTypes.PURCHASE, { transaction_id: buy.transaction_id });
-                info({
-                    accountID: this.accountInfo.loginid,
-                    totalRuns: this.updateAndReturnTotalRuns(),
-                    transaction_ids: { buy: buy.transaction_id },
-                    contract_type,
-                    buy_price: buy.buy_price,
-                });
-            };
-
             if (!analyzerMode) {
                 return Promise.reject(
                     new Error('TrapKid Analyzer-only engine: non-Analyzer execution is disabled.')
                 );
             }
 
-            // Analyzer is the complete execution engine. The contract is created
-            // locally from the exact Analyzer identity/quote and never sent to Deriv.
+            // Analyzer is the complete execution engine. Create the contract locally
+            // from Analyzer data. No proposal, BUY request, or Deriv contract observer.
             const signal = this.analyzerSignal;
             const entryCode =
                 this.tradeOptions.analyzerEntryCode ||
@@ -337,10 +223,8 @@ export default Engine =>
                 is_sold: false,
             };
 
-            contractStatus({
-                id: 'contract.purchase_sent',
-                data: buyPrice,
-            });
+            contractStatus({ id: 'contract.purchase_sent', data: buyPrice });
+
             globalObserver.emit(
                 'ui.log',
                 `TRAPKID ANALYZER CONTRACT OPEN → ${String(entryCode)}`
