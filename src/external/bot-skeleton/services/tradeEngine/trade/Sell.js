@@ -47,7 +47,7 @@ export default Engine =>
                 return Promise.resolve();
             }
 
-            if (!this.isSellAtMarketAvailable()) {
+            if (!this.isSellAtMarketAvailable(analyzerEarlySell)) {
                 log(LogTypes.NOT_OFFERED);
                 return Promise.resolve();
             }
