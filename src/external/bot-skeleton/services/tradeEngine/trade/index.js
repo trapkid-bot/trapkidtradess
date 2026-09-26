@@ -134,9 +134,23 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         const commandKey = String(signal.signalId) + ':' + String(signal.lockedAt);
         if (String(analyzerState.commandKey || '') !== commandKey) return;
 
-        // EARLY_SELL_READY is an EXIT-only event. It is valid only after
-        // Analyzer has already purchased this signal's contract.
-        if (!this.contractId || this.isSold) return;
+        // EARLY_SELL_READY is an EXIT-only event. If the BUY is still in
+        // flight, remember the exact exit instead of dropping the event.
+        // The pending exit is consumed immediately after contractId exists.
+        if (!this.contractId || this.isSold) {
+            globalObserver.setState({
+                trapkid_analyzer: {
+                    ...analyzerState,
+                    pendingEarlyExit: {
+                        ...exit,
+                        status: 'EARLY_SELL_READY',
+                        signalId: activeSignalId,
+                    },
+                },
+            });
+            globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
+            return;
+        }
         if (
             analyzerState.purchaseConsumedKey !== commandKey ||
             analyzerState.purchaseInFlightKey
