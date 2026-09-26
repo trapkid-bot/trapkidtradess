@@ -243,7 +243,6 @@ export default Engine =>
                 }
 
                 if (Number.isFinite(balanceAfter)) this.updateDerivAccountBalance(balanceAfter);
-                void this.refreshDerivAccountBalance(3);
 
                 globalObserver.setState({
                     trapkid_analyzer: {
@@ -318,6 +317,10 @@ export default Engine =>
                 const soldFor = Number(sold.sold_for);
                 const balanceAfter = Number(sold.balance_after);
                 if (Number.isFinite(balanceAfter)) this.updateDerivAccountBalance(balanceAfter);
+                // Re-read Deriv's authoritative balance after settlement. This is
+                // financial reconciliation only; it does not touch Analyzer timing,
+                // execution, or settlement authority.
+                void this.refreshDerivAccountBalance(3);
 
                 const currentContract = this.data?.contract;
                 if (
