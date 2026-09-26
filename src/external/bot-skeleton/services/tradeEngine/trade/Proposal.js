@@ -56,7 +56,7 @@ export default Engine =>
                 signal?.signalId &&
                 analyzerState?.commandKey ===
                     String(signal.signalId) + ':' + String(signal.lockedAt) &&
-                ['COMMAND_RECEIVED', 'COMMAND_ACCEPTED', 'RUNNING', 'ANALYZER_PURCHASE_AUTHORIZED', 'ANALYZER_PURCHASE_BOUND'].includes(
+                ['COMMAND_RECEIVED', 'COMMAND_ACCEPTED', 'ANALYZER_EXECUTION', 'RUNNING', 'ANALYZER_PURCHASE_AUTHORIZED', 'ANALYZER_PURCHASE_BOUND'].includes(
                     String(analyzerState.status || '')
                 ) &&
                 contract_type === 'DIGITMATCH';
