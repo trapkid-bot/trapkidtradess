@@ -80,7 +80,11 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
     }
 
     onAnalyzerEarlyExit = async command => {
-        if (!(this.isAnalyzerEnabledForTrade?.() || this.analyzerSignal) || !this.contractId || this.isSold) return;
+        // In Analyzer execution mode, EARLY_SELL_READY is intentionally
+        // repurposed as the ENTRY trigger. There is no pre-existing contract
+        // to sell here. The Analyzer gives us the final DIGITMATCH prediction
+        // and DBot buys exactly one 1-tick contract at that moment.
+        if (this.contractId || this.isSold) return;
 
         const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
         const signal = this.analyzerSignal || analyzerState.signal;
@@ -95,92 +99,60 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
             String(exit.signalId) !== activeSignalId ||
             !Number.isInteger(Number(exit.digit)) ||
             Number(exit.digit) < 0 ||
-            Number(exit.digit) > 9
+            Number(exit.digit) > 9 ||
+            Number(exit.digit) !== Number(signal.hotDigit)
         ) {
             return;
         }
 
-        // EARLY_SELL_READY is an instruction to START watching for the
-        // Analyzer-provided exit digit. It is NOT itself the sell trigger.
-        // The Analyzer hot digit is the ONLY exit digit.
-        // Every other digit is deliberately ignored.
-        const previousSubscription = this.analyzerExitTickSubscription;
-        if (previousSubscription) {
-            previousSubscription.unsubscribe?.();
-            this.analyzerExitTickSubscription = null;
+        const commandKey = String(signal.signalId) + ':' + String(signal.lockedAt);
+        if (String(analyzerState.commandKey || '') !== commandKey) return;
+
+        // Only the first EARLY_SELL_READY for this signal can trigger a buy.
+        if (
+            ['EARLY_EXIT_COMMAND_RECEIVED', 'ANALYZER_PURCHASE_AUTHORIZED', 'ANALYZER_PURCHASE_BOUND', 'RUNNING'].includes(
+                String(analyzerState.status || '')
+            ) ||
+            analyzerState.purchaseConsumedKey === commandKey ||
+            analyzerState.purchaseInFlightKey === commandKey
+        ) {
+            return;
         }
+
+        // The Builder is no longer involved in execution. The Analyzer event
+        // itself opens the one-tick DIGITMATCH entry using hotDigit.
+        this.tradeOptions = {
+            ...this.tradeOptions,
+            contractTypes: ['DIGITMATCH'],
+            symbol: signal.symbol,
+            prediction: Number(signal.hotDigit),
+            duration: 1,
+            duration_unit: 't',
+        };
 
         globalObserver.setState({
             trapkid_analyzer: {
                 ...analyzerState,
-                status: 'WAITING_FOR_ANALYZER_EXIT_DIGIT',
+                status: 'EARLY_EXIT_COMMAND_RECEIVED',
+                signal,
+                signalId: signal.signalId,
+                commandKey,
+                symbol: signal.symbol,
+                prediction: Number(signal.hotDigit),
+                hotDigit: Number(signal.hotDigit),
+                entryPrediction: Number(signal.hotDigit),
+                entrySource: 'ANALYZER_EARLY_SELL_READY',
+                exitSource: 'DERIV_ONE_TICK_SETTLEMENT',
+                executionTrigger: 'EARLY_SELL_READY',
+                holdUntilAnalyzerExit: false,
                 cycleFinished: false,
-                purchaseConsumedKey: String(signal.signalId) + ':' + String(signal.lockedAt),
-                exitDigit: signal.hotDigit,
-                hotDigit: signal.hotDigit,
-                commandKey: exit.commandKey,
-                exitSource: 'ANALYZER_EARLY_SELL_ONLY',
             },
         });
         globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
-        const symbol = String(signal.symbol || analyzerState.symbol || '');
-        const exitDigit = Number(signal.hotDigit);
-        const pipSize = Number(signal.pipSize ?? signal.pip_size ?? 0.01);
-        const decimalPlaces = Number.isFinite(pipSize) && pipSize > 0
-            ? Math.max(0, (String(pipSize).split('.')[1] || '').length)
-            : 2;
-
-        const getDigitFromTick = tick => {
-            const quote = tick?.quote;
-            if (quote === undefined || quote === null) return null;
-            const formatted = Number(quote).toFixed(decimalPlaces);
-            return Number(formatted[formatted.length - 1]);
-        };
-
-        const onTick = message => {
-            const tick = message?.data?.tick;
-            if (!tick || (symbol && String(tick.symbol || '') !== symbol)) return;
-
-            const currentDigit = getDigitFromTick(tick);
-
-            // Ignore every digit except the Analyzer-authorized exit digit.
-            if (currentDigit !== exitDigit) return;
-
-            this.analyzerExitTickSubscription?.unsubscribe?.();
-            this.analyzerExitTickSubscription = null;
-
-            globalObserver.setState({
-                trapkid_analyzer: {
-                    ...(globalObserver.getState('trapkid_analyzer') || {}),
-                    status: 'EARLY_EXIT_EXECUTING',
-                    cycleFinished: true,
-                    matchedExitDigit: currentDigit,
-                    exitDigit,
-                    hotDigit: signal.hotDigit,
-                },
-            });
-            globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
-
-            void this.sellAtMarket('ANALYZER_EARLY_EXIT').then(() => {
-                this.store.dispatch({ type: constants.STOP });
-                globalObserver.setState({
-                    trapkid_analyzer: {
-                        ...(globalObserver.getState('trapkid_analyzer') || {}),
-                        status: 'WAITING_FOR_ANALYZER',
-                        cycleFinished: true,
-                        matchedExitDigit: exitDigit,
-                    },
-                });
-                globalObserver.emit(
-                    'trapkid.analyzer.updated',
-                    globalObserver.getState('trapkid_analyzer')
-                );
-            });
-        };
-
-        this.analyzerExitTickSubscription = api_base.api.onMessage().subscribe(onTick);
-        api_base.pushSubscription(this.analyzerExitTickSubscription);
+        // Generate the actual DBot proposal/buy now — not when Analyze first
+        // locks the signal.
+        this.makeDirectPurchaseDecision();
     };
 
     init(...args) {
@@ -234,24 +206,19 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
                         throw new Error('TrapKid Analyzer: no authorized signal for purchase.');
                     }
 
-                    // Analyzer owns the entire contract lifecycle. Ignore the
-                    // Builder's duration so a 1-tick strategy cannot settle
-                    // before the Analyzer issues EARLY_SELL_READY.
+                    // Analyzer signal is bound now, but NO purchase happens
+                    // yet. EARLY_SELL_READY is the actual entry trigger.
                     this.tradeOptions = {
                         ...this.tradeOptions,
                         contractTypes: ['DIGITMATCH'],
                         symbol: analyzerSignal.symbol,
-                        prediction: Number(analyzerSignal.prediction),
-                        // Never inherit Builder tick duration. Analyzer mode
-                        // uses the dedicated valid duration supplied by the
-                        // Analyzer execution helper; EARLY_SELL_READY is the
-                        // only bot-authorized close path before expiry.
+                        prediction: Number(analyzerSignal.hotDigit),
                     };
 
                     globalObserver.setState({
                         trapkid_analyzer: {
                             ...(globalObserver.getState('trapkid_analyzer') || {}),
-                            status: 'ANALYZER_EXECUTION',
+                            status: 'WAITING_FOR_ANALYZER_EXIT',
                             signal: analyzerSignal,
                             signalId: analyzerSignal.signalId,
                             commandKey: String(analyzerSignal.signalId) + ':' + String(analyzerSignal.lockedAt),
@@ -266,7 +233,10 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
                     });
                     globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
-                    return this.makeDirectPurchaseDecision();
+                    // Wait here. The registered Analyzer event handler will
+                    // call makeDirectPurchaseDecision() only when
+                    // EARLY_SELL_READY arrives.
+                    return undefined;
                 })
                 .catch(error => {
                     globalObserver.emit('ui.log.error', error?.message || 'TrapKid analyzer failed to prepare a prediction.');
