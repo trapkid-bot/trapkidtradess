@@ -27,10 +27,11 @@ const getAnalyzerTradeDuration = trade_option => {
         ].includes(String(state.status || ''));
 
     if (analyzerActive && (trade_option?.contractTypes || []).includes('DIGITMATCH')) {
-        // Analyzer opens the position first and keeps it available while
-        // watching for the Analyzer hot-digit exit. The 60-tick lifetime is
-        // only a safety ceiling; EARLY_SELL_READY is the authorized exit.
-        return { duration: 60, duration_unit: 't' };
+        // Analyzer owns the entry/exit lifecycle. The Deriv BUY endpoint
+        // accepts a maximum of 10 ticks for this DIGITMATCH execution path,
+        // so use the API-valid ceiling here. EARLY_SELL_READY remains the
+        // Analyzer-controlled exit event; no Builder duration is consulted.
+        return { duration: 10, duration_unit: 't' };
     }
 
     return {
