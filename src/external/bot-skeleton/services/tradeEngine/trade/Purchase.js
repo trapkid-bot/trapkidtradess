@@ -280,16 +280,12 @@ export default Engine =>
             // Log the exact BUY payload so the live DBot can be verified from the
             // browser journal and never silently stop before the API request.
             if (analyzerMode) {
-                globalObserver.emit('ui.log', {
-                    message: `TRAPKID ANALYZER BUY → ${tradeOptionToBuy ? JSON.stringify(trade_option) : 'DIGITMATCH'}`,
-                });
+                globalObserver.emit('ui.log', `TRAPKID ANALYZER BUY → ${JSON.stringify(trade_option)}`);
             }
 
             const action = () => {
                 if (analyzerMode) {
-                    globalObserver.emit('ui.log', {
-                        message: 'TRAPKID ANALYZER BUY REQUEST SENT',
-                    });
+                    globalObserver.emit('ui.log', 'TRAPKID ANALYZER BUY REQUEST SENT');
                 }
                 return api_base.api.send(trade_option);
             };
