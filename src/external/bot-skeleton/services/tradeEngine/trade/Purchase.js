@@ -250,17 +250,76 @@ export default Engine =>
             this.isSellAvailable = true;
             this.contractId = String(contractId);
             this.analyzerContractId = String(contractId);
+            const openedAtMs = Number(
+                signal?.lockedAt ??
+                signal?.entryEpoch ??
+                signal?.entryTime ??
+                Date.now()
+            );
+            const durationValue = Number(this.tradeOptions.duration);
+            const durationUnit = this.tradeOptions.duration_unit || 't';
+            const payoutValue = Number(
+                signal?.payout ??
+                signal?.potentialPayout ??
+                signal?.potential_payout ??
+                signal?.return
+            );
+            const potentialPayout = Number.isFinite(payoutValue) ? payoutValue : 0;
+
             this.data.contract = {
+                id: String(contractId),
                 contract_id: String(contractId),
-                transaction_ids: { buy: String(entryCode) },
+                transaction_ids: {
+                    buy: String(entryCode),
+                    sell: null,
+                },
                 contract_type: 'DIGITMATCH',
                 symbol: signal?.symbol || this.tradeOptions.symbol,
+                underlying_symbol: signal?.symbol || this.tradeOptions.symbol,
+                display_name: signal?.symbol || this.tradeOptions.symbol,
+                shortcode: 'DIGITMATCH',
+                barrier: Number(signal.hotDigit),
+                prediction: Number(signal.hotDigit),
                 buy_price: buyPrice,
                 sell_price: 0,
+                bid_price: Number.isFinite(entryQuote) ? entryQuote : 0,
+                payout: potentialPayout,
+                profit: 0,
                 currency: this.tradeOptions.currency || 'USD',
+                purchase_time: Math.floor(openedAtMs / 1000),
+                date_start: Math.floor(openedAtMs / 1000),
+                date_expiry:
+                    Number.isFinite(durationValue) && durationValue > 0 && durationUnit === 't'
+                        ? Math.floor(openedAtMs / 1000) + durationValue
+                        : null,
+                entry_spot: Number.isFinite(entryQuote) ? entryQuote : null,
+                entry_spot_time: Math.floor(openedAtMs / 1000),
+                entry_tick: Number.isFinite(entryQuote) ? entryQuote : null,
+                entry_tick_time: Math.floor(openedAtMs / 1000),
+                tick_count:
+                    Number.isFinite(durationValue) && durationValue > 0 && durationUnit === 't'
+                        ? durationValue
+                        : 0,
+                tick_passed: 0,
+                is_valid_to_sell: false,
+                is_valid_to_cancel: false,
+                is_settleable: false,
+                analyzer_source: 'ANALYZER_ONLY',
+                analyzer_signal_id: String(signal.signalId),
+                analyzer_command_key: this.analyzerCommandKey,
                 analyzer_contract_id: String(contractId),
                 analyzer_entry_code: String(entryCode),
                 analyzer_entry_quote: Number.isFinite(entryQuote) ? entryQuote : null,
+                analyzer_locked_quote:
+                    Number(this.tradeOptions.analyzerLockedQuote) || null,
+                analyzer_hot_digit: Number(signal.hotDigit),
+                analyzer_prediction: Number(signal.hotDigit),
+                analyzer_duration: durationValue,
+                analyzer_duration_unit: durationUnit,
+                analyzer_exit_code: null,
+                analyzer_exit_quote: null,
+                analyzer_exit_digit: null,
+                analyzer_exit_status: 'WAITING_FOR_ANALYZER_EXIT',
                 status: 'open',
                 is_sold: false,
             };
@@ -298,11 +357,38 @@ export default Engine =>
                 analyzer_hot_digit: Number(signal.hotDigit),
                 analyzer_entry_code: String(entryCode),
             });
-            contractStatus({ id: 'contract.purchase_sent', data: buyPrice });
+            const purchasePayload = {
+                ...this.data.contract,
+                id: String(contractId),
+                contract_id: String(contractId),
+                is_sold: false,
+                status: 'open',
+            };
+
+            contract(purchasePayload);
+            contractStatus({
+                id: 'contract.purchase_sent',
+                data: String(contractId),
+                contract: purchasePayload,
+            });
+            contractStatus({
+                id: 'contract.purchase_received',
+                data: String(contractId),
+                buy: {
+                    contract_id: String(contractId),
+                    transaction_id: String(entryCode),
+                    buy_price: buyPrice,
+                    currency: this.tradeOptions.currency || 'USD',
+                    analyzer_contract_id: String(contractId),
+                    analyzer_entry_code: String(entryCode),
+                    analyzer_entry_quote: Number.isFinite(entryQuote) ? entryQuote : null,
+                },
+                contract: purchasePayload,
+            });
 
             globalObserver.emit(
                 'ui.log',
-                `TRAPKID ANALYZER CONTRACT OPEN → ${String(entryCode)}`
+                `TRAPKID ANALYZER CONTRACT OPEN → ${String(entryCode)} → quote=${Number.isFinite(entryQuote) ? entryQuote : '—'}`
             );
 
             const postEntryState = globalObserver.getState('trapkid_analyzer') || {};
