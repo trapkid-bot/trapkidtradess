@@ -16,7 +16,7 @@ export default Engine =>
             const analyzerMode =
                 this.isAnalyzerEnabledForTrade?.() ||
                 !!this.analyzerSignal ||
-                ['WAITING_FOR_ANALYZER_EXIT', 'EARLY_EXIT_COMMAND_RECEIVED', 'ANALYZER_EXECUTION', 'RUNNING'].includes(
+                ['ANALYZER_PURCHASE_AUTHORIZED', 'ANALYZER_PURCHASE_BOUND', 'WAITING_FOR_ANALYZER_EXIT', 'EARLY_EXIT_COMMAND_RECEIVED', 'ANALYZER_EXECUTION', 'RUNNING'].includes(
                     String(analyzerState.status || '')
                 );
 
@@ -101,7 +101,7 @@ export default Engine =>
                         entryPrediction: signal.prediction,
                         entrySource: 'ANALYZER_ONLY',
                         exitSource: 'ANALYZER_EARLY_SELL_ONLY',
-                        executionTrigger: 'EARLY_SELL_READY',
+                        executionTrigger: 'ANALYZER_ENTRY',
                     },
                 });
 
@@ -175,7 +175,7 @@ export default Engine =>
                         entryPrediction: this.tradeOptions.prediction,
                         lockedQuote: this.analyzerSignal?.lockedQuote,
                         entrySource: 'ANALYZER_ONLY',
-                        exitSource: 'DERIV_ONE_TICK_SETTLEMENT',
+                        exitSource: 'ANALYZER_EARLY_SELL_ONLY',
                         executionTrigger: null,
                         purchaseInFlightKey: null,
                         purchaseConsumedKey: purchasedSignalKey || undefined,
