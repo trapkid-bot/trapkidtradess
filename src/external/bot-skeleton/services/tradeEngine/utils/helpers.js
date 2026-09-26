@@ -26,10 +26,10 @@ const getAnalyzerTradeDuration = trade_option => {
         ].includes(String(state.status || ''));
 
     if (analyzerActive && (trade_option?.contractTypes || []).includes('DIGITMATCH')) {
-        // Analyzer mode must never inherit the Builder's 1-tick duration.
-        // Use a valid short safety expiry so Analyzer can request an early sell;
-        // Deriv still owns the contract expiry if no early sell occurs.
-        return { duration: 60, duration_unit: 's' };
+        // Once EARLY_SELL_READY has authorized execution, this is exactly one
+        // Deriv tick. The Analyzer-provided hot digit is the DIGITMATCH
+        // barrier/prediction; Deriv then settles the one-tick contract.
+        return { duration: 1, duration_unit: 't' };
     }
 
     return {
