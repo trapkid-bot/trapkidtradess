@@ -5,112 +5,238 @@ import { observer as globalObserver } from '../../../utils/observer';
 import { api_base } from '../../api/api-base';
 
 let purchase_reference;
+let financial_request_id = Date.now() % 1000000000;
 
 export default Engine =>
     class Purchase extends Engine {
-        // Read-only Deriv pricing lookup. This never buys, sells, subscribes to
-        // ticks, or observes an open contract. It only fills the potential
-        // payout displayed for the Analyzer-owned local contract.
-        fetchAnalyzerPayoutQuote = signal => {
+        // Deriv is used only for the financial leg of an Analyzer trade.
+        // Analyzer remains the execution/exit authority. This layer only obtains
+        // the Deriv price, performs the real financial buy, and records the
+        // corresponding financial fields/balance returned by Deriv.
+        requestAnalyzerDeriv = (request, msgType, timeoutMs = 5000) => {
             const api = api_base?.api;
-            if (!api || !signal?.symbol) return Promise.resolve(null);
+            if (!api || api.connection?.readyState !== 1) return Promise.resolve(null);
 
-            const amount = Number(this.tradeOptions?.amount);
-            const duration = Number(this.tradeOptions?.duration);
-            const duration_unit = this.tradeOptions?.duration_unit || 't';
-            if (!Number.isFinite(amount) || amount <= 0) return Promise.resolve(null);
-            if (!Number.isFinite(duration) || duration <= 0) return Promise.resolve(null);
-            if (!Number.isInteger(Number(signal.hotDigit))) return Promise.resolve(null);
-
-            const req_id = Number(String(Date.now()).slice(-9));
-            const request = {
-                proposal: 1,
-                amount,
-                basis: this.tradeOptions?.basis || 'stake',
-                contract_type: 'DIGITMATCH',
-                currency: this.tradeOptions?.currency || 'USD',
-                duration,
-                duration_unit,
-                underlying_symbol: String(signal.symbol),
-                barrier: String(Number(signal.hotDigit)),
-                req_id,
-            };
+            const req_id = Number(String(++financial_request_id).slice(-9));
+            const payload = { ...request, req_id };
 
             return new Promise(resolve => {
                 let finished = false;
                 let timeout;
+                let subscription;
 
-                const finish = proposal => {
+                const finish = response => {
                     if (finished) return;
                     finished = true;
                     if (timeout) clearTimeout(timeout);
                     try {
                         subscription?.unsubscribe?.();
                     } catch {
-                        // Ignore cleanup errors; this is a best-effort read-only quote.
+                        // Best-effort subscription cleanup.
                     }
-                    resolve(proposal || null);
+                    resolve(response || null);
                 };
 
-                let subscription;
                 try {
                     subscription = api.onMessage().subscribe(({ data }) => {
-                        if (Number(data?.req_id) !== req_id || data?.msg_type !== 'proposal') return;
-                        if (data?.error) {
-                            finish(null);
-                            return;
-                        }
-                        finish(data?.proposal || null);
+                        if (Number(data?.req_id) !== req_id || data?.msg_type !== msgType) return;
+                        finish(data);
                     });
-
-                    api.send(request);
-                    timeout = setTimeout(() => finish(null), 5000);
+                    api.send(payload);
+                    timeout = setTimeout(() => finish(null), timeoutMs);
                 } catch {
                     finish(null);
                 }
             });
         };
 
-        updateAnalyzerPayoutFromDeriv = (signal, contractId) => {
-            void this.fetchAnalyzerPayoutQuote(signal).then(proposal => {
-                const payout = Number(proposal?.payout);
-                if (!Number.isFinite(payout) || payout <= 0) return;
+        updateDerivAccountBalance = balance => {
+            const numericBalance = Number(balance);
+            if (!Number.isFinite(numericBalance)) return;
 
-                const currentContract = this.data?.contract;
-                if (
-                    !currentContract ||
-                    String(currentContract.contract_id) !== String(contractId)
-                ) {
-                    return;
-                }
+            const clientStore = globalObserver.getState('client.store');
+            if (!clientStore) return;
 
+            clientStore.setBalance?.(String(numericBalance));
+            const loginid = clientStore.loginid;
+            const currentAccounts = clientStore.account_list || [];
+            if (loginid && currentAccounts.length) {
+                clientStore.setAccountList?.(
+                    currentAccounts.map(account =>
+                        String(account.loginid) === String(loginid)
+                            ? { ...account, balance: numericBalance }
+                            : account
+                    )
+                );
+            }
+        };
+
+        fetchAnalyzerPayoutQuote = signal => {
+            if (!signal?.symbol) return Promise.resolve(null);
+
+            const amount = Number(this.tradeOptions?.amount);
+            const duration = Number(this.tradeOptions?.duration);
+            const duration_unit = this.tradeOptions?.duration_unit || 't';
+            const currency = this.tradeOptions?.currency || 'USD';
+            const hotDigit = Number(signal?.hotDigit);
+
+            if (!Number.isFinite(amount) || amount <= 0) return Promise.resolve(null);
+            if (!Number.isFinite(duration) || duration <= 0) return Promise.resolve(null);
+            if (!Number.isInteger(hotDigit) || hotDigit < 0 || hotDigit > 9) return Promise.resolve(null);
+
+            return this.requestAnalyzerDeriv(
+                {
+                    proposal: 1,
+                    amount,
+                    basis: this.tradeOptions?.basis || 'stake',
+                    contract_type: 'DIGITMATCH',
+                    currency,
+                    duration,
+                    duration_unit,
+                    underlying_symbol: String(signal.symbol),
+                    barrier: String(hotDigit),
+                },
+                'proposal'
+            );
+        };
+
+        openAnalyzerDerivContract = async signal => {
+            const proposalResponse = await this.fetchAnalyzerPayoutQuote(signal);
+            const proposal = proposalResponse?.proposal;
+            if (!proposal) return null;
+
+            const potentialPayout = Number(proposal.payout);
+            const askPrice = Number(proposal.ask_price);
+            const proposalId = proposal.id;
+            const localContract = this.data?.contract;
+
+            if (localContract && String(localContract.contract_id) === String(this.contractId)) {
+                this.data.contract = {
+                    ...localContract,
+                    payout: Number.isFinite(potentialPayout) ? potentialPayout : localContract.payout,
+                    analyzer_payout_source: 'DERIV_PROPOSAL',
+                    analyzer_payout_quote_id: proposalId ?? null,
+                    analyzer_payout_ask_price: Number.isFinite(askPrice) ? askPrice : null,
+                    financial_status: 'DERIV_PROPOSAL_RECEIVED',
+                };
+                contract(this.data.contract);
+            }
+
+            if (!proposalId || !Number.isFinite(askPrice) || askPrice <= 0) return null;
+
+            const buyResponse = await this.requestAnalyzerDeriv(
+                {
+                    buy: String(proposalId),
+                    price: askPrice,
+                },
+                'buy'
+            );
+            const buy = buyResponse?.buy;
+            if (!buy?.contract_id) return null;
+
+            this.derivContractId = String(buy.contract_id);
+            this.derivBuyTransactionId = buy.transaction_id ?? null;
+            this.derivBuy = buy;
+
+            const actualBuyPrice = Number(buy.buy_price);
+            const actualPayout = Number(buy.payout);
+            const balanceAfter = Number(buy.balance_after);
+
+            const currentContract = this.data?.contract;
+            if (currentContract && String(currentContract.contract_id) === String(this.contractId)) {
                 this.data.contract = {
                     ...currentContract,
-                    payout,
-                    analyzer_payout_source: 'DERIV_PROPOSAL',
-                    analyzer_payout_quote_id: proposal?.id ?? null,
-                    analyzer_payout_ask_price: Number.isFinite(Number(proposal?.ask_price))
-                        ? Number(proposal.ask_price)
-                        : null,
+                    buy_price: Number.isFinite(actualBuyPrice) ? actualBuyPrice : currentContract.buy_price,
+                    payout: Number.isFinite(actualPayout)
+                        ? actualPayout
+                        : Number.isFinite(potentialPayout)
+                          ? potentialPayout
+                          : currentContract.payout,
+                    analyzer_payout_source: 'DERIV_BUY',
+                    analyzer_payout_quote_id: proposalId ?? null,
+                    analyzer_payout_ask_price: Number.isFinite(askPrice) ? askPrice : null,
+                    deriv_contract_id: String(buy.contract_id),
+                    deriv_transaction_id: buy.transaction_id ?? null,
+                    deriv_buy_price: Number.isFinite(actualBuyPrice) ? actualBuyPrice : null,
+                    deriv_potential_payout: Number.isFinite(actualPayout) ? actualPayout : null,
+                    deriv_balance_after_buy: Number.isFinite(balanceAfter) ? balanceAfter : null,
+                    financial_status: 'DERIV_BUY_CONFIRMED',
                 };
 
-                globalObserver.setState({
-                    trapkid_analyzer: {
-                        ...(globalObserver.getState('trapkid_analyzer') || {}),
-                        analyzerPotentialPayout: payout,
-                        payout,
-                        payoutSource: 'DERIV_PROPOSAL',
-                    },
-                });
-
-                // Same local contract identity; this only refreshes the
-                // Summary/Transactions display with the read-only Deriv quote.
                 contract(this.data.contract);
-                globalObserver.emit(
-                    'ui.log',
-                    `TRAPKID ANALYZER PAYOUT QUOTE → ${payout}`
-                );
+            }
+
+            if (Number.isFinite(balanceAfter)) this.updateDerivAccountBalance(balanceAfter);
+
+            globalObserver.setState({
+                trapkid_analyzer: {
+                    ...(globalObserver.getState('trapkid_analyzer') || {}),
+                    derivContractId: String(buy.contract_id),
+                    derivTransactionId: buy.transaction_id ?? null,
+                    derivBuyPrice: Number.isFinite(actualBuyPrice) ? actualBuyPrice : null,
+                    analyzerPotentialPayout: Number.isFinite(actualPayout)
+                        ? actualPayout
+                        : Number.isFinite(potentialPayout)
+                          ? potentialPayout
+                          : null,
+                    payout: Number.isFinite(actualPayout)
+                        ? actualPayout
+                        : Number.isFinite(potentialPayout)
+                          ? potentialPayout
+                          : null,
+                    payoutSource: 'DERIV_BUY',
+                    derivBalanceAfterBuy: Number.isFinite(balanceAfter) ? balanceAfter : null,
+                },
             });
+
+            globalObserver.emit(
+                'ui.log',
+                `TRAPKID DERIV FINANCIAL BUY → ${String(buy.contract_id)} → stake=${Number.isFinite(actualBuyPrice) ? actualBuyPrice : askPrice} → payout=${Number.isFinite(actualPayout) ? actualPayout : potentialPayout}`
+            );
+
+            return buy;
+        };
+
+        settleAnalyzerDerivContract = async () => {
+            const derivContractId = this.derivContractId;
+            if (!derivContractId) return null;
+
+            const response = await this.requestAnalyzerDeriv(
+                {
+                    sell: Number(derivContractId),
+                    price: 0,
+                },
+                'sell'
+            );
+            const sold = response?.sell;
+            if (!sold?.contract_id) return null;
+
+            const soldFor = Number(sold.sold_for);
+            const balanceAfter = Number(sold.balance_after);
+            if (Number.isFinite(balanceAfter)) this.updateDerivAccountBalance(balanceAfter);
+
+            globalObserver.setState({
+                trapkid_analyzer: {
+                    ...(globalObserver.getState('trapkid_analyzer') || {}),
+                    derivTransactionId: sold.transaction_id ?? null,
+                    derivSoldFor: Number.isFinite(soldFor) ? soldFor : null,
+                    derivBalanceAfterSell: Number.isFinite(balanceAfter) ? balanceAfter : null,
+                    payout: Number.isFinite(soldFor) ? soldFor : undefined,
+                    payoutSource: 'DERIV_SELL',
+                },
+            });
+
+            globalObserver.emit(
+                'ui.log',
+                `TRAPKID DERIV FINANCIAL SELL → ${String(sold.contract_id)} → payout=${Number.isFinite(soldFor) ? soldFor : '—'}`
+            );
+
+            return sold;
+        };
+
+        financialAnalyzerBuyPromise = signal => {
+            this.analyzerDerivBuyPromise = this.openAnalyzerDerivContract(signal);
+            return this.analyzerDerivBuyPromise;
         };
 
         purchase(contract_type) {
@@ -497,11 +623,10 @@ export default Engine =>
                 `TRAPKID ANALYZER CONTRACT OPEN → ${String(entryCode)} → quote=${Number.isFinite(entryQuote) ? entryQuote : '—'}`
             );
 
-            // Deriv is used here only as a read-only financial quote source.
-            // The Analyzer/local engine remains the sole execution and settlement
-            // authority. Do not await this request; entry/hold/exit must continue
-            // exactly as before even if Deriv is unavailable.
-            this.updateAnalyzerPayoutFromDeriv(signal, contractId);
+            // Start the Deriv financial leg asynchronously. Analyzer entry/hold/exit
+            // remains the execution lifecycle; this only records the real Deriv
+            // proposal/buy and its returned financial values.
+            this.financialAnalyzerBuyPromise(signal);
 
             const postEntryState = globalObserver.getState('trapkid_analyzer') || {};
             const pendingExit = postEntryState.pendingEarlyExit;
