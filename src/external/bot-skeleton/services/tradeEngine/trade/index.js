@@ -251,7 +251,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
                     globalObserver.setState({
                         trapkid_analyzer: {
                             ...(globalObserver.getState('trapkid_analyzer') || {}),
-                            status: 'ANALYZER_TRADE_LOCKED',
+                            status: 'ANALYZER_EXECUTION',
                             signal: analyzerSignal,
                             signalId: analyzerSignal.signalId,
                             commandKey: String(analyzerSignal.signalId) + ':' + String(analyzerSignal.lockedAt),
