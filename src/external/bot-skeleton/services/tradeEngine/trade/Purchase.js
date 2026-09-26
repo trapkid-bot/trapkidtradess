@@ -103,11 +103,6 @@ export default Engine =>
                 this.data.contract = {
                     ...currentContract,
                     payout,
-                    analyzer_payout_source: 'DERIV_PROPOSAL',
-                    analyzer_payout_quote_id: proposal?.id ?? null,
-                    analyzer_payout_ask_price: Number.isFinite(Number(proposal?.ask_price))
-                        ? Number(proposal.ask_price)
-                        : null,
                 };
 
                 globalObserver.setState({
@@ -115,7 +110,6 @@ export default Engine =>
                         ...(globalObserver.getState('trapkid_analyzer') || {}),
                         analyzerPotentialPayout: payout,
                         payout,
-                        payoutSource: 'DERIV_PROPOSAL',
                     },
                 });
 
