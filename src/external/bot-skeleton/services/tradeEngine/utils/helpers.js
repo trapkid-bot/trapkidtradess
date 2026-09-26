@@ -27,11 +27,21 @@ const getAnalyzerTradeDuration = trade_option => {
         ].includes(String(state.status || ''));
 
     if (analyzerActive && (trade_option?.contractTypes || []).includes('DIGITMATCH')) {
-        // Analyzer owns the entry/exit lifecycle. The Deriv BUY endpoint
-        // accepts a maximum of 10 ticks for this DIGITMATCH execution path,
-        // so use the API-valid ceiling here. EARLY_SELL_READY remains the
-        // Analyzer-controlled exit event; no Builder duration is consulted.
-        return { duration: 10, duration_unit: 't' };
+        // Analyzer is authoritative for duration when it supplies one.
+        // Otherwise preserve the user's selected ticks value from the DBot
+        // execution settings. EARLY_SELL_READY remains the Analyzer exit.
+        const analyzerDuration = Number(signal?.duration);
+        const analyzerDurationUnit = signal?.duration_unit || signal?.durationUnit;
+        if (Number.isFinite(analyzerDuration) && analyzerDuration > 0) {
+            return {
+                duration: analyzerDuration,
+                duration_unit: analyzerDurationUnit || 't',
+            };
+        }
+        return {
+            duration: trade_option.duration,
+            duration_unit: trade_option.duration_unit,
+        };
     }
 
     return {
@@ -95,11 +105,18 @@ export const tradeOptionToBuy = (contract_type, trade_option) => {
         // without sending it through contract-parameter validation.
         ...(trade_option.analyzerSignalId || trade_option.analyzerCommandKey
             ? {
-                passthrough: {
-                    trapkid_source: 'ANALYZER_ONLY',
-                    signal_id: trade_option.analyzerSignalId,
-                    command_key: trade_option.analyzerCommandKey,
-                },
+                trapkid_source: 'ANALYZER_ONLY',
+                signal_id: trade_option.analyzerSignalId,
+                command_key: trade_option.analyzerCommandKey,
+                analyzer_contract_id: trade_option.analyzerContractId,
+                analyzer_entry_code: trade_option.analyzerEntryCode || trade_option.analyzerSignalId,
+                analyzer_entry_quote: trade_option.analyzerEntryQuote,
+                analyzer_locked_quote: trade_option.analyzerLockedQuote,
+                analyzer_symbol: trade_option.symbol,
+                analyzer_hot_digit: trade_option.prediction,
+                analyzer_duration: trade_option.duration,
+                analyzer_duration_unit: trade_option.duration_unit,
+            },
             }
             : {}),
     };
