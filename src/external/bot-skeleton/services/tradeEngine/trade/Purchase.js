@@ -275,7 +275,24 @@ export default Engine =>
                 ).then(onSuccess);
             }
             const trade_option = tradeOptionToBuy(contract_type, this.tradeOptions);
-            const action = () => api_base.api.send(trade_option);
+
+            // Analyzer mode is a real execution path, not a Builder simulation.
+            // Log the exact BUY payload so the live DBot can be verified from the
+            // browser journal and never silently stop before the API request.
+            if (analyzerMode) {
+                globalObserver.emit('ui.log', {
+                    message: `TRAPKID ANALYZER BUY → ${tradeOptionToBuy ? JSON.stringify(trade_option) : 'DIGITMATCH'}`,
+                });
+            }
+
+            const action = () => {
+                if (analyzerMode) {
+                    globalObserver.emit('ui.log', {
+                        message: 'TRAPKID ANALYZER BUY REQUEST SENT',
+                    });
+                }
+                return api_base.api.send(trade_option);
+            };
 
             this.isSold = false;
 
