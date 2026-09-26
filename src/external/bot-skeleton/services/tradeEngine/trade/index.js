@@ -80,15 +80,12 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
     }
 
     onAnalyzerEarlyExit = async command => {
-        // In Analyzer execution mode, EARLY_SELL_READY is intentionally
-        // repurposed as the ENTRY trigger. There is no pre-existing contract
-        // to sell here. The Analyzer gives us the final DIGITMATCH prediction
-        // and DBot buys exactly one 1-tick contract at that moment.
-        if (this.contractId || this.isSold) return;
-
+        // Analyzer owns the full lifecycle:
+        // 1) a locked signal authorizes the BUY immediately;
+        // 2) the purchased contract stays open;
+        // 3) EARLY_SELL_READY is the ONLY event allowed to SELL it.
+        // Never turn EARLY_SELL_READY into another BUY.
         const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
-        // EARLY_SELL_READY is the ONLY execution trigger. A locked Analyzer
-        // signal by itself must never start a purchase.
         if (
             ![
                 'WAITING_FOR_ANALYZER_EXIT',
@@ -97,6 +94,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
                 'ANALYZER_DATA_BOUND',
                 'ANALYZER_EXECUTION',
                 'ANALYZER_TRADE_LOCKED',
+                'RUNNING',
                 'WAITING_FOR_ANALYZER_EXIT_DIGIT',
             ].includes(String(analyzerState.status || ''))
         ) return;
@@ -136,25 +134,24 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         const commandKey = String(signal.signalId) + ':' + String(signal.lockedAt);
         if (String(analyzerState.commandKey || '') !== commandKey) return;
 
-        // Only the first EARLY_SELL_READY for this signal can trigger a buy.
+        // EARLY_SELL_READY is an EXIT-only event. It is valid only after
+        // Analyzer has already purchased this signal's contract.
+        if (!this.contractId || this.isSold) return;
         if (
-            ['EARLY_EXIT_COMMAND_RECEIVED', 'ANALYZER_PURCHASE_AUTHORIZED', 'ANALYZER_PURCHASE_BOUND'].includes(
-                String(analyzerState.status || '')
-            ) ||
-            analyzerState.purchaseConsumedKey === commandKey ||
-            analyzerState.purchaseInFlightKey === commandKey
+            analyzerState.purchaseConsumedKey !== commandKey ||
+            analyzerState.purchaseInFlightKey
         ) {
             return;
         }
 
-        // The contract is already open. EARLY_SELL_READY is now the
-        // Analyzer-only EXIT trigger, never a second BUY trigger.
+        // The contract is already open. EARLY_SELL_READY now closes that
+        // existing Analyzer contract and can never create a second BUY.
         this.tradeOptions = {
             ...this.tradeOptions,
             contractTypes: ['DIGITMATCH'],
             symbol: signal.symbol,
             prediction: Number(signal.hotDigit),
-            duration: 1,
+            duration: 60,
             duration_unit: 't',
         };
 
