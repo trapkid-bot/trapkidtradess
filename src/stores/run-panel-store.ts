@@ -274,7 +274,11 @@ export default class RunPanelStore {
 
             summary_card.clear();
             this.setContractStage(contract_stages.STARTING);
-            this.dbot.runBot();
+            if (sourceCommand?.source === 'TRAPKID_ANALYZER_HTTP') {
+                this.dbot.runAnalyzer(sourceCommand);
+            } else {
+                this.dbot.runBot();
+            }
         });
         this.setShowBotStopMessage(false);
     };
