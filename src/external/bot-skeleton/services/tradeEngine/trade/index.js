@@ -195,8 +195,8 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
             contractTypes: ['DIGITMATCH'],
             symbol: signal.symbol,
             prediction: Number(signal.hotDigit),
-            duration: 60,
-            duration_unit: 't',
+            duration: this.tradeOptions?.duration,
+            duration_unit: this.tradeOptions?.duration_unit,
         };
 
         globalObserver.setState({
