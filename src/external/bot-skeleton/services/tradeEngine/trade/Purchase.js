@@ -3,6 +3,7 @@ import { contract, contractStatus, info, log } from '../utils/broadcast';
 import { getUUID } from '../utils/helpers';
 import { observer as globalObserver } from '../../../utils/observer';
 import { api_base } from '../../api/api-base';
+import { account_list$, authData$, setAccountList, setAuthData } from '../../api/observables/connection-status-stream';
 
 let purchase_reference;
 
@@ -52,9 +53,18 @@ export default Engine =>
             const numericBalance = Number(balance);
             if (!Number.isFinite(numericBalance)) return;
 
+            const loginid = api_base.account_info?.loginid || globalObserver.getState('client.store')?.loginid || '';
+            const currency =
+                api_base.account_info?.currency ||
+                globalObserver.getState('client.store')?.currency ||
+                this.tradeOptions?.currency ||
+                'USD';
+
             api_base.account_info = {
                 ...(api_base.account_info || {}),
                 balance: numericBalance,
+                currency,
+                loginid: loginid || api_base.account_info?.loginid,
             };
 
             const clientStore = globalObserver.getState('client.store');
@@ -64,16 +74,42 @@ export default Engine =>
                     clientStore.setAccountList?.(
                         clientStore.account_list.map(account =>
                             String(account.loginid) === String(clientStore.loginid)
-                                ? { ...account, balance: numericBalance }
+                                ? { ...account, balance: numericBalance, currency: account.currency || currency }
                                 : account
                         )
                     );
                 }
             }
 
-            // Keep the Analyzer-only balance state synchronized with the same
-            // authoritative Deriv balance. This is financial display/accounting
-            // state only; it does not participate in Analyzer execution.
+            // Keep the real account observable used by the account/balance UI in
+            // sync with the same Deriv balance. This is display/accounting only.
+            const existingAccounts =
+                (Array.isArray(account_list$?.value) && account_list$.value.length
+                    ? account_list$.value
+                    : clientStore?.account_list) || [];
+            const activeLoginId =
+                loginid ||
+                existingAccounts?.[0]?.loginid ||
+                '';
+
+            const updatedAccounts = existingAccounts.map(account =>
+                String(account.loginid) === String(activeLoginId)
+                    ? { ...account, balance: numericBalance, currency: account.currency || currency }
+                    : account
+            );
+
+            if (updatedAccounts.length) setAccountList(updatedAccounts);
+
+            const existingAuth = authData$?.value || {};
+            setAuthData({
+                ...existingAuth,
+                loginid: activeLoginId || existingAuth.loginid || '',
+                balance: numericBalance,
+                currency: existingAuth.currency || currency,
+                account_list: updatedAccounts.length ? updatedAccounts : existingAuth.account_list || [],
+            });
+
+            // Keep the Analyzer-side financial state synchronized with Deriv.
             const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
             globalObserver.setState({
                 trapkid_analyzer: {
@@ -81,7 +117,7 @@ export default Engine =>
                     balance: numericBalance,
                     analyzerBalance: numericBalance,
                     derivBalance: numericBalance,
-                    currency: analyzerState.currency || this.tradeOptions?.currency || 'USD',
+                    currency,
                     derivBalanceSource: 'DERIV_BALANCE',
                 },
             });
