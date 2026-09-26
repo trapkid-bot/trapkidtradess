@@ -1,5 +1,4 @@
 import { LogTypes } from '../../../constants/messages';
-import { api_base } from '../../api/api-base';
 import { contractStatus, info, log } from '../utils/broadcast';
 import { doUntilDone, getUUID, recoverFromError, tradeOptionToBuy } from '../utils/helpers';
 import { purchaseSuccessful } from './state/actions';
@@ -200,8 +199,17 @@ export default Engine =>
                 // Keep Deriv's returned contract handle only as the transport
                 // handle needed to close the already-authorized position.
                 // Analyzer remains the logical contract/entry identity.
-                this.contractId = buy.contract_id;
-                this.derivContractId = buy.contract_id;
+                if (analyzerMode) {
+                    // Analyzer contract identity is the real execution identity.
+                    // There is deliberately no broker/Deriv contract handle.
+                    this.contractId =
+                        this.tradeOptions.analyzerContractId ||
+                        this.tradeOptions.analyzerEntryCode ||
+                        this.analyzerSignal?.signalId;
+                    this.analyzerContractId = this.contractId;
+                } else {
+                    this.contractId = buy.contract_id;
+                }
 
                 if (this.analyzerSignal) {
                     this.analyzerPurchaseKey =
@@ -324,70 +332,6 @@ export default Engine =>
                     delayIndex++
                 ).then(onSuccess);
             }
-            const trade_option = tradeOptionToBuy(contract_type, this.tradeOptions);
-
-            // Analyzer mode is a real execution path, not a Builder simulation.
-            // Log the exact BUY payload so the live DBot can be verified from the
-            // browser journal and never silently stop before the API request.
-            if (analyzerMode) {
-                globalObserver.emit('ui.log', `TRAPKID ANALYZER BUY → ${JSON.stringify(trade_option)}`);
-            }
-
-            const action = () => {
-                if (analyzerMode) {
-                    globalObserver.emit('ui.log', 'TRAPKID ANALYZER BUY REQUEST SENT');
-                }
-                return api_base.api
-                    .send(trade_option)
-                    .then(response => {
-                        if (analyzerMode) {
-                            globalObserver.emit(
-                                'ui.log',
-                                `TRAPKID ANALYZER BUY RESPONSE → ${JSON.stringify(response)}`
-                            );
-                        }
-                        return response;
-                    })
-                    .catch(error => {
-                        if (analyzerMode) {
-                            globalObserver.emit(
-                                'ui.log.error',
-                                `TRAPKID ANALYZER BUY ERROR → ${error?.error?.code || error?.code || error?.message || JSON.stringify(error)}`
-                            );
-                        }
-                        throw error;
-                    });
-            };
-
-            this.isSold = false;
-
-            contractStatus({
-                id: 'contract.purchase_sent',
-                data: this.tradeOptions.amount,
-            });
-
-            if (!this.options.timeMachineEnabled) {
-                return doUntilDone(action).then(onSuccess);
-            }
-
-            return recoverFromError(
-                action,
-                (errorCode, makeDelay) => {
-                    if (errorCode === 'DisconnectError') {
-                        this.clearProposals();
-                    }
-                    const unsubscribe = this.store.subscribe(() => {
-                        const { scope } = this.store.getState();
-                        if (scope === BEFORE_PURCHASE) {
-                            makeDelay().then(() => this.observer.emit('REVERT', 'before'));
-                            unsubscribe();
-                        }
-                    });
-                },
-                ['PriceMoved', 'InvalidContractProposal'],
-                delayIndex++
-            ).then(onSuccess);
-        }
         getPurchaseReference = () => purchase_reference;
         regeneratePurchaseReference = () => {
             purchase_reference = getUUID();
