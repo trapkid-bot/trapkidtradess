@@ -158,7 +158,20 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         this.store.dispatch(start());
         this.checkLimits(validated_trade_options);
 
-        if (this.isAnalyzerEnabledForTrade(this.tradeOptions)) {
+        const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
+        const analyzerSignal = analyzerState?.signal;
+        const analyzerCommandKey =
+            analyzerSignal?.signalId && Number.isFinite(Number(analyzerSignal?.lockedAt))
+                ? String(analyzerSignal.signalId) + ':' + String(analyzerSignal.lockedAt)
+                : '';
+        const analyzerCommandActive =
+            !!analyzerSignal?.signalId &&
+            String(analyzerState.commandKey || '') === analyzerCommandKey &&
+            ['COMMAND_RECEIVED', 'COMMAND_ACCEPTED', 'ANALYZER_DATA_BOUND', 'ANALYZER_TRADE_LOCKED'].includes(
+                String(analyzerState.status || '')
+            );
+
+        if (analyzerCommandActive || this.isAnalyzerEnabledForTrade(this.tradeOptions)) {
             this.prepareAnalyzerPrediction()
                 .then(() => {
                     const analyzerSignal = this.analyzerSignal || globalObserver.getState('trapkid_analyzer')?.signal;
