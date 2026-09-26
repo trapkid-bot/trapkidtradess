@@ -93,13 +93,20 @@ export default Engine =>
         }
 
         async waitForAnalyzerSignal(timeoutMs = 10000) {
+            // Analyze is the execution trigger. Use the lock that already exists
+            // at click time immediately; only wait briefly if Analyzer is still
+            // publishing that current lock.
+            const immediate = this.getExternalAnalyzerSignal();
+            if (immediate?.signalId && Number.isInteger(Number(immediate.hotDigit)) && immediate.symbol) {
+                return immediate;
+            }
             const startedAt = Date.now();
             while (Date.now() - startedAt < timeoutMs) {
                 const signal = this.getExternalAnalyzerSignal();
-                if (signal?.signalId && Number.isInteger(signal.hotDigit) && signal.symbol) {
+                if (signal?.signalId && Number.isInteger(Number(signal.hotDigit)) && signal.symbol) {
                     return signal;
                 }
-                await new Promise(resolve => setTimeout(resolve, 100));
+                await new Promise(resolve => setTimeout(resolve, 25));
             }
             return null;
         }
