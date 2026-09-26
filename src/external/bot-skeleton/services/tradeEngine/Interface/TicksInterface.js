@@ -5,7 +5,33 @@ const getTicksInterface = tradeEngine => {
         getDelayTickValue: (...args) => tradeEngine.getDelayTickValue(...args),
         getCurrentStat: (...args) => tradeEngine.getCurrentStat(...args),
         getStatList: (...args) => tradeEngine.getStatList(...args),
-        getLastTick: (...args) => {\n            if (typeof tradeEngine.getLastTick === 'function') return tradeEngine.getLastTick(...args);\n            // Analyzer-only fallback: never call Deriv ticksService.\n            const state = globalObserver.getState('trapkid_analyzer') || {};\n            const signal = state.signal || {};\n            const quote = Number(state.lastTick?.quote ?? state.lastTick ?? state.currentTick ?? signal.lockedQuote ?? signal.entryQuote);\n            if (!Number.isFinite(quote)) return Promise.resolve(null);\n            const [raw = false, toString = false] = args;\n            if (raw) return Promise.resolve({ quote, epoch: Number(state.serverTime ?? signal.lockedAt ?? Date.now()) });\n            return Promise.resolve(toString ? quote.toFixed(2) : quote);\n        },
+        getLastTick: (...args) => {
+            if (typeof tradeEngine.getLastTick === 'function') return tradeEngine.getLastTick(...args);
+
+            // Analyzer-only fallback: never call Deriv ticksService.
+            const state = globalObserver.getState('trapkid_analyzer') || {};
+            const signal = state.signal || {};
+            const tick = state.lastTick ?? state.currentTick ?? null;
+
+            const quote = Number(
+                typeof tick === 'object' && tick !== null
+                    ? tick.quote ?? tick.price ?? tick.value
+                    : tick ?? signal.lockedQuote ?? signal.entryQuote
+            );
+
+            if (!Number.isFinite(quote)) return Promise.resolve(null);
+
+            const [raw = false, toString = false] = args;
+
+            if (raw) {
+                return Promise.resolve({
+                    quote,
+                    epoch: Number(state.serverTime ?? state.epoch ?? signal.lockedAt ?? Date.now()),
+                });
+            }
+
+            return Promise.resolve(toString ? quote.toFixed(2) : quote);
+        },
         getLastDigit: (...args) => tradeEngine.getLastDigit(...args),
         getTicks: (...args) => tradeEngine.getTicks(...args),
         checkDirection: (...args) => tradeEngine.checkDirection(...args),
