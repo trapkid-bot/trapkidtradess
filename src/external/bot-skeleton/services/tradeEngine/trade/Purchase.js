@@ -157,20 +157,9 @@ export default Engine =>
                 });
                 globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
-                // If Analyzer signaled EARLY_SELL_READY before the buy
-                // completed, do not lose that command. Start the Analyzer-only
-                // exit watcher now that contractId exists.
-                const pendingAnalyzerExit = this.getAnalyzerExit?.();
-                if (
-                    pendingAnalyzerExit &&
-                    String(pendingAnalyzerExit.signalId) === String(this.analyzerSignal?.signalId)
-                ) {
-                    void this.onAnalyzerEarlyExit?.({
-                        signalId: pendingAnalyzerExit.signalId,
-                        signal: this.analyzerSignal,
-                        commandKey: pendingAnalyzerExit.commandKey,
-                    });
-                }
+                // EARLY_SELL_READY was the entry trigger. The purchased
+                // DIGITMATCH is intentionally left to Deriv's one-tick
+                // settlement; do not start an exit watcher here.
 
                 this.store.dispatch(purchaseSuccessful());
 
