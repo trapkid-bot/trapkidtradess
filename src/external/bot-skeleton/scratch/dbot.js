@@ -275,7 +275,9 @@ class DBot {
         try {
             api_base.is_stopping = false;
             const code = this.generateCode();
-            if (!this.interpreter.bot.tradeEngine.checkTicksPromiseExists()) this.interpreter = Interpreter();
+            const tradeEngine = this.interpreter?.bot?.tradeEngine;
+            const usesLegacyTickEngine = !tradeEngine?.analyzerOnly && typeof tradeEngine?.checkTicksPromiseExists === 'function';
+            if (usesLegacyTickEngine && !tradeEngine.checkTicksPromiseExists()) this.interpreter = Interpreter();
 
             this.is_bot_running = true;
 
@@ -381,7 +383,9 @@ class DBot {
         this.is_bot_running = false;
         this.interpreter = null;
         this.interpreter = Interpreter();
-        await this.interpreter.bot.tradeEngine.watchTicks(this.symbol);
+        if (!this.interpreter.bot.tradeEngine.analyzerOnly && typeof this.interpreter.bot.tradeEngine.watchTicks === 'function') {
+            await this.interpreter.bot.tradeEngine.watchTicks(this.symbol);
+        }
         forgetAccumulatorsProposalRequest(this);
     }
 
@@ -393,7 +397,9 @@ class DBot {
             await this.interpreter.terminateSession();
             this.interpreter = null;
             this.interpreter = Interpreter();
-            await this.interpreter.bot.tradeEngine.watchTicks(this.symbol);
+            if (!this.interpreter.bot.tradeEngine.analyzerOnly && typeof this.interpreter.bot.tradeEngine.watchTicks === 'function') {
+                await this.interpreter.bot.tradeEngine.watchTicks(this.symbol);
+            }
         }
     }
 
