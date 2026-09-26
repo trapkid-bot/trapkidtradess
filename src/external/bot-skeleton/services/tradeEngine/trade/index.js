@@ -160,7 +160,44 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
 
         if (this.isAnalyzerEnabledForTrade(this.tradeOptions)) {
             this.prepareAnalyzerPrediction()
-                .then(() => this.makeDirectPurchaseDecision())
+                .then(() => {
+                    const analyzerSignal = this.analyzerSignal || globalObserver.getState('trapkid_analyzer')?.signal;
+                    if (!analyzerSignal?.signalId) {
+                        throw new Error('TrapKid Analyzer: no authorized signal for purchase.');
+                    }
+
+                    // Analyzer owns the entire contract lifecycle. Ignore the
+                    // Builder's duration so a 1-tick strategy cannot settle
+                    // before the Analyzer issues EARLY_SELL_READY.
+                    this.tradeOptions = {
+                        ...this.tradeOptions,
+                        contractTypes: ['DIGITMATCH'],
+                        symbol: analyzerSignal.symbol,
+                        prediction: Number(analyzerSignal.prediction),
+                        duration: 120,
+                        duration_unit: 's',
+                    };
+
+                    globalObserver.setState({
+                        trapkid_analyzer: {
+                            ...(globalObserver.getState('trapkid_analyzer') || {}),
+                            status: 'ANALYZER_TRADE_LOCKED',
+                            signal: analyzerSignal,
+                            signalId: analyzerSignal.signalId,
+                            commandKey: String(analyzerSignal.signalId) + ':' + String(analyzerSignal.lockedAt),
+                            symbol: analyzerSignal.symbol,
+                            entryPrediction: Number(analyzerSignal.prediction),
+                            lockedDigit: analyzerSignal.lockedDigit,
+                            hotDigit: analyzerSignal.hotDigit,
+                            entrySource: 'ANALYZER_ONLY',
+                            exitSource: 'ANALYZER_EARLY_SELL_ONLY',
+                            holdUntilAnalyzerExit: true,
+                        },
+                    });
+                    globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
+
+                    return this.makeDirectPurchaseDecision();
+                })
                 .catch(error => {
                     globalObserver.emit('ui.log.error', error?.message || 'TrapKid analyzer failed to prepare a prediction.');
                     this.store.dispatch({ type: constants.STOP });
