@@ -26,11 +26,30 @@ export default Engine =>
                 // by a transient UI/status label. The Analyzer bridge may move
                 // the status to WAITING_FOR_ANALYZER_EXIT while the proposal is
                 // still arriving; that must never cancel the already-authorized BUY.
-                if (
-                    analyzerStateGate.executionArmed !== true ||
-                    !['ANALYZER_ENTRY', 'EARLY_SELL_READY'].includes(String(analyzerStateGate.executionTrigger || ''))
-                ) {
+                if (analyzerStateGate.executionArmed !== true) {
+                    globalObserver.emit(
+                        'ui.log.error',
+                        `TRAPKID ANALYZER BUY BLOCKED → executionArmed=${String(analyzerStateGate.executionArmed)} status=${String(analyzerStateGate.status || '')} trigger=${String(analyzerStateGate.executionTrigger || '')} signal=${String(analyzerStateGate.signalId || '')}`
+                    );
                     return Promise.resolve();
+                }
+
+                // The Analyzer bridge may update the UI status to WAITING_FOR_ANALYZER_EXIT
+                // immediately after locking. That status is NOT a purchase gate. If the
+                // exact locked signal is armed, normalize the execution trigger back to
+                // ANALYZER_ENTRY so the actual BUY cannot be silently skipped.
+                if (String(analyzerStateGate.executionTrigger || '') !== 'ANALYZER_ENTRY') {
+                    globalObserver.emit(
+                        'ui.log',
+                        `TRAPKID ANALYZER BUY AUTHORIZED → normalizing trigger from ${String(analyzerStateGate.executionTrigger || 'none')} to ANALYZER_ENTRY`
+                    );
+                    globalObserver.setState({
+                        trapkid_analyzer: {
+                            ...analyzerStateGate,
+                            executionTrigger: 'ANALYZER_ENTRY',
+                            executionArmed: true,
+                        },
+                    });
                 }
 
                 // Analyzer owns the contract type for this execution cycle.
@@ -129,17 +148,10 @@ export default Engine =>
                 });
                 globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
             }
-            // Analyzer execution owns this purchase lifecycle. If the legacy
-            // Builder watcher has already moved the Redux scope away from
-            // BEFORE_PURCHASE, restore the purchase scope instead of silently
-            // dropping the Analyzer-triggered buy.
-            if (analyzerMode) {
-                const scope = this.store.getState().scope;
-                if (scope !== BEFORE_PURCHASE) {
-                    this.store.dispatch({ type: 'SELL' });
-                    this.store.dispatch({ type: 'START' });
-                }
-            } else if (this.store.getState().scope !== BEFORE_PURCHASE) {
+            // Analyzer direct BUY does not depend on the Builder Redux purchase
+            // scope. Never dispatch SELL/START here: those legacy state transitions
+            // can interfere with the Analyzer-owned execution lifecycle.
+            if (!analyzerMode && this.store.getState().scope !== BEFORE_PURCHASE) {
                 return Promise.resolve();
             }
 
@@ -287,7 +299,26 @@ export default Engine =>
                 if (analyzerMode) {
                     globalObserver.emit('ui.log', 'TRAPKID ANALYZER BUY REQUEST SENT');
                 }
-                return api_base.api.send(trade_option);
+                return api_base.api
+                    .send(trade_option)
+                    .then(response => {
+                        if (analyzerMode) {
+                            globalObserver.emit(
+                                'ui.log',
+                                `TRAPKID ANALYZER BUY RESPONSE → ${JSON.stringify(response)}`
+                            );
+                        }
+                        return response;
+                    })
+                    .catch(error => {
+                        if (analyzerMode) {
+                            globalObserver.emit(
+                                'ui.log.error',
+                                `TRAPKID ANALYZER BUY ERROR → ${error?.error?.code || error?.code || error?.message || JSON.stringify(error)}`
+                            );
+                        }
+                        throw error;
+                    });
             };
 
             this.isSold = false;
