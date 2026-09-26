@@ -105,8 +105,20 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
 
         if (!signal || !commandSignalId || commandSignalId !== activeSignalId) return;
 
+        const activeSignalKey = String(signal?.signalId || '') + ':' + String(signal?.lockedAt || '');
+        const boundCommandKey = String(analyzerState.commandKey || '');
+        const signalIsBoundToThisTrade =
+            boundCommandKey === activeSignalKey &&
+            (
+                analyzerState.executionArmed === true ||
+                analyzerState.purchaseInFlightKey === activeSignalKey ||
+                analyzerState.purchaseConsumedKey === activeSignalKey
+            );
+
         const lockExpiry = Number(signal?.expiresAt);
-        if (Number.isFinite(lockExpiry) && Date.now() >= lockExpiry) return;
+        // Once this exact Analyzer signal is bound to the running trade,
+        // expiry is no longer allowed to cancel the pending/active lifecycle.
+        if (!signalIsBoundToThisTrade && Number.isFinite(lockExpiry) && Date.now() >= lockExpiry) return;
 
         const bridgeExit = command?.exit || analyzerState?.exit;
         const exit = this.getAnalyzerExit?.() || (
@@ -301,68 +313,19 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
                     });
                     globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
-                    // IMPORTANT: Analyze/Run creates the Analyzer-controlled
-                    // contract now. EARLY_SELL_READY is NOT the buy trigger;
-                    // it is the only authorized early-sell trigger.
-                    this.makeDirectPurchaseDecision();
+                    // IMPORTANT: Analyzer entry is a DIRECT BUY. The Builder's
+                    // proposal/payout watcher must never be able to stall an
+                    // Analyzer-controlled entry. Analyzer already supplies the
+                    // exact symbol, DIGITMATCH type and hotDigit.
+                    this.is_proposal_subscription_required = false;
+                    this.store.dispatch(proposalsReady());
 
-                    // Do not rely on the legacy Builder watcher here. Explicitly
-                    // dispatch the Analyzer entry purchase once the Analyzer-bound
-                    // proposal is ready.
-                    if (!this.is_proposal_subscription_required) {
-                        this.store.dispatch(proposalsReady());
-                        void this.purchase('DIGITMATCH').catch(error => {
-                            globalObserver.emit(
-                                'ui.log.error',
-                                error?.message || 'Analyzer entry purchase failed.'
-                            );
-                        });
-                    } else {
-                        // Analyzer entry is proposal-driven, not tick-watcher-driven.
-                        // Wait for the actual DIGITMATCH proposal requested from the
-                        // locked Analyzer signal, then BUY it immediately.
-                        const purchaseAnalyzerWhenReady = () => {
-                            const signal =
-                                this.analyzerSignal ||
-                                globalObserver.getState('trapkid_analyzer')?.signal;
-                            const purchaseReference = this.getPurchaseReference?.();
-                            const proposals = Array.isArray(this.data?.proposals)
-                                ? this.data.proposals
-                                : [];
-
-                            const proposalReady =
-                                !!purchaseReference &&
-                                proposals.some(
-                                    proposal =>
-                                        proposal?.purchase_reference === purchaseReference &&
-                                        proposal?.contract_type === 'DIGITMATCH'
-                                );
-
-                            if (!signal?.signalId || !proposalReady) return false;
-
-                            void this.purchase('DIGITMATCH').catch(error => {
-                                globalObserver.emit(
-                                    'ui.log.error',
-                                    error?.message || 'Analyzer proposal purchase failed.'
-                                );
-                            });
-                            return true;
-                        };
-
-                        // Proposal replies are asynchronous. Poll the actual proposal
-                        // cache so a proposal that arrives before any Redux/tick watcher
-                        // can never be missed.
-                        if (!purchaseAnalyzerWhenReady()) {
-                            let attempts = 0;
-                            const timer = setInterval(() => {
-                                attempts += 1;
-
-                                if (purchaseAnalyzerWhenReady() || attempts >= 200) {
-                                    clearInterval(timer);
-                                }
-                            }, 50);
-                        }
-                    }
+                    void this.purchase('DIGITMATCH').catch(error => {
+                        globalObserver.emit(
+                            'ui.log.error',
+                            error?.message || 'Analyzer entry purchase failed.'
+                        );
+                    });
                     return undefined;
                 })
                 .catch(error => {
