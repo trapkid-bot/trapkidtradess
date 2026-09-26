@@ -11,16 +11,16 @@ export default Engine =>
         // Read-only Deriv pricing lookup. This never buys, sells, subscribes to
         // ticks, or observes an open contract. It only fills the potential
         // payout displayed for the Analyzer-owned local contract.
-        fetchAnalyzerPayoutQuote = signal => {
+        fetchAnalyzerPayoutQuote = async signal => {
             const api = api_base?.api;
-            if (!api || !signal?.symbol) return Promise.resolve(null);
+            if (!api || !signal?.symbol) return null;
 
             const amount = Number(this.tradeOptions?.amount);
             const duration = Number(this.tradeOptions?.duration);
             const duration_unit = this.tradeOptions?.duration_unit || 't';
-            if (!Number.isFinite(amount) || amount <= 0) return Promise.resolve(null);
-            if (!Number.isFinite(duration) || duration <= 0) return Promise.resolve(null);
-            if (!Number.isInteger(Number(signal.hotDigit))) return Promise.resolve(null);
+            if (!Number.isFinite(amount) || amount <= 0) return null;
+            if (!Number.isFinite(duration) || duration <= 0) return null;
+            if (!Number.isInteger(Number(signal.hotDigit))) return null;
 
             const req_id = Number(String(Date.now()).slice(-9));
             const request = {
@@ -36,41 +36,23 @@ export default Engine =>
                 req_id,
             };
 
-            return new Promise(resolve => {
-                let finished = false;
-                let timeout;
+            try {
+                // Deriv's API send() resolves the one-shot response. Using that
+                // response directly avoids adding a long-lived message listener.
+                const response = await Promise.race([
+                    api.send(request),
+                    new Promise((_, reject) =>
+                        setTimeout(() => reject(new Error('Deriv payout quote timeout')), 5000)
+                    ),
+                ]);
 
-                const finish = proposal => {
-                    if (finished) return;
-                    finished = true;
-                    if (timeout) clearTimeout(timeout);
-                    try {
-                        subscription?.unsubscribe?.();
-                    } catch {
-                        // Ignore cleanup errors; this is a best-effort read-only quote.
-                    }
-                    resolve(proposal || null);
-                };
-
-                let subscription;
-                try {
-                    subscription = api.onMessage().subscribe(({ data }) => {
-                        if (Number(data?.req_id) !== req_id || data?.msg_type !== 'proposal') return;
-                        if (data?.error) {
-                            finish(null);
-                            return;
-                        }
-                        finish(data?.proposal || null);
-                    });
-
-                    api.send(request);
-                    timeout = setTimeout(() => finish(null), 5000);
-                } catch {
-                    finish(null);
-                }
-            });
+                const data = response?.data || response;
+                if (data?.error) return null;
+                return data?.proposal || null;
+            } catch {
+                return null;
+            }
         };
-
         updateAnalyzerPayoutFromDeriv = (signal, contractId) => {
             void this.fetchAnalyzerPayoutQuote(signal).then(proposal => {
                 const payout = Number(proposal?.payout);
@@ -79,8 +61,7 @@ export default Engine =>
                 const currentContract = this.data?.contract;
                 if (
                     !currentContract ||
-                    String(currentContract.contract_id) !== String(contractId) ||
-                    currentContract.is_sold
+                    String(currentContract.contract_id) !== String(contractId)
                 ) {
                     return;
                 }
