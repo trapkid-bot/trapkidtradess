@@ -251,6 +251,19 @@ export default Engine =>
                 this.derivBuyTransactionId = buy.transaction_id ?? null;
                 this.derivBuy = buy;
 
+                // Deriv is the financial authority for the tracked trade.
+                // Publish the exact BUY response; the transaction store renders it.
+                globalObserver.emit('deriv.contract.buy', {
+                    local_contract_id: this.data?.contract?.contract_id ?? contractId ?? null,
+                    contract_id: String(buy.contract_id),
+                    transaction_id: buy.transaction_id ?? null,
+                    buy_transaction_id: buy.transaction_id ?? null,
+                    buy_price: Number(buy.buy_price),
+                    payout: Number(buy.payout),
+                    currency: buy.currency || this.tradeOptions?.currency || 'USD',
+                    balance_after: Number(buy.balance_after),
+                });
+
                 const actualBuyPrice = Number(buy.buy_price);
                 const actualPayout = Number(buy.payout);
                 const balanceAfter = Number(buy.balance_after);
@@ -347,6 +360,16 @@ export default Engine =>
                     const soldFor = Number(response.sell.sold_for);
                     const balanceAfter = Number(response.sell.balance_after);
                     const transactionId = response.sell.transaction_id ?? null;
+
+                    globalObserver.emit('deriv.contract.sell', {
+                        local_contract_id: this.data?.contract?.contract_id ?? null,
+                        contract_id: String(derivContractId),
+                        transaction_id: transactionId,
+                        sell_transaction_id: transactionId,
+                        sold_for: Number.isFinite(soldFor) ? soldFor : null,
+                        balance_after: Number.isFinite(balanceAfter) ? balanceAfter : null,
+                        currency: response.sell.currency || this.derivBuy?.currency || this.tradeOptions?.currency || 'USD',
+                    });
 
                     if (Number.isFinite(balanceAfter)) {
                         this.updateDerivAccountBalance(balanceAfter);
@@ -539,6 +562,28 @@ export default Engine =>
 
                     const openContract = response?.proposal_open_contract;
                     if (openContract) {
+                        // Keep the tracked trade synchronized with Deriv's live
+                        // proposal_open_contract response. No journal/local calculation
+                        // is used as the source of bid price, profit or currency.
+                        globalObserver.emit('deriv.contract.open', {
+                            contract_id: String(derivContractId),
+                            bid_price: Number(openContract.bid_price),
+                            profit: Number(openContract.profit),
+                            payout: Number(openContract.payout),
+                            buy_price: Number(openContract.buy_price),
+                            currency: openContract.currency || this.derivBuy?.currency || this.tradeOptions?.currency || 'USD',
+                            balance_after: Number(openContract.balance_after),
+                            transaction_ids: openContract.transaction_ids || null,
+                            transaction_id: openContract.transaction_id ?? null,
+                            buy_transaction_id: openContract.transaction_ids?.buy ?? this.derivBuyTransactionId ?? null,
+                            sell_transaction_id: openContract.transaction_ids?.sell ?? openContract.transaction_id ?? null,
+                            is_closed:
+                                openContract.is_sold === 1 ||
+                                openContract.is_sold === true ||
+                                openContract.is_expired === 1 ||
+                                openContract.is_expired === true ||
+                                ['sold', 'expired', 'won', 'lost', 'settled'].includes(String(openContract.status || '').toLowerCase()),
+                        });
                         const status = String(openContract.status || '').toLowerCase();
                         const closed =
                             openContract.is_sold === 1 ||
