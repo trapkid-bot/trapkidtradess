@@ -2,19 +2,45 @@ import { getLocalizedErrorMessage } from '@/constants/backend-error-messages';
 import { api_base } from '../../api/api-base';
 import { doUntilDone, tradeOptionToProposal } from '../utils/helpers';
 import { clearProposals, proposalsReady } from './state/actions';
+import { observer as globalObserver } from '../../../utils/observer';
 
 export default Engine =>
     class Proposal extends Engine {
         makeProposals(trade_option) {
-            if (!this.isNewTradeOption(trade_option)) {
+            let analyzerTradeOption = trade_option;
+            const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
+            const signal = analyzerState?.signal;
+            const analyzerActive =
+                signal?.signalId &&
+                analyzerState?.commandKey ===
+                    String(signal.signalId) + ':' + String(signal.lockedAt) &&
+                ['COMMAND_RECEIVED', 'COMMAND_ACCEPTED', 'RUNNING', 'ANALYZER_PURCHASE_AUTHORIZED', 'ANALYZER_PURCHASE_BOUND'].includes(
+                    String(analyzerState.status || '')
+                ) &&
+                Array.isArray(trade_option?.contractTypes) &&
+                trade_option.contractTypes.includes('DIGITMATCH');
+
+            if (analyzerActive) {
+                // Rebuild the actual proposal inputs from the Analyzer signal
+                // at the final proposal boundary. Bot Builder entry values are
+                // not authoritative for an Analyzer-controlled trade.
+                analyzerTradeOption = {
+                    ...trade_option,
+                    symbol: signal.symbol,
+                    prediction: signal.prediction,
+                };
+            }
+
+            if (!this.isNewTradeOption(analyzerTradeOption)) {
                 return;
             }
 
-            // Generate a purchase reference when trade options are different from previous trade options.
-            // This will ensure the bot doesn't mistakenly purchase the wrong proposal.
             this.regeneratePurchaseReference();
-            this.trade_option = trade_option;
-            this.proposal_templates = tradeOptionToProposal(trade_option, this.getPurchaseReference());
+            this.trade_option = analyzerTradeOption;
+            this.proposal_templates = tradeOptionToProposal(
+                analyzerTradeOption,
+                this.getPurchaseReference()
+            );
             this.renewProposalsOnPurchase();
         }
 
@@ -25,11 +51,42 @@ export default Engine =>
                 throw Error(getLocalizedErrorMessage('ProposalsNotReady'));
             }
 
+            const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
+            const signal = analyzerState?.signal;
+            const analyzerActive =
+                signal?.signalId &&
+                analyzerState?.commandKey ===
+                    String(signal.signalId) + ':' + String(signal.lockedAt) &&
+                ['COMMAND_RECEIVED', 'COMMAND_ACCEPTED', 'RUNNING', 'ANALYZER_PURCHASE_AUTHORIZED', 'ANALYZER_PURCHASE_BOUND'].includes(
+                    String(analyzerState.status || '')
+                ) &&
+                contract_type === 'DIGITMATCH';
+
             const to_buy = proposals.find(proposal => {
                 if (
                     proposal.contract_type === contract_type &&
                     proposal.purchase_reference === this.getPurchaseReference()
                 ) {
+                    if (analyzerActive) {
+                        const proposalPrediction = Number(
+                            proposal.selected_tick ?? proposal.barrier
+                        );
+                        const analyzerPrediction = Number(signal.prediction);
+                        const proposalSymbol = String(
+                            proposal.underlying_symbol || proposal.underlying_symbol_name || ''
+                        );
+
+                        if (
+                            proposalSymbol !== String(signal.symbol) ||
+                            !Number.isInteger(analyzerPrediction) ||
+                            proposalPrediction !== analyzerPrediction ||
+                            Number(proposal.barrier) !== analyzerPrediction
+                        ) {
+                            throw new Error(
+                                'Analyzer authorization mismatch: purchase blocked because the proposal does not match the Analyzer signal.'
+                            );
+                        }
+                    }
                     // Below happens when a user has had one of the proposals return
                     // with a ContractBuyValidationError. We allow the logic to continue
                     // to here cause the opposite proposal may still be valid. Only once
