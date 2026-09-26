@@ -159,8 +159,32 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
         // Generate the actual DBot proposal/buy now — not when Analyze first
-        // locks the signal.
+        // locks the signal. The normal Builder watcher is intentionally bypassed
+        // here because Analyzer execution can arrive after the original BEFORE_PURCHASE
+        // watcher has already returned while the bot was waiting for EARLY_SELL_READY.
+        if (this.store.getState().scope === constants.STOP) {
+            this.store.dispatch(start());
+        }
+
         this.makeDirectPurchaseDecision();
+
+        if (!this.is_proposal_subscription_required) {
+            // No proposal subscription is needed: the Analyzer trigger can purchase
+            // immediately from the authorized one-tick DIGITMATCH trade options.
+            this.store.dispatch(proposalsReady());
+            void this.purchase('DIGITMATCH').catch(error => {
+                globalObserver.emit('ui.log.error', error?.message || 'Analyzer purchase failed.');
+            });
+        } else {
+            // If proposal subscriptions are required, keep a BEFORE_PURCHASE watcher
+            // alive until the Analyzer-bound proposal is ready, then purchase exactly once.
+            void this.watch('before').then(ready => {
+                if (!ready) return;
+                return this.purchase('DIGITMATCH');
+            }).catch(error => {
+                globalObserver.emit('ui.log.error', error?.message || 'Analyzer proposal purchase failed.');
+            });
+        }
     };
 
     init(...args) {
