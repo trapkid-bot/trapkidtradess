@@ -61,19 +61,10 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // 3) EARLY_SELL_READY is the ONLY event allowed to SELL it.
         // Never turn EARLY_SELL_READY into another BUY.
         const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
-        if (
-            ![
-                'WAITING_FOR_ANALYZER_EXIT',
-                'WATCHING_ANALYZER_HOT_DIGIT',
-                'COMMAND_RECEIVED',
-                'COMMAND_ACCEPTED',
-                'ANALYZER_DATA_BOUND',
-                'ANALYZER_EXECUTION',
-                'ANALYZER_TRADE_LOCKED',
-                'RUNNING',
-                'WAITING_FOR_ANALYZER_EXIT_DIGIT',
-            ].includes(String(analyzerState.status || ''))
-        ) return;
+        // Analyzer exit is authoritative by signal identity, not by whichever
+        // transient UI status happens to be rendered. This is important when
+        // EARLY_SELL_READY arrives immediately after Analyze and before the
+        // purchase lifecycle has finished changing the status to WATCHING.
         const signal = this.analyzerSignal || analyzerState.signal;
         const analyzerSignalKey = signal?.signalId && Number.isFinite(Number(signal?.lockedAt))
             ? String(signal.signalId) + ':' + String(signal.lockedAt)
