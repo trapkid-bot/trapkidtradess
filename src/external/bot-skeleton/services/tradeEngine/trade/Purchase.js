@@ -403,6 +403,14 @@ export default Engine =>
                             ) {
                                 this.data.contract = {
                                     ...currentContract,
+                                    transaction_ids: {
+                                        ...(currentContract.transaction_ids || {}),
+                                        sell:
+                                            openContract.transaction_id ??
+                                            currentContract.transaction_ids?.sell ??
+                                            currentContract.deriv_sell_transaction_id ??
+                                            null,
+                                    },
                                     payout: Number.isFinite(finalPayout) ? finalPayout : currentContract.payout,
                                     sell_price: Number.isFinite(finalPayout) ? finalPayout : currentContract.sell_price,
                                     bid_price: Number.isFinite(finalPayout) ? finalPayout : currentContract.bid_price,
@@ -444,6 +452,8 @@ export default Engine =>
                                     profit: Number.isFinite(profit) ? profit : null,
                                 },
                             });
+
+                            void this.refreshDerivAccountBalance(3);
 
                             globalObserver.emit(
                                 'ui.log',
@@ -487,6 +497,14 @@ export default Engine =>
                     ) {
                         this.data.contract = {
                             ...currentContract,
+                            transaction_ids: {
+                                ...(currentContract.transaction_ids || {}),
+                                sell:
+                                    reconciled.transaction_id ??
+                                    currentContract.transaction_ids?.sell ??
+                                    currentContract.deriv_sell_transaction_id ??
+                                    null,
+                            },
                             payout: Number.isFinite(reconciledPayout) ? reconciledPayout : currentContract.payout,
                             sell_price: Number.isFinite(reconciledPayout) ? reconciledPayout : currentContract.sell_price,
                             bid_price: Number.isFinite(reconciledPayout) ? reconciledPayout : currentContract.bid_price,
