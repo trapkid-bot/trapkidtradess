@@ -153,18 +153,17 @@ export default Engine =>
             const exitDigit = Number(exit.digit);
             const hotDigit = Number(signal.hotDigit);
             if (!signalId || !Number.isInteger(exitDigit) || exitDigit < 0 || exitDigit > 9) return null;
+            if (!Number.isInteger(hotDigit) || hotDigit < 0 || hotDigit > 9) return null;
+            if (exitDigit !== hotDigit) return null;
 
-            // EARLY_SELL_READY is the exit authority. The exit digit must be
-            // a valid Analyzer digit, but it does not have to equal hotDigit.
             return {
                 signalId,
                 commandKey: String(signal.signalId) + ':' + String(signal.lockedAt),
-                digit: exitDigit,
-                hotDigit: Number.isInteger(hotDigit) ? hotDigit : null,
+                digit: hotDigit,
+                hotDigit,
                 quote: Number(exit.quote),
                 epoch: Number(exit.epoch),
-            };
-        }
+            };        }
 
         clearAnalyzerLock() {
             this.analyzerSignal = null;
