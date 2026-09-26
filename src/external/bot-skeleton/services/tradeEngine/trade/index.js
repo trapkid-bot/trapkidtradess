@@ -28,24 +28,8 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         };
         this.subscription_id_for_accumulators = null;
         this.is_proposal_requested_for_accumulators = false;
-        globalObserver.register('trapkid.analyzer.exit', this.onAnalyzerEarlyExit);
-        globalObserver.register('trapkid.analyzer.updated', state => {
-            if (state?.exit?.status !== 'EARLY_SELL_READY') return;
-            const signal = this.analyzerSignal || state.signal;
-            const commandKey = signal?.signalId && signal?.lockedAt != null
-                ? String(signal.signalId) + ':' + String(signal.lockedAt)
-                : '';
-            if (!commandKey || String(state.commandKey || '') !== commandKey) return;
-            void this.onAnalyzerEarlyExit({
-                source: 'TRAPKID_ANALYZER_STATE',
-                command: 'ANALYZER_EARLY_EXIT',
-                commandKey,
-                signalId: String(signal.signalId),
-                signal,
-                exit: state.exit,
-                receivedAt: Date.now(),
-            });
-        });
+        this.analyzerExitObserver = this.onAnalyzerEarlyExit;
+        globalObserver.register('trapkid.analyzer.exit', this.analyzerExitObserver);
         this.store = createStore(rootReducer, applyMiddleware(thunk));
         // Keep Analyze running while the Analyzer-owned local contract is open.
         // The cycle resolves only after Analyzer emits EARLY_SELL_READY and the
@@ -566,6 +550,17 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             : quote;
 
         return Promise.resolve(value);
+    }
+
+    dispose() {
+        if (
+            this.analyzerExitObserver &&
+            globalObserver.isRegistered('trapkid.analyzer.exit')
+        ) {
+            globalObserver.unregister('trapkid.analyzer.exit', this.analyzerExitObserver);
+        }
+        this.analyzerExitObserver = null;
+        this.disposeTotalObserver?.();
     }
 
     observe() {
