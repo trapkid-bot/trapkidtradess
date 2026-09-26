@@ -78,7 +78,7 @@ export default Engine =>
                 globalObserver.setState({
                     trapkid_analyzer: {
                         ...currentAnalyzerState,
-                        status: 'ANALYZER_PURCHASE_AUTHORIZED',
+                        status: 'ANALYZER_EXECUTION',
                         signal,
                         signalId: signal.signalId,
                         commandKey: analyzerSignalKey,
@@ -98,7 +98,7 @@ export default Engine =>
                 globalObserver.setState({
                     trapkid_analyzer: {
                         ...(globalObserver.getState('trapkid_analyzer') || {}),
-                        status: 'ANALYZER_PURCHASE_BOUND',
+                        status: 'ANALYZER_EXECUTION',
                         symbol: signal.symbol,
                         signal,
                         signalId: signal.signalId,
