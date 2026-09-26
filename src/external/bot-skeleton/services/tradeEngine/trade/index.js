@@ -294,6 +294,23 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
                     // contract now. EARLY_SELL_READY is NOT the buy trigger;
                     // it is the only authorized early-sell trigger.
                     this.makeDirectPurchaseDecision();
+
+                    // Do not rely on the legacy Builder watcher here. Explicitly
+                    // dispatch the Analyzer entry purchase once the Analyzer-bound
+                    // proposal is ready.
+                    if (!this.is_proposal_subscription_required) {
+                        this.store.dispatch(proposalsReady());
+                        void this.purchase('DIGITMATCH').catch(error => {
+                            globalObserver.emit('ui.log.error', error?.message || 'Analyzer entry purchase failed.');
+                        });
+                    } else {
+                        void this.watch('before').then(ready => {
+                            if (!ready) return;
+                            return this.purchase('DIGITMATCH');
+                        }).catch(error => {
+                            globalObserver.emit('ui.log.error', error?.message || 'Analyzer proposal purchase failed.');
+                        });
+                    }
                     return undefined;
                 })
                 .catch(error => {
