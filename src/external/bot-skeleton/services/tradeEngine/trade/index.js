@@ -102,7 +102,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
 
         // EARLY_SELL_READY is an instruction to START watching for the
         // Analyzer-provided exit digit. It is NOT itself the sell trigger.
-        // The exit digit may be different from the entry hot digit.
+        // The Analyzer hot digit is the ONLY exit digit.
         // Every other digit is deliberately ignored.
         const previousSubscription = this.analyzerExitTickSubscription;
         if (previousSubscription) {
@@ -116,8 +116,8 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
                 status: 'WAITING_FOR_ANALYZER_EXIT_DIGIT',
                 cycleFinished: false,
                 purchaseConsumedKey: String(signal.signalId) + ':' + String(signal.lockedAt),
-                exitDigit: exit.digit,
-                hotDigit: exit.hotDigit,
+                exitDigit: signal.hotDigit,
+                hotDigit: signal.hotDigit,
                 commandKey: exit.commandKey,
                 exitSource: 'ANALYZER_EARLY_SELL_ONLY',
             },
@@ -125,7 +125,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
         const symbol = String(signal.symbol || analyzerState.symbol || '');
-        const exitDigit = Number(exit.digit);
+        const exitDigit = Number(signal.hotDigit);
         const pipSize = Number(signal.pipSize ?? signal.pip_size ?? 0.01);
         const decimalPlaces = Number.isFinite(pipSize) && pipSize > 0
             ? Math.max(0, (String(pipSize).split('.')[1] || '').length)
@@ -222,7 +222,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         const analyzerCommandActive =
             !!analyzerSignal?.signalId &&
             String(analyzerState.commandKey || '') === analyzerCommandKey &&
-            ['COMMAND_RECEIVED', 'COMMAND_ACCEPTED', 'ANALYZER_DATA_BOUND', 'ANALYZER_TRADE_LOCKED'].includes(
+            ['COMMAND_RECEIVED', 'COMMAND_ACCEPTED', 'ANALYZER_EXECUTION', 'ANALYZER_DATA_BOUND', 'ANALYZER_TRADE_LOCKED'].includes(
                 String(analyzerState.status || '')
             );
 
