@@ -49,6 +49,7 @@ export default Engine =>
                     'COMMAND_RECEIVED',
                     'COMMAND_ACCEPTED',
                     'RUNNING',
+                    'WAITING_FOR_ANALYZER_EXIT',
                     'ANALYZER_EXECUTION',
                     'ANALYZER_DATA_BOUND',
                     'ANALYZER_PURCHASE_BOUND',
@@ -57,14 +58,13 @@ export default Engine =>
                     'EARLY_EXIT_EXECUTING',
                 ].includes(String(state?.status || ''));
 
-            // expiresAt is only an entry-window guard for an un-authorized signal.
-            // An Analyze-authorized signal remains valid for its single trade cycle.
-            if (
-                !signalAlreadyBound &&
-                !commandAuthorizesSignal &&
-                Number.isFinite(expiresAt) &&
-                Date.now() >= expiresAt
-            ) return null;
+            // The Analyzer lock is a hard execution window. The signal may be
+            // analyzed and displayed immediately, but DBot can only execute
+            // while this exact lock is alive.
+            const lockExpiry = Number.isFinite(expiresAt)
+                ? expiresAt
+                : lockedAt + 30000;
+            if (Date.now() >= lockExpiry) return null;
 
             const rawHotDigit = signal.hotDigit ?? state.hotDigit;
             const hotDigit = Number.isInteger(Number(rawHotDigit)) ? Number(rawHotDigit) : null;
