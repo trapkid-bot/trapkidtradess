@@ -18,6 +18,18 @@ export default Engine =>
                 !!this.analyzerSignal;
 
             if (analyzerMode) {
+                const analyzerStateGate = globalObserver.getState('trapkid_analyzer') || {};
+                // Hard execution gate: Analyze only locks data. Run arms the
+                // cycle, and EARLY_SELL_READY is the only event allowed to
+                // reach purchase().
+                if (
+                    analyzerStateGate.executionArmed !== true ||
+                    String(analyzerStateGate.executionTrigger || '') !== 'EARLY_SELL_READY' ||
+                    String(analyzerStateGate.status || '') !== 'EARLY_EXIT_COMMAND_RECEIVED'
+                ) {
+                    return Promise.resolve();
+                }
+
                 // Analyzer owns the contract type for this execution cycle.
                 contract_type = 'DIGITMATCH';
                 const signal = this.getExternalAnalyzerSignal?.();
@@ -85,7 +97,8 @@ export default Engine =>
                         purchaseInFlightKey: analyzerSignalKey,
                         entryPrediction: signal.prediction,
                         entrySource: 'ANALYZER_ONLY',
-                        exitSource: 'ANALYZER_EARLY_SELL_ONLY',
+                        exitSource: 'DERIV_ONE_TICK_SETTLEMENT',
+                        executionTrigger: 'EARLY_SELL_READY',
                     },
                 });
 
@@ -150,7 +163,8 @@ export default Engine =>
                         entryPrediction: this.tradeOptions.prediction,
                         lockedQuote: this.analyzerSignal?.lockedQuote,
                         entrySource: 'ANALYZER_ONLY',
-                        exitSource: 'ANALYZER_EARLY_SELL_ONLY',
+                        exitSource: 'DERIV_ONE_TICK_SETTLEMENT',
+                        executionTrigger: 'EARLY_SELL_READY',
                         purchaseInFlightKey: null,
                         purchaseConsumedKey: purchasedSignalKey || undefined,
                     },
