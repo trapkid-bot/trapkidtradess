@@ -26,19 +26,26 @@ export default Engine =>
                 // by a transient UI/status label. The Analyzer bridge may move
                 // the status to WAITING_FOR_ANALYZER_EXIT while the proposal is
                 // still arriving; that must never cancel the already-authorized BUY.
-                if (analyzerStateGate.executionArmed !== true) {
+                const gateSignal = analyzerStateGate.signal;
+                const exactAnalyzerCommand =
+                    !!gateSignal?.signalId &&
+                    String(analyzerStateGate.commandKey || '') ===
+                        String(gateSignal.signalId) + ':' + String(gateSignal.lockedAt) &&
+                    String(analyzerStateGate.signalId || '') === String(gateSignal.signalId);
+
+                // Analyzer owns this execution path. Do not fall back to any Builder
+                // purchase gate. A live, exactly-bound Analyzer command is sufficient
+                // authorization even if a bridge/UI refresh dropped executionArmed.
+                if (analyzerStateGate.executionArmed !== true && !exactAnalyzerCommand) {
                     globalObserver.emit(
                         'ui.log.error',
-                        `TRAPKID ANALYZER BUY BLOCKED → executionArmed=${String(analyzerStateGate.executionArmed)} status=${String(analyzerStateGate.status || '')} trigger=${String(analyzerStateGate.executionTrigger || '')} signal=${String(analyzerStateGate.signalId || '')}`
+                        `TRAPKID ANALYZER BUY BLOCKED → no bound Analyzer command signal=${String(analyzerStateGate.signalId || '')}`
                     );
                     return Promise.resolve();
                 }
 
-                // The Analyzer bridge may update the UI status to WAITING_FOR_ANALYZER_EXIT
-                // immediately after locking. That status is NOT a purchase gate. If the
-                // exact locked signal is armed, normalize the execution trigger back to
-                // ANALYZER_ENTRY so the actual BUY cannot be silently skipped.
-                if (String(analyzerStateGate.executionTrigger || '') !== 'ANALYZER_ENTRY') {
+                // Restore the Analyzer-owned execution state after any bridge/UI refresh.
+                if (String(analyzerStateGate.executionTrigger || '') !== 'ANALYZER_ENTRY' || analyzerStateGate.executionArmed !== true) {
                     globalObserver.emit(
                         'ui.log',
                         `TRAPKID ANALYZER BUY AUTHORIZED → normalizing trigger from ${String(analyzerStateGate.executionTrigger || 'none')} to ANALYZER_ENTRY`
