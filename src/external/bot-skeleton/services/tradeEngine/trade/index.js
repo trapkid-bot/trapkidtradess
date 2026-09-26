@@ -303,6 +303,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
     // Ticks mixin exposed this method, but Analyzer-only execution deliberately
     // does not create a Deriv ticksService or tick-history promise.
     checkTicksPromiseExists() {
+        // Render redeploy marker: keep Analyzer-only interpreter compatibility in the tracked main branch.
         return null;
     }
 
