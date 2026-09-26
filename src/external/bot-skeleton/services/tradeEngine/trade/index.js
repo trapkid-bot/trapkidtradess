@@ -52,6 +52,9 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             ].includes(String(analyzerState.status || ''))
         ) return;
         const signal = this.analyzerSignal || analyzerState.signal;
+        const analyzerSignalKey = signal?.signalId && Number.isFinite(Number(signal?.lockedAt))
+            ? String(signal.signalId) + ':' + String(signal.lockedAt)
+            : '';
         const boundSignalKey =
             signal?.signalId && Number.isFinite(Number(signal?.lockedAt))
                 ? String(signal.signalId) + ':' + String(signal.lockedAt)
@@ -351,6 +354,13 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             : quote;
 
         return Promise.resolve(value);
+    }
+
+    watch(watchName) {
+        // Blockly's legacy watch() is an execution-control hook. Analyzer-only
+        // mode has no Deriv contract/tick observer to watch, so keep the hook
+        // asynchronous without reintroducing Deriv lifecycle handling.
+        return Promise.resolve(watchName);
     }
 
     observe() {
