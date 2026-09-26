@@ -31,8 +31,9 @@ export default Engine =>
                     source !== 'ANALYZER_EARLY_EXIT' ||
                     !exit ||
                     String(exit.signalId) !== String(analyzerSignal.signalId) ||
-                    Number(exit.hotDigit) !== Number(analyzerSignal.hotDigit) ||
-                    Number(exit.digit) !== Number(analyzerSignal.hotDigit)
+                    !Number.isInteger(Number(exit.digit)) ||
+                    Number(exit.digit) < 0 ||
+                    Number(exit.digit) > 9
                 ) {
                     return Promise.resolve();
                 }
