@@ -105,7 +105,8 @@ export const tradeOptionToBuy = (contract_type, trade_option) => {
         // without sending it through contract-parameter validation.
         ...(trade_option.analyzerSignalId || trade_option.analyzerCommandKey
             ? {
-                trapkid_source: 'ANALYZER_ONLY',
+                passthrough: {
+                    trapkid_source: 'ANALYZER_ONLY',
                 signal_id: trade_option.analyzerSignalId,
                 command_key: trade_option.analyzerCommandKey,
                 analyzer_contract_id: trade_option.analyzerContractId,
