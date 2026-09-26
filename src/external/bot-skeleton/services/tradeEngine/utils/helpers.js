@@ -5,6 +5,35 @@ import { localize } from '@deriv-com/translations';
 import { observer as globalObserver } from '../../../utils/observer';
 import { error as logError } from './broadcast';
 
+const getAnalyzerTradeDuration = trade_option => {
+    const state = globalObserver.getState('trapkid_analyzer') || {};
+    const signal = state.signal;
+    const analyzerActive =
+        !!signal?.signalId &&
+        String(state.commandKey || '') === String(signal.signalId) + ':' + String(signal.lockedAt) &&
+        [
+            'COMMAND_ACCEPTED',
+            'COMMAND_RECEIVED',
+            'ANALYZER_DATA_BOUND',
+            'ANALYZER_TRADE_LOCKED',
+            'ANALYZER_PURCHASE_AUTHORIZED',
+            'ANALYZER_PURCHASE_BOUND',
+            'RUNNING',
+            'EARLY_EXIT_COMMAND_RECEIVED',
+            'WAITING_FOR_ANALYZER_EXIT_DIGIT',
+            'EARLY_EXIT_EXECUTING',
+        ].includes(String(state.status || ''));
+
+    if (analyzerActive && (trade_option?.contractTypes || []).includes('DIGITMATCH')) {
+        return { duration: 7, duration_unit: 'd' };
+    }
+
+    return {
+        duration: trade_option.duration,
+        duration_unit: trade_option.duration_unit,
+    };
+};
+
 export const tradeOptionToProposal = (trade_option, purchase_reference) =>
     trade_option.contractTypes.map(type => {
         const proposal = {
@@ -12,8 +41,7 @@ export const tradeOptionToProposal = (trade_option, purchase_reference) =>
             basis: trade_option.basis,
             contract_type: type,
             currency: trade_option.currency,
-            duration: trade_option.duration,
-            duration_unit: trade_option.duration_unit,
+            ...getAnalyzerTradeDuration(trade_option),
             multiplier: trade_option.multiplier,
             passthrough: {
                 contract_type: type,
@@ -52,8 +80,7 @@ export const tradeOptionToBuy = (contract_type, trade_option) => {
             basis: trade_option.basis,
             contract_type,
             currency: trade_option.currency,
-            duration: trade_option.duration,
-            duration_unit: trade_option.duration_unit,
+            ...getAnalyzerTradeDuration({ ...trade_option, contractTypes: [contract_type] }),
             multiplier: trade_option.multiplier,
             underlying_symbol: trade_option.symbol,
         },
