@@ -1,11 +1,9 @@
 import { LogTypes } from '../../../constants/messages';
 import { contractStatus, info, log } from '../utils/broadcast';
-import { doUntilDone, getUUID, recoverFromError, tradeOptionToBuy } from '../utils/helpers';
+import { getUUID } from '../utils/helpers';
 import { purchaseSuccessful } from './state/actions';
-import { BEFORE_PURCHASE } from './state/constants';
 import { observer as globalObserver } from '../../../utils/observer';
 
-let delayIndex = 0;
 let purchase_reference;
 
 export default Engine =>
@@ -294,44 +292,72 @@ export default Engine =>
                 });
             };
 
-            if (this.is_proposal_subscription_required) {
-                const { id, askPrice } = this.selectProposal(contract_type);
-
-                const action = () => api_base.api.send({ buy: id, price: askPrice });
-
-                this.isSold = false;
-
-                contractStatus({
-                    id: 'contract.purchase_sent',
-                    data: askPrice,
-                });
-
-                if (!this.options.timeMachineEnabled) {
-                    return doUntilDone(action).then(onSuccess);
-                }
-
-                return recoverFromError(
-                    action,
-                    (errorCode, makeDelay) => {
-                        // if disconnected no need to resubscription (handled by live-api)
-                        if (errorCode !== 'DisconnectError') {
-                            this.renewProposalsOnPurchase();
-                        } else {
-                            this.clearProposals();
-                        }
-
-                        const unsubscribe = this.store.subscribe(() => {
-                            const { scope, proposalsReady } = this.store.getState();
-                            if (scope === BEFORE_PURCHASE && proposalsReady) {
-                                makeDelay().then(() => this.observer.emit('REVERT', 'before'));
-                                unsubscribe();
-                            }
-                        });
-                    },
-                    ['PriceMoved', 'InvalidContractProposal'],
-                    delayIndex++
-                ).then(onSuccess);
+            if (!analyzerMode) {
+                return Promise.reject(
+                    new Error('TrapKid Analyzer-only engine: non-Analyzer execution is disabled.')
+                );
             }
+
+            // Analyzer is the complete execution engine. The contract is created
+            // locally from the exact Analyzer identity/quote and never sent to Deriv.
+            const signal = this.analyzerSignal;
+            const entryCode =
+                this.tradeOptions.analyzerEntryCode ||
+                signal?.entryCode ||
+                signal?.entry_code ||
+                signal?.signalId;
+            const contractId =
+                this.tradeOptions.analyzerContractId ||
+                signal?.contractId ||
+                signal?.contract_id ||
+                entryCode;
+            const entryQuote = Number(
+                this.tradeOptions.analyzerEntryQuote ??
+                signal?.entryQuote ??
+                signal?.entry_quote ??
+                signal?.quote
+            );
+            const buyPrice = Number(this.tradeOptions.amount) || 0;
+
+            this.isSold = false;
+            this.isExpired = false;
+            this.isSellAvailable = true;
+            this.data.contract = {
+                contract_id: String(contractId),
+                transaction_ids: { buy: String(entryCode) },
+                contract_type: 'DIGITMATCH',
+                symbol: signal?.symbol || this.tradeOptions.symbol,
+                buy_price: buyPrice,
+                sell_price: 0,
+                currency: this.tradeOptions.currency || 'USD',
+                analyzer_contract_id: String(contractId),
+                analyzer_entry_code: String(entryCode),
+                analyzer_entry_quote: Number.isFinite(entryQuote) ? entryQuote : null,
+                status: 'open',
+                is_sold: false,
+            };
+
+            contractStatus({
+                id: 'contract.purchase_sent',
+                data: buyPrice,
+            });
+            globalObserver.emit(
+                'ui.log',
+                `TRAPKID ANALYZER CONTRACT OPEN → ${String(entryCode)}`
+            );
+
+            return Promise.resolve({
+                buy: {
+                    contract_id: String(contractId),
+                    transaction_id: String(entryCode),
+                    buy_price: buyPrice,
+                    currency: this.tradeOptions.currency || 'USD',
+                    analyzer_contract_id: String(contractId),
+                    analyzer_entry_code: String(entryCode),
+                    analyzer_entry_quote: Number.isFinite(entryQuote) ? entryQuote : null,
+                },
+            }).then(onSuccess);
+        }
         getPurchaseReference = () => purchase_reference;
         regeneratePurchaseReference = () => {
             purchase_reference = getUUID();
