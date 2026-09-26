@@ -13,9 +13,27 @@ export default Engine =>
         }
 
         sellAtMarket(source = 'BLOCKLY') {
-            if (this.isAnalyzerEnabledForTrade?.() || this.analyzerSignal) {
+            const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
+            const analyzerSignal = this.analyzerSignal || analyzerState.signal;
+            const analyzerActive =
+                !!analyzerSignal?.signalId &&
+                String(analyzerState.commandKey || '') ===
+                    String(analyzerSignal.signalId) + ':' + String(analyzerSignal.lockedAt) &&
+                ['COMMAND_ACCEPTED', 'COMMAND_RECEIVED', 'ANALYZER_TRADE_LOCKED', 'ANALYZER_PURCHASE_AUTHORIZED', 'ANALYZER_PURCHASE_BOUND', 'RUNNING', 'EARLY_EXIT_COMMAND_RECEIVED', 'EARLY_EXIT_EXECUTING'].includes(
+                    String(analyzerState.status || '')
+                );
+
+            if (analyzerActive) {
                 const exit = this.getAnalyzerExit?.();
-                if (source !== 'ANALYZER_EARLY_EXIT' || !exit) {
+
+                // Analyzer is the only authority allowed to close this contract.
+                if (
+                    source !== 'ANALYZER_EARLY_EXIT' ||
+                    !exit ||
+                    String(exit.signalId) !== String(analyzerSignal.signalId) ||
+                    Number(exit.hotDigit) !== Number(analyzerSignal.hotDigit) ||
+                    Number(exit.digit) !== Number(analyzerSignal.hotDigit)
+                ) {
                     return Promise.resolve();
                 }
             }
