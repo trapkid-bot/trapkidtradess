@@ -94,7 +94,9 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
             !exit ||
             String(exit.signalId) !== activeSignalId ||
             Number(exit.hotDigit) !== Number(signal.hotDigit) ||
-            Number(exit.digit) !== Number(signal.hotDigit)
+            !Number.isInteger(Number(exit.digit)) ||
+            Number(exit.digit) < 0 ||
+            Number(exit.digit) > 9
         ) {
             return;
         }
@@ -123,7 +125,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
         const symbol = String(signal.symbol || analyzerState.symbol || '');
-        const hotDigit = Number(exit.hotDigit);
+        const exitDigit = Number(exit.digit);
         const pipSize = Number(signal.pipSize ?? signal.pip_size ?? 0.01);
         const decimalPlaces = Number.isFinite(pipSize) && pipSize > 0
             ? Math.max(0, (String(pipSize).split('.')[1] || '').length)
@@ -143,7 +145,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
             const currentDigit = getDigitFromTick(tick);
 
             // Ignore every digit except the Analyzer-authorized hot/exit digit.
-            if (currentDigit !== hotDigit) return;
+            if (currentDigit !== exitDigit) return;
 
             this.analyzerExitTickSubscription?.unsubscribe?.();
             this.analyzerExitTickSubscription = null;
@@ -154,7 +156,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
                     status: 'EARLY_EXIT_EXECUTING',
                     cycleFinished: true,
                     matchedExitDigit: currentDigit,
-                    exitDigit: hotDigit,
+                    exitDigit,
                     hotDigit,
                 },
             });
@@ -167,7 +169,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
                         ...(globalObserver.getState('trapkid_analyzer') || {}),
                         status: 'WAITING_FOR_ANALYZER',
                         cycleFinished: true,
-                        matchedExitDigit: hotDigit,
+                        matchedExitDigit: exitDigit,
                     },
                 });
                 globalObserver.emit(
