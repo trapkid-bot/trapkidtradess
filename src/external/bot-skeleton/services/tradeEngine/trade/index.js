@@ -290,7 +290,24 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // lock at the exact click moment, wait only for that current lock to
         // appear; never wait for EARLY_SELL_READY and never wait for a second
         // signal after an exit.
-        const currentSignal = await this.waitForAnalyzerSignal?.(10000);
+        // Read the Analyzer's currently displayed lock directly. A lock that
+        // is already showing in the Analyzer UI is the entry authorization for
+        // this Analyze click, even if its display expiry timestamp has just
+        // rolled over while the click is being processed.
+        const displayedAnalyzerState = globalObserver.getState('trapkid_analyzer') || {};
+        const displayedSignal = displayedAnalyzerState.signal;
+        const currentSignal =
+            displayedSignal?.signalId &&
+            displayedSignal?.symbol &&
+            Number.isInteger(Number(displayedSignal?.hotDigit)) &&
+            Number.isFinite(Number(displayedSignal?.lockedAt))
+                ? {
+                    ...displayedSignal,
+                    symbol: displayedSignal.symbol,
+                    hotDigit: Number(displayedSignal.hotDigit),
+                    prediction: Number(displayedSignal.hotDigit),
+                }
+                : await this.waitForAnalyzerSignal?.(10000);
         if (
             !currentSignal?.signalId ||
             !Number.isInteger(Number(currentSignal.hotDigit)) ||
