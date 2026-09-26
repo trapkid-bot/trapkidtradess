@@ -98,8 +98,13 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
                 'WAITING_FOR_ANALYZER_EXIT_DIGIT',
             ].includes(String(analyzerState.status || ''))
         ) return;
-        if (analyzerState.executionArmed !== true) return;
         const signal = this.analyzerSignal || analyzerState.signal;
+        const commandKey = String(signal?.signalId || '') + ':' + String(signal?.lockedAt || '');
+        const exactAnalyzerCommand =
+            !!signal?.signalId &&
+            String(analyzerState.commandKey || '') === commandKey &&
+            String(analyzerState.signalId || '') === String(signal.signalId);
+        if (!exactAnalyzerCommand) return;
         const commandSignalId = String(command?.signalId || command?.signal?.signalId || '');
         const activeSignalId = String(signal?.signalId || '');
 
@@ -257,7 +262,6 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         };
 
         this.store.dispatch(start());
-        this.checkLimits(validated_trade_options);
 
         const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
         const analyzerSignal = analyzerState?.signal;
@@ -268,11 +272,13 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         const analyzerCommandActive =
             !!analyzerSignal?.signalId &&
             String(analyzerState.commandKey || '') === analyzerCommandKey &&
-            ['COMMAND_RECEIVED', 'COMMAND_ACCEPTED', 'ANALYZER_EXECUTION', 'ANALYZER_DATA_BOUND', 'ANALYZER_TRADE_LOCKED'].includes(
+            ['COMMAND_RECEIVED', 'COMMAND_ACCEPTED', 'ANALYZER_EXECUTION', 'ANALYZER_DATA_BOUND', 'ANALYZER_TRADE_LOCKED', 'ANALYZER_PURCHASE_AUTHORIZED', 'RUNNING', 'WAITING_FOR_ANALYZER_EXIT'].includes(
                 String(analyzerState.status || '')
             );
 
-        if (analyzerCommandActive || this.isAnalyzerEnabledForTrade(this.tradeOptions)) {
+        const analyzerMode = analyzerCommandActive || this.isAnalyzerEnabledForTrade(this.tradeOptions);
+
+        if (analyzerMode) {
             this.prepareAnalyzerPrediction()
                 .then(() => {
                     const analyzerSignal = this.analyzerSignal || globalObserver.getState('trapkid_analyzer')?.signal;
@@ -280,8 +286,8 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
                         throw new Error('TrapKid Analyzer: no authorized signal for purchase.');
                     }
 
-                    // Analyzer signal is bound now, but NO purchase happens
-                    // yet. EARLY_SELL_READY is the actual entry trigger.
+                    // Analyzer owns the execution path. Builder limits, proposal
+                    // gates and strategy values are not applied in this mode.
                     this.tradeOptions = {
                         ...this.tradeOptions,
                         contractTypes: ['DIGITMATCH'],
@@ -335,6 +341,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
             return;
         }
 
+        this.checkLimits(validated_trade_options);
         this.makeDirectPurchaseDecision();
     }
 
