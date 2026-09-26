@@ -379,8 +379,6 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             return;
         }
 
-    }
-
     // Compatibility method required by the Blockly interpreter. The old
     // Ticks mixin exposed this method, but Analyzer-only execution deliberately
     // does not create a Deriv ticksService or tick-history promise.
