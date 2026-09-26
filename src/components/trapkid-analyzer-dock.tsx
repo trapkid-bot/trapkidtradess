@@ -28,6 +28,7 @@ const TrapKidAnalyzerDock = () => {
     React.useEffect(() => {
         let cancelled = false;
         let polling = false;
+        let publishedKey = '';
 
         const poll = async () => {
             if (cancelled || polling) return;
@@ -78,25 +79,43 @@ const TrapKidAnalyzerDock = () => {
                             'EARLY_EXIT_EXECUTING',
                         ].includes(String(currentAnalyzerState.status || ''));
 
-                    globalObserver.setState({
-                        trapkid_analyzer: {
-                            ...currentAnalyzerState,
-                            ...data,
-                            ...(isNewSignal || initialSignalIsFresh ? { exit: null } : {}),
-                            status: preservedCommandStatus
-                                ? currentAnalyzerState.status
-                                : signalKey
-                                  ? 'CONNECTED'
-                                  : 'CONNECTED_WAITING',
-                            ...(commandBoundToSignal ? { commandKey: signalKey } : {}),
-                            lastSeen: now,
-                        },
-                    });
-                    // Publish the merged observer state so commandKey/status are not lost.
-                    globalObserver.emit(
-                        'trapkid.analyzer.updated',
-                        globalObserver.getState('trapkid_analyzer') || {}
-                    );
+                    const mergedAnalyzerState = {
+                        ...currentAnalyzerState,
+                        ...data,
+                        ...(isNewSignal || initialSignalIsFresh ? { exit: null } : {}),
+                        status: preservedCommandStatus
+                            ? currentAnalyzerState.status
+                            : signalKey
+                              ? 'CONNECTED'
+                              : 'CONNECTED_WAITING',
+                        ...(commandBoundToSignal ? { commandKey: signalKey } : {}),
+                        lastSeen: now,
+                    };
+                    const rawExitForPublish = data?.exit;
+                    const exitPublishKey =
+                        rawExitForPublish?.status === 'EARLY_SELL_READY'
+                            ? String(rawExitForPublish.signalId || signalId) + ':' +
+                              String(rawExitForPublish.epoch || rawExitForPublish.quote || '')
+                            : String(rawExitForPublish?.status || 'IDLE');
+                    const publishKey = [
+                        Boolean(data?.connected),
+                        signalKey,
+                        String(data?.symbol || ''),
+                        String(signal?.hotDigit ?? ''),
+                        exitPublishKey,
+                        String(currentAnalyzerState.commandKey || ''),
+                        String(currentAnalyzerState.status || ''),
+                    ].join('|');
+
+                    globalObserver.setState({ trapkid_analyzer: mergedAnalyzerState });
+
+                    // Do not broadcast every 700ms. The bridge may poll frequently,
+                    // but React/observer consumers only need an event when execution-
+                    // relevant Analyzer state actually changes.
+                    if (publishKey !== publishedKey) {
+                        publishedKey = publishKey;
+                        globalObserver.emit('trapkid.analyzer.updated', mergedAnalyzerState);
+                    }
 
                     // A new Analyze cycle starts with a clean exit state.
                     // This prevents EARLY_SELL_READY from the previous cycle
@@ -190,7 +209,10 @@ const TrapKidAnalyzerDock = () => {
                     };
                     setDetails((current: any) => current ? { ...current, connected: false } : { connected: false });
                     globalObserver.setState({ trapkid_analyzer: offline });
-                    globalObserver.emit('trapkid.analyzer.updated', offline);
+                    if (publishedKey !== 'OFFLINE') {
+                        publishedKey = 'OFFLINE';
+                        globalObserver.emit('trapkid.analyzer.updated', offline);
+                    }
                 }
             } finally {
                 polling = false;
@@ -198,7 +220,7 @@ const TrapKidAnalyzerDock = () => {
         };
 
         void poll();
-        const timer = window.setInterval(poll, 700);
+        const timer = window.setInterval(poll, 1000);
         return () => {
             cancelled = true;
             window.clearInterval(timer);
