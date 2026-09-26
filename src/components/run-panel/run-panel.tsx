@@ -89,7 +89,7 @@ const TrapKidAnalyzerStatus = () => {
         };
 
         updateRemaining();
-        const timer = window.setInterval(updateRemaining, 250);
+        const timer = window.setInterval(updateRemaining, 1000);
         return () => window.clearInterval(timer);
     }, [state?.expiresAt]);
 
