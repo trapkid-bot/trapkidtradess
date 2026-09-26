@@ -147,8 +147,8 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
             return;
         }
 
-        // The Builder is no longer involved in execution. The Analyzer event
-        // itself opens the one-tick DIGITMATCH entry using hotDigit.
+        // The contract is already open. EARLY_SELL_READY is now the
+        // Analyzer-only EXIT trigger, never a second BUY trigger.
         this.tradeOptions = {
             ...this.tradeOptions,
             contractTypes: ['DIGITMATCH'],
@@ -179,32 +179,29 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         });
         globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
-        // Generate the actual DBot proposal/buy now — not when Analyze first
-        // locks the signal. The normal Builder watcher is intentionally bypassed
-        // here because Analyzer execution can arrive after the original BEFORE_PURCHASE
-        // watcher has already returned while the bot was waiting for EARLY_SELL_READY.
-        if (this.store.getState().scope !== constants.BEFORE_PURCHASE) {
-            this.store.dispatch({ type: constants.SELL });
-            this.store.dispatch(start());
-        }
+        // The contract is already purchased in Analyzer mode. This event
+        // only closes that existing contract.
+        globalObserver.setState({
+            trapkid_analyzer: {
+                ...analyzerState,
+                status: 'EARLY_EXIT_COMMAND_RECEIVED',
+                signal,
+                signalId: signal.signalId,
+                commandKey,
+                symbol: signal.symbol,
+                prediction: Number(signal.hotDigit),
+                hotDigit: Number(signal.hotDigit),
+                executionTrigger: 'EARLY_SELL_READY',
+                holdUntilAnalyzerExit: false,
+                executionArmed: true,
+                cycleFinished: false,
+            },
+        });
+        globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
-        this.makeDirectPurchaseDecision();
-
-        if (!this.is_proposal_subscription_required) {
-            // No proposal subscription is needed: the Analyzer trigger can purchase
-            // immediately from the authorized one-tick DIGITMATCH trade options.
-            this.store.dispatch(proposalsReady());
-            void this.purchase('DIGITMATCH').catch(error => {
-                globalObserver.emit('ui.log.error', error?.message || 'Analyzer purchase failed.');
-            });
-        } else {
-            // If proposal subscriptions are required, keep a BEFORE_PURCHASE watcher
-            // alive until the Analyzer-bound proposal is ready, then purchase exactly once.
-            void this.watch('before').then(ready => {
-                if (!ready) return;
-                return this.purchase('DIGITMATCH');
-            }).catch(error => {
-                globalObserver.emit('ui.log.error', error?.message || 'Analyzer proposal purchase failed.');
+        if (this.contractId && !this.isSold) {
+            void this.sellAtMarket('ANALYZER_EARLY_SELL').catch(error => {
+                globalObserver.emit('ui.log.error', error?.message || 'Analyzer early sell failed.');
             });
         }
     };
@@ -272,26 +269,31 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
                     globalObserver.setState({
                         trapkid_analyzer: {
                             ...(globalObserver.getState('trapkid_analyzer') || {}),
-                            status: 'WAITING_FOR_ANALYZER_EXIT',
+                            // Analyzer controls the entire trade lifecycle:
+                            // buy immediately after the signal is locked, then
+                            // keep the contract open until EARLY_SELL_READY.
+                            status: 'ANALYZER_PURCHASE_AUTHORIZED',
                             signal: analyzerSignal,
                             signalId: analyzerSignal.signalId,
                             commandKey: String(analyzerSignal.signalId) + ':' + String(analyzerSignal.lockedAt),
                             symbol: analyzerSignal.symbol,
-                            entryPrediction: Number(analyzerSignal.prediction),
+                            entryPrediction: Number(analyzerSignal.hotDigit),
                             lockedDigit: analyzerSignal.lockedDigit,
                             hotDigit: analyzerSignal.hotDigit,
                             entrySource: 'ANALYZER_ONLY',
                             exitSource: 'ANALYZER_EARLY_SELL_ONLY',
                             holdUntilAnalyzerExit: true,
                             executionArmed: true,
-                            executionTrigger: null,
+                            executionTrigger: 'ANALYZER_ENTRY',
+                            cycleFinished: false,
                         },
                     });
                     globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
-                    // Wait here. The registered Analyzer event handler will
-                    // call makeDirectPurchaseDecision() only when
-                    // EARLY_SELL_READY arrives.
+                    // IMPORTANT: Analyze/Run creates the Analyzer-controlled
+                    // contract now. EARLY_SELL_READY is NOT the buy trigger;
+                    // it is the only authorized early-sell trigger.
+                    this.makeDirectPurchaseDecision();
                     return undefined;
                 })
                 .catch(error => {
