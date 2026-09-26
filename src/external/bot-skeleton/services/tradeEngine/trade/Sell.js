@@ -31,17 +31,20 @@ export default Engine =>
             const contract = this.data?.contract || {};
             const fallbackStake = Number(contract.buy_price ?? this.tradeOptions?.amount ?? 0);
 
-            // Wait only for the financial leg of the same Analyzer signal. This does
-            // not change Analyzer's entry/hold/exit decision; it records the actual
-            // Deriv proceeds for the contract that was financially purchased.
+            // Analyzer is the exit authority. Once it emits EARLY_SELL_READY,
+            // perform the matching financial SELL at Deriv and use Deriv's returned
+            // sold_for / transaction_id / balance_after as the authoritative financial result.
+            // This does not change Analyzer's entry, hold, or exit decision.
             let derivSell = null;
-            if (this.settleAnalyzerDerivContract) {
-                void this.settleAnalyzerDerivContract().catch(error => {
+            if (this.sellAnalyzerDerivContract) {
+                try {
+                    derivSell = await this.sellAnalyzerDerivContract();
+                } catch (error) {
                     globalObserver.emit(
                         'ui.log.error',
-                        `TRAPKID DERIV FINANCIAL SETTLEMENT ERROR → ${error?.message || 'Unknown error'}`
+                        `TRAPKID DERIV FINANCIAL SELL ERROR → ${error?.message || 'Unknown error'}`
                     );
-                });
+                }
             }
 
             const actualBuyPrice = Number(this.derivBuy?.buy_price);
