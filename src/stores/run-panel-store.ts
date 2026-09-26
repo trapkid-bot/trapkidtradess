@@ -242,7 +242,7 @@ export default class RunPanelStore {
         const is_ios = mobileOSDetect() === 'iOS';
         this.dbot.saveRecentWorkspace();
         this.dbot.unHighlightAllBlocks();
-        if (!client.is_logged_in) {
+        if (sourceCommand?.source !== 'TRAPKID_ANALYZER_HTTP' && !client.is_logged_in) {
             this.showLoginDialog();
             return;
         }
