@@ -52,6 +52,7 @@ export default Engine =>
                     'ANALYZER_DATA_BOUND',
                     'ANALYZER_PURCHASE_BOUND',
                     'EARLY_EXIT_COMMAND_RECEIVED',
+                    'WAITING_FOR_ANALYZER_EXIT_DIGIT',
                     'EARLY_EXIT_EXECUTING',
                 ].includes(String(state?.status || ''));
 
