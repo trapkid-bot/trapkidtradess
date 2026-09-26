@@ -1,5 +1,5 @@
 import { LogTypes } from '../../../constants/messages';
-import { contractStatus, info, log } from '../utils/broadcast';
+import { contract, contractStatus, info, log } from '../utils/broadcast';
 import { getUUID } from '../utils/helpers';
 import { observer as globalObserver } from '../../../utils/observer';
 
