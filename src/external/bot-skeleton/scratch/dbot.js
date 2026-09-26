@@ -269,6 +269,104 @@ class DBot {
      * Runs the bot. Does a sanity check before attempting to generate the
      * JavaScript code that's fed to the interpreter.
      */
+    runAnalyzer(command) {
+        const signal = command?.signal;
+        if (!signal?.signalId || !signal?.symbol || !Number.isInteger(Number(signal?.hotDigit))) {
+            globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER: no valid locked signal was received.');
+            return;
+        }
+
+        if (this.is_bot_running) return;
+
+        const workspace = this.workspace;
+        const tradeDefinition = workspace
+            ?.getAllBlocks?.(true)
+            ?.find(block => block.type === 'trade_definition');
+        const tradeOptionsBlock = tradeDefinition
+            ? workspace
+                .getAllBlocks(true)
+                .find(block => block.type === 'trade_definition_tradeoptions' || block.type === 'trade_definition_tradeoptions_payout')
+            : null;
+
+        const generator = window.Blockly?.JavaScript?.javascriptGenerator;
+        const readNumber = (inputName, fallback) => {
+            try {
+                const code = generator?.valueToCode(
+                    tradeOptionsBlock,
+                    inputName,
+                    generator.ORDER_ATOMIC
+                );
+                const value = Number(code);
+                return Number.isFinite(value) ? value : fallback;
+            } catch {
+                return fallback;
+            }
+        };
+
+        const client = DBotStore.instance?.client || {};
+        const amount = readNumber('AMOUNT', 1);
+        const duration = readNumber('DURATION', Number(signal.duration) > 0 ? Number(signal.duration) : 1);
+        const duration_unit =
+            tradeOptionsBlock?.getFieldValue('DURATIONTYPE_LIST') ||
+            signal.duration_unit ||
+            signal.durationUnit ||
+            't';
+
+        // Analyzer supplies the market, prediction and complete trade identity.
+        // Blockly contributes only the user's stake/duration preferences.
+        const tradeOptions = {
+            symbol: String(signal.symbol),
+            contractTypes: ['DIGITMATCH'],
+            duration,
+            duration_unit,
+            currency: client.currency || 'USD',
+            amount: amount > 0 ? amount : 1,
+            prediction: Number(signal.hotDigit),
+            limitations: {},
+            shouldRestartOnError: false,
+            timeMachineEnabled: false,
+            analyzerSignalId: String(signal.signalId),
+            analyzerCommandKey: String(command.commandKey || signal.signalId),
+            analyzerContractId: signal.contractId ?? signal.contract_id ?? signal.analyzerContractId,
+            analyzerEntryCode: signal.entryCode ?? signal.entry_code,
+            analyzerEntryQuote: signal.entryQuote ?? signal.entry_quote ?? signal.quote,
+            analyzerLockedQuote: signal.lockedQuote ?? signal.locked_quote ?? signal.quote,
+        };
+
+        this.symbol = String(signal.symbol);
+        this.is_bot_running = true;
+        api_base.setIsRunning(true);
+
+        // Create a clean Analyzer-only TradeEngine instance, but DO NOT run
+        // Blockly's generated infinite loop. TradeEngine.start owns the whole
+        // lifecycle and returns only after Analyzer settlement.
+        this.interpreter = Interpreter();
+        const tradeEngine = this.interpreter.bot.tradeEngine;
+
+        try {
+            tradeEngine.init('ANALYZER', tradeOptions);
+            globalObserver.emit('ui.log', `TRAPKID ANALYZER EXECUTION START → ${signal.signalId} → hotDigit=${signal.hotDigit}`);
+
+            Promise.resolve(tradeEngine.start(tradeOptions))
+                .then(() => {
+                    this.is_bot_running = false;
+                    api_base.setIsRunning(false);
+                    globalObserver.emit('bot.stop');
+                })
+                .catch(error => {
+                    this.is_bot_running = false;
+                    api_base.setIsRunning(false);
+                    globalObserver.emit('ui.log.error', error?.message || 'TRAPKID ANALYZER execution failed.');
+                    globalObserver.emit('bot.stop');
+                });
+        } catch (error) {
+            this.is_bot_running = false;
+            api_base.setIsRunning(false);
+            globalObserver.emit('ui.log.error', error?.message || 'TRAPKID ANALYZER execution failed.');
+            globalObserver.emit('bot.stop');
+        }
+    }
+
     runBot() {
         if (api_base.is_stopping) return;
 
