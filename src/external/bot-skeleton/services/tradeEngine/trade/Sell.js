@@ -19,7 +19,7 @@ export default Engine =>
                 !!analyzerSignal?.signalId &&
                 String(analyzerState.commandKey || '') ===
                     String(analyzerSignal.signalId) + ':' + String(analyzerSignal.lockedAt) &&
-                ['COMMAND_ACCEPTED', 'COMMAND_RECEIVED', 'ANALYZER_TRADE_LOCKED', 'ANALYZER_PURCHASE_AUTHORIZED', 'ANALYZER_PURCHASE_BOUND', 'RUNNING', 'EARLY_EXIT_COMMAND_RECEIVED', 'EARLY_EXIT_EXECUTING'].includes(
+                ['COMMAND_ACCEPTED', 'COMMAND_RECEIVED', 'ANALYZER_TRADE_LOCKED', 'ANALYZER_PURCHASE_AUTHORIZED', 'ANALYZER_PURCHASE_BOUND', 'RUNNING', 'EARLY_EXIT_COMMAND_RECEIVED', 'WAITING_FOR_ANALYZER_EXIT_DIGIT', 'EARLY_EXIT_EXECUTING'].includes(
                     String(analyzerState.status || '')
                 );
 
