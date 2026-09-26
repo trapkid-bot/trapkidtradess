@@ -305,6 +305,24 @@ export default Engine =>
                 `TRAPKID ANALYZER CONTRACT OPEN → ${String(entryCode)}`
             );
 
+            const postEntryState = globalObserver.getState('trapkid_analyzer') || {};
+            const pendingExit = postEntryState.pendingEarlyExit;
+            if (pendingExit?.status === 'EARLY_SELL_READY' &&
+                String(pendingExit.signalId || '') === String(signal.signalId || '') &&
+                Number(pendingExit.digit) === Number(signal.hotDigit)) {
+                const settledState = {
+                    ...postEntryState,
+                    exit: { ...pendingExit },
+                    executionTrigger: 'EARLY_SELL_READY',
+                    status: 'EARLY_EXIT_COMMAND_RECEIVED',
+                    pendingEarlyExit: null,
+                    holdUntilAnalyzerExit: false,
+                };
+                globalObserver.setState({ trapkid_analyzer: settledState });
+                globalObserver.emit('trapkid.analyzer.updated', settledState);
+                setTimeout(() => { void this.sellAtMarket('ANALYZER_EARLY_SELL'); }, 0);
+            }
+
             return Promise.resolve({
                 buy: {
                     contract_id: String(contractId),
