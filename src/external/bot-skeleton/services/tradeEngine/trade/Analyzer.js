@@ -152,15 +152,14 @@ export default Engine =>
 
             const exitDigit = Number(exit.digit);
             const hotDigit = Number(signal.hotDigit);
-            if (!signalId) return null;
+            if (!signalId || !Number.isInteger(exitDigit) || exitDigit < 0 || exitDigit > 9) return null;
 
-            // EARLY_SELL_READY itself is the exit authority. Do not require
-            // the exit digit to match the hot digit and do not reject a
-            // legitimate Analyzer digit before allowing the close.
+            // EARLY_SELL_READY is the exit authority. The exit digit must be
+            // a valid Analyzer digit, but it does not have to equal hotDigit.
             return {
                 signalId,
                 commandKey: String(signal.signalId) + ':' + String(signal.lockedAt),
-                digit: Number.isInteger(exitDigit) ? exitDigit : null,
+                digit: exitDigit,
                 hotDigit: Number.isInteger(hotDigit) ? hotDigit : null,
                 quote: Number(exit.quote),
                 epoch: Number(exit.epoch),
