@@ -16,9 +16,7 @@ export default Engine =>
                     String(signal.signalId) + ':' + String(signal.lockedAt) &&
                 ['COMMAND_RECEIVED', 'COMMAND_ACCEPTED', 'RUNNING', 'ANALYZER_PURCHASE_AUTHORIZED', 'ANALYZER_PURCHASE_BOUND'].includes(
                     String(analyzerState.status || '')
-                ) &&
-                Array.isArray(trade_option?.contractTypes) &&
-                trade_option.contractTypes.includes('DIGITMATCH');
+                );
 
             if (analyzerActive) {
                 // Rebuild the actual proposal inputs from the Analyzer signal
