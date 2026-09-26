@@ -8,6 +8,7 @@ import { TContractInfo } from '../components/summary/summary-card.types';
 import { transaction_elements } from '../constants/transactions';
 import { getStoredItemsByKey, getStoredItemsByUser, setStoredItemsByKey } from '../utils/session-storage';
 import RootStore from './root-store';
+import { observer as globalObserver } from '@/utils/observer';
 
 type TTransaction = {
     type: string;
@@ -22,12 +23,16 @@ export default class TransactionsStore {
     root_store: RootStore;
     core: TStores;
     disposeReactionsFn: () => void;
+    deriv_ledger: Record<string, any> = {};
 
     constructor(root_store: RootStore, core: TStores) {
         this.root_store = root_store;
         this.core = core;
         this.is_transaction_details_modal_open = false;
         this.disposeReactionsFn = this.registerReactions();
+        globalObserver.register('deriv.contract.buy', this.onDerivBuyEvent);
+        globalObserver.register('deriv.contract.open', this.onDerivOpenContractEvent);
+        globalObserver.register('deriv.contract.sell', this.onDerivSellEvent);
 
         makeObservable(this, {
             elements: observable,
@@ -45,6 +50,9 @@ export default class TransactionsStore {
             updateResultsCompletedContract: action.bound,
             sortOutPositionsBeforeAction: action.bound,
             recoverPendingContractsById: action.bound,
+            onDerivBuyEvent: action.bound,
+            onDerivOpenContractEvent: action.bound,
+            onDerivSellEvent: action.bound,
         });
     }
     TRANSACTION_CACHE = 'transaction_cache';
@@ -110,7 +118,126 @@ export default class TransactionsStore {
         this.pushTransaction(data);
     }
 
+    private findDerivTransactionIndex(ledger: any) {
+        const account = this.core?.client?.loginid as string;
+        const items = this.elements[account] || [];
+        return items.findIndex(item => {
+            if (item.type !== transaction_elements.CONTRACT || typeof item.data === 'string') return false;
+            const data: any = item.data;
+            return (
+                String(data.contract_id || '') === String(ledger.local_contract_id || ledger.contract_id || '') ||
+                String(data.deriv_contract_id || '') === String(ledger.contract_id || '') ||
+                String(data.transaction_ids?.buy || '') === String(ledger.buy_transaction_id || ledger.transaction_id || '')
+            );
+        });
+    }
+
+    private mergeDerivLedgerIntoContract(data: any, ledger: any) {
+        if (!ledger) return data;
+        const merged = { ...data };
+        if (Number.isFinite(Number(ledger.buy_price))) merged.buy_price = Number(ledger.buy_price);
+        if (Number.isFinite(Number(ledger.bid_price))) merged.bid_price = Number(ledger.bid_price);
+        if (Number.isFinite(Number(ledger.payout))) merged.payout = Number(ledger.payout);
+        if (Number.isFinite(Number(ledger.profit))) merged.profit = Number(ledger.profit);
+        if (ledger.currency) merged.currency = ledger.currency;
+        if (Number.isFinite(Number(ledger.balance_after))) {
+            merged.balance_after = Number(ledger.balance_after);
+            merged.deriv_balance_after = Number(ledger.balance_after);
+        }
+        if (ledger.contract_id) merged.deriv_contract_id = String(ledger.contract_id);
+        if (ledger.buy_transaction_id || ledger.transaction_id) {
+            merged.transaction_ids = {
+                ...(merged.transaction_ids || {}),
+                buy: ledger.buy_transaction_id || merged.transaction_ids?.buy,
+            };
+            merged.deriv_transaction_id = ledger.buy_transaction_id || ledger.transaction_id;
+        }
+        if (ledger.sell_transaction_id) {
+            merged.transaction_ids = {
+                ...(merged.transaction_ids || {}),
+                sell: ledger.sell_transaction_id,
+            };
+            merged.deriv_sell_transaction_id = ledger.sell_transaction_id;
+        }
+        if (Number.isFinite(Number(ledger.sold_for))) {
+            merged.sell_price = Number(ledger.sold_for);
+            merged.bid_price = Number(ledger.sold_for);
+        }
+        if (ledger.financial_status) merged.financial_status = ledger.financial_status;
+        return merged;
+    }
+
+    onDerivBuyEvent(event: any) {
+        const key = String(event?.contract_id || event?.local_contract_id || '');
+        if (!key) return;
+        const ledger = {
+            ...(this.deriv_ledger[key] || {}),
+            ...event,
+            buy_transaction_id: event.buy_transaction_id || event.transaction_id || this.deriv_ledger[key]?.buy_transaction_id,
+            financial_status: 'DERIV_BUY_CONFIRMED',
+        };
+        this.deriv_ledger[key] = ledger;
+        const account = this.core?.client?.loginid as string;
+        const index = this.findDerivTransactionIndex(ledger);
+        if (index >= 0) {
+            const current = this.elements[account][index];
+            this.elements[account].splice(index, 1, {
+                ...current,
+                data: this.mergeDerivLedgerIntoContract(current.data, ledger),
+            });
+            this.elements = { ...this.elements };
+        }
+    }
+
+    onDerivOpenContractEvent(event: any) {
+        const key = String(event?.contract_id || '');
+        if (!key) return;
+        const previous = this.deriv_ledger[key] || {};
+        const ledger = {
+            ...previous,
+            ...event,
+            financial_status: event?.is_closed ? 'DERIV_SETTLEMENT_CONFIRMED' : 'DERIV_OPEN_CONTRACT',
+        };
+        this.deriv_ledger[key] = ledger;
+        const account = this.core?.client?.loginid as string;
+        const index = this.findDerivTransactionIndex(ledger);
+        if (index >= 0) {
+            const current = this.elements[account][index];
+            this.elements[account].splice(index, 1, {
+                ...current,
+                data: this.mergeDerivLedgerIntoContract(current.data, ledger),
+            });
+            this.elements = { ...this.elements };
+        }
+    }
+
+    onDerivSellEvent(event: any) {
+        const key = String(event?.contract_id || '');
+        if (!key) return;
+        const ledger = {
+            ...(this.deriv_ledger[key] || {}),
+            ...event,
+            sell_transaction_id: event.sell_transaction_id || event.transaction_id || this.deriv_ledger[key]?.sell_transaction_id,
+            balance_after: event.balance_after ?? this.deriv_ledger[key]?.balance_after,
+            financial_status: 'DERIV_SELL_CONFIRMED',
+        };
+        this.deriv_ledger[key] = ledger;
+        const account = this.core?.client?.loginid as string;
+        const index = this.findDerivTransactionIndex(ledger);
+        if (index >= 0) {
+            const current = this.elements[account][index];
+            this.elements[account].splice(index, 1, {
+                ...current,
+                data: this.mergeDerivLedgerIntoContract(current.data, ledger),
+            });
+            this.elements = { ...this.elements };
+        }
+    }
+
     pushTransaction(data: TContractInfo) {
+        const ledgerKey = String((data as any)?.deriv_contract_id || (data as any)?.contract_id || '');
+        const ledger = this.deriv_ledger[ledgerKey];
+        if (ledger) data = this.mergeDerivLedgerIntoContract(data, ledger);
         const is_completed = isEnded(data as ProposalOpenContract);
         const { run_id } = this.root_store.run_panel;
         const current_account = this.core?.client?.loginid as string;
@@ -209,6 +336,9 @@ export default class TransactionsStore {
         return () => {
             disposeTransactionElementsListener();
             disposeRecoverContracts();
+            globalObserver.unregister('deriv.contract.buy', this.onDerivBuyEvent);
+            globalObserver.unregister('deriv.contract.open', this.onDerivOpenContractEvent);
+            globalObserver.unregister('deriv.contract.sell', this.onDerivSellEvent);
         };
     }
 
