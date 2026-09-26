@@ -26,7 +26,7 @@ const getAnalyzerTradeDuration = trade_option => {
         ].includes(String(state.status || ''));
 
     if (analyzerActive && (trade_option?.contractTypes || []).includes('DIGITMATCH')) {
-        return { duration: 86400, duration_unit: 's' };
+        return { duration: 1, duration_unit: 'h' };
     }
 
     return {
