@@ -109,15 +109,10 @@ export default Engine =>
                 throw new Error('TrapKid Analyzer: signal has no market. Trade blocked.');
             }
 
-            // Hot digit is Analyzer exit metadata, not an entry gate.
-            // Any Analyzer-produced digit is accepted for the entry signal.
-
-            const pendingExit = this.getAnalyzerExit();
-            if (pendingExit && String(pendingExit.signalId) === String(signal.signalId)) {
-                throw new Error(
-                    'TrapKid Analyzer: EARLY_SELL_READY is already active for this signal. New purchase blocked.'
-                );
-            }
+            // EARLY_SELL_READY may arrive before the purchase is completed.
+            // Keep the signal purchasable; Purchase.js will bind the pending
+            // Analyzer exit immediately after the contract is created.
+            // The hot digit remains the only authorized exit digit.
 
             this.tradeOptions.symbol = signal.symbol;
             this.tradeOptions.prediction = signal.hotDigit;
