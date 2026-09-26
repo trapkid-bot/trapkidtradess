@@ -100,7 +100,7 @@ export default Engine =>
                         purchaseInFlightKey: analyzerSignalKey,
                         entryPrediction: signal.prediction,
                         entrySource: 'ANALYZER_ONLY',
-                        exitSource: 'DERIV_ONE_TICK_SETTLEMENT',
+                        exitSource: 'ANALYZER_EARLY_SELL_ONLY',
                         executionTrigger: 'EARLY_SELL_READY',
                     },
                 });
@@ -176,7 +176,7 @@ export default Engine =>
                         lockedQuote: this.analyzerSignal?.lockedQuote,
                         entrySource: 'ANALYZER_ONLY',
                         exitSource: 'DERIV_ONE_TICK_SETTLEMENT',
-                        executionTrigger: 'EARLY_SELL_READY',
+                        executionTrigger: null,
                         purchaseInFlightKey: null,
                         purchaseConsumedKey: purchasedSignalKey || undefined,
                     },
