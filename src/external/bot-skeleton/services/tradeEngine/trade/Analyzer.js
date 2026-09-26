@@ -49,6 +49,7 @@ export default Engine =>
                     'COMMAND_RECEIVED',
                     'COMMAND_ACCEPTED',
                     'RUNNING',
+                    'ANALYZER_EXECUTION',
                     'ANALYZER_DATA_BOUND',
                     'ANALYZER_PURCHASE_BOUND',
                     'EARLY_EXIT_COMMAND_RECEIVED',
@@ -166,14 +167,14 @@ export default Engine =>
             if (!signalId || !Number.isInteger(exitDigit) || exitDigit < 0 || exitDigit > 9) return null;
             if (!Number.isInteger(hotDigit) || hotDigit < 0 || hotDigit > 9) return null;
 
-            // Analyzer owns the exit digit independently from the entry prediction.
-            // Any valid digit 0-9 delivered by EARLY_SELL_READY is accepted.
-            // The entry prediction remains the Analyzer hotDigit; the exit watcher
-            // uses the Analyzer's explicit exit digit when it arrives.
+            // Analyzer hotDigit is the ONLY authorized exit digit.
+            // Ignore any other digit supplied in the exit payload.
+            if (exitDigit !== hotDigit) return null;
+
             return {
                 signalId,
                 commandKey: String(signal.signalId) + ':' + String(signal.lockedAt),
-                digit: exitDigit,
+                digit: hotDigit,
                 hotDigit,
                 quote: Number(exit.quote),
                 epoch: Number(exit.epoch),
