@@ -246,6 +246,93 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // Deriv tick monitor.
     }
 
+    watch(scopeName) {
+        // Analyzer-only replacement for the removed Deriv Redux/tick scope watcher.
+        // The Blockly interpreter expects watch('before') to resolve when the
+        // Analyzer-owned local contract is opened, then watch('during') to resolve
+        // only after Analyzer-owned settlement.
+        if (scopeName === 'before') {
+            if (this.contractId && !this.isSold) return Promise.resolve(true);
+
+            return new Promise(resolve => {
+                let finished = false;
+                const cleanup = () => {
+                    globalObserver.unregister('contract.status', onStatus);
+                    globalObserver.unregister('trapkid.analyzer.updated', onAnalyzerUpdate);
+                    globalObserver.unregister('bot.stop', onStop);
+                };
+                const finish = value => {
+                    if (finished) return;
+                    finished = true;
+                    cleanup();
+                    resolve(value);
+                };
+                const onStatus = event => {
+                    if (event?.id === 'contract.purchase_sent' && this.contractId && !this.isSold) {
+                        finish(true);
+                    }
+                };
+                const onAnalyzerUpdate = state => {
+                    if (
+                        state?.status === 'WATCHING_ANALYZER_HOT_DIGIT' &&
+                        this.contractId &&
+                        !this.isSold
+                    ) {
+                        finish(true);
+                    }
+                };
+                const onStop = () => finish(false);
+
+                globalObserver.register('contract.status', onStatus);
+                globalObserver.register('trapkid.analyzer.updated', onAnalyzerUpdate);
+                globalObserver.register('bot.stop', onStop);
+
+                // Re-check after registration to cover a synchronous Analyzer
+                // purchase that completed between the initial check and listener setup.
+                if (this.contractId && !this.isSold) finish(true);
+            });
+        }
+
+        if (scopeName === 'during') {
+            if (!this.contractId || this.isSold) return Promise.resolve(false);
+
+            return new Promise(resolve => {
+                let finished = false;
+                const cleanup = () => {
+                    globalObserver.unregister('contract.status', onStatus);
+                    globalObserver.unregister('trapkid.analyzer.updated', onAnalyzerUpdate);
+                    globalObserver.unregister('bot.stop', onStop);
+                };
+                const finish = value => {
+                    if (finished) return;
+                    finished = true;
+                    cleanup();
+                    resolve(value);
+                };
+                const onStatus = event => {
+                    if (event?.id === 'contract.sold') finish(false);
+                };
+                const onAnalyzerUpdate = state => {
+                    if (state?.status === 'ANALYZER_SETTLED' || state?.executionTrigger === 'ANALYZER_SETTLED') {
+                        finish(false);
+                    }
+                };
+                const onStop = () => finish(false);
+
+                globalObserver.register('contract.status', onStatus);
+                globalObserver.register('trapkid.analyzer.updated', onAnalyzerUpdate);
+
+                globalObserver.register('bot.stop', onStop);
+
+                // Re-check after registration in case Analyzer settlement happened
+                // at the exact boundary between the initial state check and listener setup.
+                if (!this.contractId || this.isSold) finish(false);
+            });
+        }
+
+        return Promise.resolve(false);
+    }
+
     async start(tradeOptions) {
         if (!this.options) {
             throw createError('NotInitialized', getLocalizedErrorMessage('NotInitialized'));
