@@ -92,7 +92,7 @@ export default defineConfig({
       module: {
         rules: [
           {
-            test: /\\.xml$/,
+            test: /\.xml$/,
             exclude: /node_modules/,
             use: 'raw-loader',
           },
