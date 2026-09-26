@@ -65,24 +65,25 @@ export default Engine =>
                 Date.now() >= expiresAt
             ) return null;
 
-            const rawEntryDigit = signal.entryDigit ?? signal.lockedDigit ?? signal.prediction;
-            const entryDigit = Number.isInteger(Number(rawEntryDigit)) ? Number(rawEntryDigit) : null;
+            const rawHotDigit = signal.hotDigit ?? state.hotDigit;
+            const hotDigit = Number.isInteger(Number(rawHotDigit)) ? Number(rawHotDigit) : null;
+            const rawLockedEntry = signal.entryDigit ?? signal.lockedDigit ?? signal.prediction;
+            const lockedEntryDigit = Number.isInteger(Number(rawLockedEntry)) ? Number(rawLockedEntry) : null;
 
             return {
                 ...signal,
                 symbol: signal.symbol || state.symbol,
-                // Analyzer entryDigit is authoritative. Never replace it with
-                // Builder/local market analysis when binding a DIGITMATCH trade.
-                entryDigit,
-                prediction: entryDigit,
+                // ANALYZER ONLY rule:
+                // the Analyzer hot digit is the canonical prediction used by
+                // the DBot DIGITMATCH contract and by the Analyzer exit watcher.
+                // The raw Analyzer prediction is never allowed to override it.
+                entryDigit: hotDigit,
+                prediction: hotDigit,
+                lockedEntryDigit,
                 lockedDigit: Number.isInteger(Number(signal.lockedDigit))
                     ? Number(signal.lockedDigit)
-                    : entryDigit,
-                hotDigit: Number.isInteger(Number(signal.hotDigit))
-                    ? Number(signal.hotDigit)
-                    : Number.isInteger(Number(state.hotDigit))
-                      ? Number(state.hotDigit)
-                      : null,
+                    : lockedEntryDigit,
+                hotDigit,
             };
         }
 
@@ -94,9 +95,14 @@ export default Engine =>
                 throw new Error('TrapKid Analyzer: no active Analyzer signal. Trade blocked.');
             }
 
-            if (!Number.isInteger(signal.entryDigit) || signal.entryDigit < 0 || signal.entryDigit > 9) {
-                throw new Error('TrapKid Analyzer: signal has no valid locked entry digit. Trade blocked.');
+            if (!Number.isInteger(signal.hotDigit) || signal.hotDigit < 0 || signal.hotDigit > 9) {
+                throw new Error('TrapKid Analyzer: signal has no valid hot/exit digit. Trade blocked.');
             }
+
+            // The hot digit is the only Analyzer-authorized prediction.
+            // Do not allow a different raw prediction/entry digit into DBot.
+            signal.entryDigit = signal.hotDigit;
+            signal.prediction = signal.hotDigit;
 
             if (!signal.symbol) {
                 throw new Error('TrapKid Analyzer: signal has no market. Trade blocked.');
@@ -113,7 +119,7 @@ export default Engine =>
             }
 
             this.tradeOptions.symbol = signal.symbol;
-            this.tradeOptions.prediction = signal.prediction;
+            this.tradeOptions.prediction = signal.hotDigit;
             this.analyzerSignal = signal;
             this.analyzerCommandKey = String(signal.signalId) + ':' + String(signal.lockedAt);
 
