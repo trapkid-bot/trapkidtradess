@@ -206,7 +206,7 @@ const TrapKidAnalyzerDock = () => {
     const connected = Boolean(details?.connected);
 
     const saveAnalyzerUrl = () => {
-        const value = urlDraft.trim().replace(/\\/$/, '');
+        const value = urlDraft.trim().replace(/\/$/, '');
         if (!value) return;
         setAnalyzerApi(value);
         try { window.localStorage.setItem('trapkid_analyzer_url', value); } catch {}
