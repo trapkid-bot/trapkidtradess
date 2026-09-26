@@ -43,7 +43,9 @@ export default Engine =>
                     !activeSignal ||
                     String(signal.signalId) !== String(activeSignal.signalId) ||
                     Number(signal.lockedAt) !== Number(activeSignal.lockedAt) ||
-                    !Number.isInteger(signal.prediction)
+                    !Number.isInteger(signal.prediction) ||
+                    !Number.isInteger(signal.hotDigit) ||
+                    Number(signal.prediction) !== Number(signal.hotDigit)
                 ) {
                     globalObserver?.emit?.(
                         'ui.log.error',
@@ -89,7 +91,8 @@ export default Engine =>
 
                 // Analyzer is the sole source of the actual Match entry values.
                 // Any Bot Builder prediction value is overwritten here.
-                this.tradeOptions.prediction = signal.prediction;
+                // Hot digit is the sole canonical Analyzer prediction.
+                this.tradeOptions.prediction = signal.hotDigit;
                 this.tradeOptions.symbol = signal.symbol;
 
                 globalObserver.setState({
