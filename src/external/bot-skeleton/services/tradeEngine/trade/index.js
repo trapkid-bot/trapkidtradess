@@ -279,8 +279,11 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // The dashboard can already display a valid locked signal while the
         // Blockly runner is still entering start(). That signal is the BUY
         // authorization for this execution cycle.
-        const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
-        const currentSignal = this.getExternalAnalyzerSignal?.();
+        // Analyze is the BUY trigger. If the Analyzer is still finishing the
+        // lock at the exact click moment, wait only for that current lock to
+        // appear; never wait for EARLY_SELL_READY and never wait for a second
+        // signal after an exit.
+        const currentSignal = await this.waitForAnalyzerSignal?.(10000);
         if (
             !currentSignal?.signalId ||
             !Number.isInteger(Number(currentSignal.hotDigit)) ||
@@ -288,7 +291,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         ) {
             globalObserver.emit(
                 'ui.log.error',
-                'TRAPKID ANALYZER: no current locked signal is available at Analyze start.'
+                'TRAPKID ANALYZER: no locked signal became available after Analyze.'
             );
             if (this.resolveAnalyzerCycle) {
                 const resolve = this.resolveAnalyzerCycle;
@@ -297,6 +300,13 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             }
             return;
         }
+
+        // Bind the exact signal BEFORE any exit event can cause another
+        // purchase attempt. This makes the first locked signal the contract
+        // entry authorization.
+        this.analyzerSignal = currentSignal;
+        this.analyzerCommandKey =
+            String(currentSignal.signalId) + ':' + String(currentSignal.lockedAt);
 
         globalObserver.emit(
             'ui.log',
