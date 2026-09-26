@@ -138,7 +138,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
 
         // Only the first EARLY_SELL_READY for this signal can trigger a buy.
         if (
-            ['EARLY_EXIT_COMMAND_RECEIVED', 'ANALYZER_PURCHASE_AUTHORIZED', 'ANALYZER_PURCHASE_BOUND', 'RUNNING'].includes(
+            ['EARLY_EXIT_COMMAND_RECEIVED', 'ANALYZER_PURCHASE_AUTHORIZED', 'ANALYZER_PURCHASE_BOUND'].includes(
                 String(analyzerState.status || '')
             ) ||
             analyzerState.purchaseConsumedKey === commandKey ||
