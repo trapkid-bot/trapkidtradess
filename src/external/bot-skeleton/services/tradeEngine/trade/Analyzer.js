@@ -97,9 +97,8 @@ export default Engine =>
                 throw new Error('TrapKid Analyzer: signal has no market. Trade blocked.');
             }
 
-            if (!Number.isInteger(signal.hotDigit) || signal.hotDigit < 0 || signal.hotDigit > 9) {
-                throw new Error('TrapKid Analyzer: signal has no valid hot digit. Trade blocked.');
-            }
+            // Hot digit is Analyzer exit metadata, not an entry gate.
+            // Any Analyzer-produced digit is accepted for the entry signal.
 
             const pendingExit = this.getAnalyzerExit();
             if (pendingExit && String(pendingExit.signalId) === String(signal.signalId)) {
@@ -153,15 +152,16 @@ export default Engine =>
 
             const exitDigit = Number(exit.digit);
             const hotDigit = Number(signal.hotDigit);
-            if (!signalId || !Number.isInteger(exitDigit) || exitDigit < 0 || exitDigit > 9) return null;
-            if (!Number.isInteger(hotDigit) || hotDigit < 0 || hotDigit > 9) return null;
-            if (exitDigit !== hotDigit) return null;
+            if (!signalId) return null;
 
+            // EARLY_SELL_READY itself is the exit authority. Do not require
+            // the exit digit to match the hot digit and do not reject a
+            // legitimate Analyzer digit before allowing the close.
             return {
                 signalId,
                 commandKey: String(signal.signalId) + ':' + String(signal.lockedAt),
-                digit: exitDigit,
-                hotDigit,
+                digit: Number.isInteger(exitDigit) ? exitDigit : null,
+                hotDigit: Number.isInteger(hotDigit) ? hotDigit : null,
                 quote: Number(exit.quote),
                 epoch: Number(exit.epoch),
             };
