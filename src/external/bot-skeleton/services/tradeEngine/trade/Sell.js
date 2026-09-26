@@ -189,5 +189,5 @@ export default Engine =>
 
             this.store.dispatch(sell());
             return Promise.resolve();
-        }        }
+        }
     };
