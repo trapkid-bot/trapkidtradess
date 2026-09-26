@@ -58,18 +58,33 @@ export default Engine =>
             };
 
             const clientStore = globalObserver.getState('client.store');
-            if (!clientStore) return;
-
-            clientStore.setBalance?.(String(numericBalance));
-            if (clientStore.loginid && Array.isArray(clientStore.account_list)) {
-                clientStore.setAccountList?.(
-                    clientStore.account_list.map(account =>
-                        String(account.loginid) === String(clientStore.loginid)
-                            ? { ...account, balance: numericBalance }
-                            : account
-                    )
-                );
+            if (clientStore) {
+                clientStore.setBalance?.(String(numericBalance));
+                if (clientStore.loginid && Array.isArray(clientStore.account_list)) {
+                    clientStore.setAccountList?.(
+                        clientStore.account_list.map(account =>
+                            String(account.loginid) === String(clientStore.loginid)
+                                ? { ...account, balance: numericBalance }
+                                : account
+                        )
+                    );
+                }
             }
+
+            // Keep the Analyzer-only balance state synchronized with the same
+            // authoritative Deriv balance. This is financial display/accounting
+            // state only; it does not participate in Analyzer execution.
+            const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
+            globalObserver.setState({
+                trapkid_analyzer: {
+                    ...analyzerState,
+                    balance: numericBalance,
+                    analyzerBalance: numericBalance,
+                    derivBalance: numericBalance,
+                    currency: analyzerState.currency || this.tradeOptions?.currency || 'USD',
+                    derivBalanceSource: 'DERIV_BALANCE',
+                },
+            });
         };
 
         refreshDerivAccountBalance = async (attempts = 3) => {
@@ -98,22 +113,6 @@ export default Engine =>
                             loginid,
                         };
                         this.updateDerivAccountBalance(balanceValue);
-
-                        globalObserver.setState({
-                            trapkid_analyzer: {
-                                ...(globalObserver.getState('trapkid_analyzer') || {}),
-                                balance: balanceValue,
-                                analyzerBalance: balanceValue,
-                                derivBalance: balanceValue,
-                                currency,
-                                derivBalanceSource: 'DERIV_BALANCE',
-                            },
-                        });
-
-                        globalObserver.emit(
-                            'ui.log',
-                            'TRAPKID DERIV BALANCE SYNC → ' + balanceValue
-                        );
                         return balanceValue;
                     }
                 } catch {
@@ -308,11 +307,15 @@ export default Engine =>
                         'TRAPKID DERIV FINANCIAL SELL → ' +
                             (response.error.message || response.error.code || 'rejected')
                     );
+                    void this.refreshDerivAccountBalance(3);
                     return null;
                 }
 
                 const sold = response?.sell;
-                if (!sold?.contract_id) return null;
+                if (!sold?.contract_id) {
+                    void this.refreshDerivAccountBalance(3);
+                    return null;
+                }
 
                 const soldFor = Number(sold.sold_for);
                 const balanceAfter = Number(sold.balance_after);
