@@ -136,7 +136,9 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // EARLY_SELL_READY is an EXIT-only event. If the BUY is still in
         // flight, remember the exact exit instead of dropping the event.
         // The pending exit is consumed immediately after contractId exists.
-        if (!this.contractId || this.isSold) {
+        if (!this.contractId && this.isSold) return;
+
+        if (!this.contractId) {
             globalObserver.setState({
                 trapkid_analyzer: {
                     ...analyzerState,
