@@ -320,7 +320,17 @@ export default Engine =>
                 };
                 globalObserver.setState({ trapkid_analyzer: settledState });
                 globalObserver.emit('trapkid.analyzer.updated', settledState);
-                setTimeout(() => { void this.sellAtMarket('ANALYZER_EARLY_SELL'); }, 0);
+                setTimeout(() => {
+                    void this.onAnalyzerEarlyExit({
+                        source: 'TRAPKID_ANALYZER_PENDING_EXIT',
+                        command: 'ANALYZER_EARLY_EXIT',
+                        commandKey: this.analyzerCommandKey,
+                        signalId: String(signal.signalId),
+                        signal,
+                        exit: pendingExit,
+                        receivedAt: Date.now(),
+                    });
+                }, 0);
             }
 
             return Promise.resolve({
