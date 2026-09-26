@@ -87,11 +87,18 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         if (this.contractId || this.isSold) return;
 
         const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
+        // EARLY_SELL_READY is the ONLY execution trigger. A locked Analyzer
+        // signal by itself must never start a purchase.
+        if (String(analyzerState.status || '') !== 'WAITING_FOR_ANALYZER_EXIT') return;
+        if (analyzerState.executionArmed !== true) return;
         const signal = this.analyzerSignal || analyzerState.signal;
         const commandSignalId = String(command?.signalId || command?.signal?.signalId || '');
         const activeSignalId = String(signal?.signalId || '');
 
         if (!signal || !commandSignalId || commandSignalId !== activeSignalId) return;
+
+        const lockExpiry = Number(signal?.expiresAt);
+        if (Number.isFinite(lockExpiry) && Date.now() >= lockExpiry) return;
 
         const exit = this.getAnalyzerExit?.();
         if (
@@ -145,6 +152,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
                 exitSource: 'DERIV_ONE_TICK_SETTLEMENT',
                 executionTrigger: 'EARLY_SELL_READY',
                 holdUntilAnalyzerExit: false,
+                executionArmed: true,
                 cycleFinished: false,
             },
         });
@@ -229,6 +237,8 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
                             entrySource: 'ANALYZER_ONLY',
                             exitSource: 'ANALYZER_EARLY_SELL_ONLY',
                             holdUntilAnalyzerExit: true,
+                            executionArmed: true,
+                            executionTrigger: null,
                         },
                     });
                     globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
