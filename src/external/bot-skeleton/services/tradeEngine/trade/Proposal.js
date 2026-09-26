@@ -30,7 +30,12 @@ export default Engine =>
                 };
             }
 
-            if (!this.isNewTradeOption(analyzerTradeOption)) {
+            // Analyzer signals are individual execution cycles. Even when
+            // the next signal has the same symbol/digit as the previous one,
+            // it MUST receive a fresh purchase_reference and fresh proposal.
+            // The Builder's isNewTradeOption optimization can otherwise leave
+            // Analyzer waiting forever on a stale/consumed proposal.
+            if (!analyzerActive && !this.isNewTradeOption(analyzerTradeOption)) {
                 return;
             }
 
