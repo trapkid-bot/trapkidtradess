@@ -307,6 +307,52 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         return null;
     }
 
+    // Blockly's legacy tick blocks call getLastTick(). In Analyzer-only mode
+    // there is no Deriv ticksService, so resolve the latest Analyzer-provided
+    // quote instead of falling back to Deriv.
+    getLastTick(raw = false, toString = false) {
+        const state = globalObserver.getState('trapkid_analyzer') || {};
+        const signal = this.analyzerSignal || state.signal || {};
+        const exit = state.exit || {};
+
+        const tick =
+            state.lastTick ??
+            state.currentTick ??
+            state.tick ??
+            state.latestTick ??
+            null;
+
+        let quote =
+            typeof tick === 'object' ? Number(tick.quote ?? tick.price ?? tick.value) : Number(tick);
+
+        if (!Number.isFinite(quote)) {
+            quote = Number(exit.quote);
+        }
+        if (!Number.isFinite(quote)) {
+            quote = Number(signal.lockedQuote ?? signal.entryQuote ?? state.lockedQuote ?? state.entryQuote);
+        }
+
+        if (!Number.isFinite(quote)) return Promise.resolve(null);
+
+        if (raw) {
+            const rawTick =
+                typeof tick === 'object' && tick
+                    ? tick
+                    : {
+                        quote,
+                        epoch: Number(state.serverTime ?? state.epoch ?? signal.lockedAt ?? Date.now()),
+                    };
+            return Promise.resolve(rawTick);
+        }
+
+        const pipSize = Number(signal.pipSize ?? state.pipSize ?? 0.01);
+        const value = toString && Number.isFinite(pipSize) && pipSize > 0
+            ? quote.toFixed(Math.max(0, String(pipSize).split('.')[1]?.length || 0))
+            : quote;
+
+        return Promise.resolve(value);
+    }
+
     observe() {
         // No Deriv observers in Analyzer-only mode. The Analyzer is the
         // execution/settlement authority for the complete trade lifecycle.
