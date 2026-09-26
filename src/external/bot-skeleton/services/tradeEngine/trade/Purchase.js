@@ -12,10 +12,13 @@ let purchase_reference;
 export default Engine =>
     class Purchase extends Engine {
         purchase(contract_type) {
+            const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
             const analyzerMode =
                 this.isAnalyzerEnabledForTrade?.() ||
-                String(contract_type || '') === 'DIGITMATCH' ||
-                !!this.analyzerSignal;
+                !!this.analyzerSignal ||
+                ['WAITING_FOR_ANALYZER_EXIT', 'EARLY_EXIT_COMMAND_RECEIVED', 'ANALYZER_EXECUTION', 'RUNNING'].includes(
+                    String(analyzerState.status || '')
+                );
 
             if (analyzerMode) {
                 const analyzerStateGate = globalObserver.getState('trapkid_analyzer') || {};
@@ -126,8 +129,17 @@ export default Engine =>
                 });
                 globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
             }
-            // Prevent calling purchase twice
-            if (this.store.getState().scope !== BEFORE_PURCHASE) {
+            // Analyzer execution owns this purchase lifecycle. If the legacy
+            // Builder watcher has already moved the Redux scope away from
+            // BEFORE_PURCHASE, restore the purchase scope instead of silently
+            // dropping the Analyzer-triggered buy.
+            if (analyzerMode) {
+                const scope = this.store.getState().scope;
+                if (scope !== BEFORE_PURCHASE) {
+                    this.store.dispatch({ type: 'SELL' });
+                    this.store.dispatch({ type: 'START' });
+                }
+            } else if (this.store.getState().scope !== BEFORE_PURCHASE) {
                 return Promise.resolve();
             }
 
