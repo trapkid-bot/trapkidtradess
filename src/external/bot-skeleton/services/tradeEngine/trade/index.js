@@ -298,7 +298,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
                     // Analyzer owns the market/tick stream in Analyzer mode.
                     // Replace any Builder-selected tick monitor immediately with
                     // the exact market supplied by the locked Analyzer signal.
-                    await this.watchTicks(analyzerSignal.symbol);
+                    void this.watchTicks(analyzerSignal.symbol);
 
                     globalObserver.setState({
                         trapkid_analyzer: {
