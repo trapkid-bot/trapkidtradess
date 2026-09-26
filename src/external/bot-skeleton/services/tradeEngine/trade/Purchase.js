@@ -27,8 +27,8 @@ export default Engine =>
                 // reach purchase().
                 if (
                     analyzerStateGate.executionArmed !== true ||
-                    String(analyzerStateGate.executionTrigger || '') !== 'EARLY_SELL_READY' ||
-                    String(analyzerStateGate.status || '') !== 'EARLY_EXIT_COMMAND_RECEIVED'
+                    !['ANALYZER_ENTRY', 'EARLY_SELL_READY'].includes(String(analyzerStateGate.executionTrigger || '')) ||
+                    !['ANALYZER_PURCHASE_AUTHORIZED', 'EARLY_EXIT_COMMAND_RECEIVED'].includes(String(analyzerStateGate.status || ''))
                 ) {
                     return Promise.resolve();
                 }
