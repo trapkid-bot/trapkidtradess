@@ -157,6 +157,21 @@ export default Engine =>
                 });
                 globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
+                // If Analyzer signaled EARLY_SELL_READY before the buy
+                // completed, do not lose that command. Start the Analyzer-only
+                // exit watcher now that contractId exists.
+                const pendingAnalyzerExit = this.getAnalyzerExit?.();
+                if (
+                    pendingAnalyzerExit &&
+                    String(pendingAnalyzerExit.signalId) === String(this.analyzerSignal?.signalId)
+                ) {
+                    void this.onAnalyzerEarlyExit?.({
+                        signalId: pendingAnalyzerExit.signalId,
+                        signal: this.analyzerSignal,
+                        commandKey: pendingAnalyzerExit.commandKey,
+                    });
+                }
+
                 this.store.dispatch(purchaseSuccessful());
 
                 if (this.is_proposal_subscription_required) {
