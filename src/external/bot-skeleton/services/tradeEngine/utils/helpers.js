@@ -15,6 +15,7 @@ const getAnalyzerTradeDuration = trade_option => {
             'COMMAND_ACCEPTED',
             'COMMAND_RECEIVED',
             'ANALYZER_DATA_BOUND',
+            'ANALYZER_EXECUTION',
             'ANALYZER_TRADE_LOCKED',
             'ANALYZER_PURCHASE_AUTHORIZED',
             'ANALYZER_PURCHASE_BOUND',
@@ -25,7 +26,7 @@ const getAnalyzerTradeDuration = trade_option => {
         ].includes(String(state.status || ''));
 
     if (analyzerActive && (trade_option?.contractTypes || []).includes('DIGITMATCH')) {
-        return { duration: 7, duration_unit: 'd' };
+        return { duration: 86400, duration_unit: 's' };
     }
 
     return {
