@@ -2,15 +2,11 @@ import { LogTypes } from '../../../constants/messages';
 import { contract, contractStatus, info, log } from '../utils/broadcast';
 import { getUUID } from '../utils/helpers';
 import { observer as globalObserver } from '../../../utils/observer';
-import { api_base } from '../../api/api-base';
 
 let purchase_reference;
 
 export default Engine =>
     class Purchase extends Engine {
-        // Read-only Deriv pricing lookup. This never buys, sells, subscribes to
-        // ticks, or observes an open contract. It only fills the potential
-        // payout displayed for the Analyzer-owned local contract.
         // Read-only Deriv pricing lookup. This uses a dedicated public
         // proposal socket so payout quoting cannot depend on or interfere with
         // the Analyzer execution/settlement lifecycle.
