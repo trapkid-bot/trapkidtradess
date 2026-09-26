@@ -89,7 +89,17 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
         // EARLY_SELL_READY is the ONLY execution trigger. A locked Analyzer
         // signal by itself must never start a purchase.
-        if (String(analyzerState.status || '') !== 'WAITING_FOR_ANALYZER_EXIT') return;
+        if (
+            ![
+                'WAITING_FOR_ANALYZER_EXIT',
+                'COMMAND_RECEIVED',
+                'COMMAND_ACCEPTED',
+                'ANALYZER_DATA_BOUND',
+                'ANALYZER_EXECUTION',
+                'ANALYZER_TRADE_LOCKED',
+                'WAITING_FOR_ANALYZER_EXIT_DIGIT',
+            ].includes(String(analyzerState.status || ''))
+        ) return;
         if (analyzerState.executionArmed !== true) return;
         const signal = this.analyzerSignal || analyzerState.signal;
         const commandSignalId = String(command?.signalId || command?.signal?.signalId || '');
@@ -100,7 +110,18 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         const lockExpiry = Number(signal?.expiresAt);
         if (Number.isFinite(lockExpiry) && Date.now() >= lockExpiry) return;
 
-        const exit = this.getAnalyzerExit?.();
+        const bridgeExit = command?.exit || analyzerState?.exit;
+        const exit = this.getAnalyzerExit?.() || (
+            bridgeExit?.status === 'EARLY_SELL_READY'
+                ? {
+                    signalId: String(bridgeExit.signalId || commandSignalId),
+                    digit: Number(bridgeExit.digit),
+                    hotDigit: Number(signal.hotDigit),
+                    quote: Number(bridgeExit.quote),
+                    epoch: Number(bridgeExit.epoch),
+                }
+                : null
+        );
         if (
             !exit ||
             String(exit.signalId) !== activeSignalId ||
@@ -162,7 +183,8 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         // locks the signal. The normal Builder watcher is intentionally bypassed
         // here because Analyzer execution can arrive after the original BEFORE_PURCHASE
         // watcher has already returned while the bot was waiting for EARLY_SELL_READY.
-        if (this.store.getState().scope === constants.STOP) {
+        if (this.store.getState().scope !== constants.BEFORE_PURCHASE) {
+            this.store.dispatch({ type: constants.SELL });
             this.store.dispatch(start());
         }
 
