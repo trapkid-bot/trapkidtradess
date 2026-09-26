@@ -285,6 +285,19 @@ export default Engine =>
             });
             globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
+            // Publish the Analyzer-owned contract immediately so the
+            // contract card leaves the generic "waiting for a signal" loader.
+            // This is a local UI event only; no Deriv contract is created.
+            contract({
+                ...this.data.contract,
+                contract_id: String(contractId),
+                is_sold: false,
+                status: 'open',
+                analyzer_signal_id: String(signal.signalId),
+                analyzer_command_key: this.analyzerCommandKey,
+                analyzer_hot_digit: Number(signal.hotDigit),
+                analyzer_entry_code: String(entryCode),
+            });
             contractStatus({ id: 'contract.purchase_sent', data: buyPrice });
 
             globalObserver.emit(
