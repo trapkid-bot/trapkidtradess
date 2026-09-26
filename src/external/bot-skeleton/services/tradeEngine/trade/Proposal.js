@@ -26,6 +26,7 @@ export default Engine =>
                 // not authoritative for an Analyzer-controlled trade.
                 analyzerTradeOption = {
                     ...trade_option,
+                    contractTypes: ['DIGITMATCH'],
                     symbol: signal.symbol,
                     prediction: signal.prediction,
                 };
