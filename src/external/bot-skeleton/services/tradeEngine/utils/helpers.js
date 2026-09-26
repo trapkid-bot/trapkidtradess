@@ -117,7 +117,7 @@ export const tradeOptionToBuy = (contract_type, trade_option) => {
                 analyzer_hot_digit: trade_option.prediction,
                 analyzer_duration: trade_option.duration,
                 analyzer_duration_unit: trade_option.duration_unit,
-            },
+                },
             }
             : {}),
     };
