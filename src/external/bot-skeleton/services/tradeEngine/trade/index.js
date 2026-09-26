@@ -242,10 +242,10 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
                         contractTypes: ['DIGITMATCH'],
                         symbol: analyzerSignal.symbol,
                         prediction: Number(analyzerSignal.prediction),
-                        // Long safety expiry. Analyzer EARLY_SELL_READY
-                        // remains the intended and only close path.
-                        duration: 60,
-                        duration_unit: 's',
+                        // Never inherit Builder tick duration. Analyzer mode
+                        // uses the dedicated valid duration supplied by the
+                        // Analyzer execution helper; EARLY_SELL_READY is the
+                        // only bot-authorized close path before expiry.
                     };
 
                     globalObserver.setState({
