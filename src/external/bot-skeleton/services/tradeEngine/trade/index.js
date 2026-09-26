@@ -4,7 +4,6 @@ import { getLocalizedErrorMessage } from '@/constants/backend-error-messages';
 import { createError } from '../../../utils/error';
 import { observer as globalObserver } from '../../../utils/observer';
 import { expectInitArg } from '../utils/sanitize';
-import { expectInitArg } from '../utils/sanitize';
 import { start } from './state/actions';
 import rootReducer from './state/reducers';
 import Balance from './Balance';
@@ -293,7 +292,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                 })
                 .catch(error => {
                     globalObserver.emit('ui.log.error', error?.message || 'TrapKid analyzer failed to prepare a prediction.');
-                    this.store.dispatch({ type: constants.STOP });
+                    this.store.dispatch({ type: 'STOP' });
                 });
             return;
         }
