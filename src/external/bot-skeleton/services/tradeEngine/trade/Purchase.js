@@ -18,6 +18,8 @@ export default Engine =>
                 !!this.analyzerSignal;
 
             if (analyzerMode) {
+                // Analyzer owns the contract type for this execution cycle.
+                contract_type = 'DIGITMATCH';
                 const signal = this.getExternalAnalyzerSignal?.();
                 const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
                 const bridgeSignal = analyzerState?.signal;
