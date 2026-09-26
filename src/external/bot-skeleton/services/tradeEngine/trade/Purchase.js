@@ -54,6 +54,37 @@ export default Engine =>
                 this.analyzerCommandKey =
                     String(signal.signalId) + ':' + String(signal.lockedAt);
 
+                const analyzerSignalKey =
+                    String(signal.signalId) + ':' + String(signal.lockedAt);
+                const currentAnalyzerState = globalObserver.getState('trapkid_analyzer') || {};
+
+                // One Analyzer signal can create exactly one contract.
+                // Keep this guard in shared observer state so it survives
+                // engine/restart callbacks.
+                if (
+                    currentAnalyzerState.purchaseConsumedKey === analyzerSignalKey ||
+                    currentAnalyzerState.purchaseInFlightKey === analyzerSignalKey
+                ) {
+                    return Promise.resolve();
+                }
+
+                // Reserve the signal before sending the purchase request so
+                // concurrent/restarted purchase callbacks cannot create a
+                // second contract from the same Analyzer signal.
+                globalObserver.setState({
+                    trapkid_analyzer: {
+                        ...currentAnalyzerState,
+                        status: 'ANALYZER_PURCHASE_AUTHORIZED',
+                        signal,
+                        signalId: signal.signalId,
+                        commandKey: analyzerSignalKey,
+                        purchaseInFlightKey: analyzerSignalKey,
+                        entryPrediction: signal.prediction,
+                        entrySource: 'ANALYZER_ONLY',
+                        exitSource: 'ANALYZER_EARLY_SELL_ONLY',
+                    },
+                });
+
                 // Analyzer is the sole source of the actual Match entry values.
                 // Any Bot Builder prediction value is overwritten here.
                 this.tradeOptions.prediction = signal.prediction;
@@ -100,6 +131,10 @@ export default Engine =>
                         String(this.analyzerSignal.signalId) + ':' + String(this.analyzerSignal.lockedAt);
                 }
 
+                const purchasedSignalKey = this.analyzerSignal
+                    ? String(this.analyzerSignal.signalId) + ':' + String(this.analyzerSignal.lockedAt)
+                    : '';
+
                 globalObserver.setState({
                     trapkid_analyzer: {
                         ...(globalObserver.getState('trapkid_analyzer') || {}),
@@ -111,6 +146,8 @@ export default Engine =>
                         lockedQuote: this.analyzerSignal?.lockedQuote,
                         entrySource: 'ANALYZER_ONLY',
                         exitSource: 'ANALYZER_EARLY_SELL_ONLY',
+                        purchaseInFlightKey: null,
+                        purchaseConsumedKey: purchasedSignalKey || undefined,
                     },
                 });
                 globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
