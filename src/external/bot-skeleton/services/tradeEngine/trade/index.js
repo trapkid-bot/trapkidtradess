@@ -83,7 +83,8 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
         if (!(this.isAnalyzerEnabledForTrade?.() || this.analyzerSignal) || !this.contractId || this.isSold) return;
 
         const exit = this.getAnalyzerExit?.();
-        const signal = this.analyzerSignal;
+        const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
+        const signal = this.analyzerSignal || analyzerState.signal;
         const commandSignalId = String(command?.signalId || command?.signal?.signalId || '');
         const activeSignalId = String(signal?.signalId || '');
 
@@ -97,10 +98,14 @@ export default class TradeEngine extends Balance(Purchase(Sell(OpenContract(Prop
             return;
         }
 
+        // This signal is now in its final Analyzer-controlled exit phase.
+        // No subsequent bot loop may start another purchase for this signal.
         globalObserver.setState({
             trapkid_analyzer: {
-                ...(globalObserver.getState('trapkid_analyzer') || {}),
+                ...analyzerState,
                 status: 'EARLY_EXIT_EXECUTING',
+                cycleFinished: true,
+                purchaseConsumedKey: String(signal.signalId) + ':' + String(signal.lockedAt),
                 exitDigit: exit.digit,
                 hotDigit: exit.hotDigit,
                 commandKey: exit.commandKey,
