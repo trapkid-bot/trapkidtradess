@@ -19,37 +19,40 @@ export default Engine =>
 
             if (analyzerMode) {
                 const signal = this.getExternalAnalyzerSignal?.();
-                const activeSignal = this.analyzerSignal;
+                const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
+                const bridgeSignal = analyzerState?.signal;
+                const bridgeSignalKey = bridgeSignal?.signalId
+                    ? String(bridgeSignal.signalId) + ':' + String(bridgeSignal.lockedAt)
+                    : '';
+                const authorizedBridgeSignal =
+                    signal &&
+                    bridgeSignalKey &&
+                    String(analyzerState.commandKey || '') === bridgeSignalKey
+                        ? signal
+                        : null;
+
+                // The shared Analyzer bridge is authoritative. The local
+                // engine field is optional because the purchase phase may run
+                // on a later engine callback.
+                const activeSignal = this.analyzerSignal || authorizedBridgeSignal;
+
                 if (
                     !signal ||
                     !activeSignal ||
                     String(signal.signalId) !== String(activeSignal.signalId) ||
                     Number(signal.lockedAt) !== Number(activeSignal.lockedAt) ||
-                    !Number.isInteger(signal.prediction) ||
-                    !Number.isInteger(signal.hotDigit)
+                    !Number.isInteger(signal.prediction)
                 ) {
                     globalObserver?.emit?.(
                         'ui.log.error',
-                        'Analyzer signal is missing, changed, expired, or incomplete. Purchase blocked.'
+                        'Analyzer signal is missing or not authorized. Purchase blocked.'
                     );
                     return Promise.resolve();
                 }
 
-                const analyzerPurchaseKey =
+                this.analyzerSignal = activeSignal;
+                this.analyzerCommandKey =
                     String(signal.signalId) + ':' + String(signal.lockedAt);
-
-                // One Analyzer signal authorizes one purchase cycle only.
-                // Internal request retries are still allowed, but a second
-                // contract cannot be created from the same Analyzer signal.
-                if (this.analyzerPurchaseKey === analyzerPurchaseKey) {
-                    globalObserver?.emit?.(
-                        'ui.log.error',
-                        'Analyzer signal already has a purchase cycle. New purchase blocked.'
-                    );
-                    return Promise.resolve();
-                }
-
-                this.analyzerPurchaseKey = analyzerPurchaseKey;
 
                 // Analyzer is the sole source of the actual Match entry values.
                 // Any Bot Builder prediction value is overwritten here.
@@ -91,6 +94,27 @@ export default Engine =>
                 });
 
                 this.contractId = buy.contract_id;
+
+                if (this.analyzerSignal) {
+                    this.analyzerPurchaseKey =
+                        String(this.analyzerSignal.signalId) + ':' + String(this.analyzerSignal.lockedAt);
+                }
+
+                globalObserver.setState({
+                    trapkid_analyzer: {
+                        ...(globalObserver.getState('trapkid_analyzer') || {}),
+                        status: 'RUNNING',
+                        signal: this.analyzerSignal || globalObserver.getState('trapkid_analyzer')?.signal,
+                        signalId: this.analyzerSignal?.signalId,
+                        commandKey: this.analyzerCommandKey,
+                        entryPrediction: this.tradeOptions.prediction,
+                        lockedQuote: this.analyzerSignal?.lockedQuote,
+                        entrySource: 'ANALYZER_ONLY',
+                        exitSource: 'ANALYZER_EARLY_SELL_ONLY',
+                    },
+                });
+                globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
+
                 this.store.dispatch(purchaseSuccessful());
 
                 if (this.is_proposal_subscription_required) {
