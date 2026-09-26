@@ -208,6 +208,8 @@ export default Engine =>
             this.isSold = false;
             this.isExpired = false;
             this.isSellAvailable = true;
+            this.contractId = String(contractId);
+            this.analyzerContractId = String(contractId);
             this.data.contract = {
                 contract_id: String(contractId),
                 transaction_ids: { buy: String(entryCode) },
@@ -222,6 +224,26 @@ export default Engine =>
                 status: 'open',
                 is_sold: false,
             };
+
+            globalObserver.setState({
+                trapkid_analyzer: {
+                    ...(globalObserver.getState('trapkid_analyzer') || {}),
+                    status: 'WAITING_FOR_ANALYZER_EXIT',
+                    signal,
+                    signalId: signal.signalId,
+                    commandKey: analyzerSignalKey,
+                    purchaseInFlightKey: null,
+                    purchaseConsumedKey: analyzerSignalKey,
+                    executionArmed: true,
+                    executionTrigger: 'ANALYZER_ENTRY',
+                    holdUntilAnalyzerExit: true,
+                    analyzerContractId: String(contractId),
+                    analyzerEntryCode: String(entryCode),
+                    analyzerEntryQuote: Number.isFinite(entryQuote) ? entryQuote : null,
+                    settlementSource: 'ANALYZER',
+                },
+            });
+            globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
             contractStatus({ id: 'contract.purchase_sent', data: buyPrice });
 
@@ -240,7 +262,7 @@ export default Engine =>
                     analyzer_entry_code: String(entryCode),
                     analyzer_entry_quote: Number.isFinite(entryQuote) ? entryQuote : null,
                 },
-            }).then(onSuccess);
+            });
         }
         getPurchaseReference = () => purchase_reference;
         regeneratePurchaseReference = () => {
