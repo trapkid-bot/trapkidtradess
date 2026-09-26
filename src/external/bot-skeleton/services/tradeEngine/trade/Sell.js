@@ -23,10 +23,10 @@ export default Engine =>
                     String(analyzerState.status || '')
                 );
 
-            if (analyzerActive) {
-                // Analyzer execution is entry-gated. After the one-tick
-                // contract is purchased, no Builder/manual/Analyzer sell
-                // path is allowed to close it early.
+            if (analyzerActive && String(analyzerState.executionTrigger || '') !== 'EARLY_SELL_READY') {
+                // Analyzer owns the position. Builder/manual selling is blocked.
+                // The sole exception is the Analyzer's matching EARLY_SELL_READY
+                // event, which is the authorized exit for this contract.
                 return Promise.resolve();
             }
 
