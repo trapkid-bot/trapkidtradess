@@ -257,16 +257,36 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         this.store.dispatch(start());
         this.checkLimits(validated_trade_options);
 
+        // Analyzer execution starts from the signal that is already locked at
+        // the moment Analyze is clicked. Do NOT wait for a future signal here.
+        // The dashboard can already display a valid locked signal while the
+        // Blockly runner is still entering start(). That signal is the BUY
+        // authorization for this execution cycle.
         const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
-        const analyzerSignal = analyzerState?.signal;
-        {
-            this.waitForAnalyzerSignal?.(10000)
-                .then(signal => {
-                    if (!signal) {
-                        throw new Error('TrapKid Analyzer: waiting for a fresh locked signal timed out.');
-                    }
-                    return this.prepareAnalyzerPrediction();
-                })
+        const currentSignal = this.getExternalAnalyzerSignal?.();
+        if (
+            !currentSignal?.signalId ||
+            !Number.isInteger(Number(currentSignal.hotDigit)) ||
+            !currentSignal.symbol
+        ) {
+            globalObserver.emit(
+                'ui.log.error',
+                'TRAPKID ANALYZER: no current locked signal is available at Analyze start.'
+            );
+            if (this.resolveAnalyzerCycle) {
+                const resolve = this.resolveAnalyzerCycle;
+                this.resolveAnalyzerCycle = null;
+                resolve();
+            }
+            return;
+        }
+
+        globalObserver.emit(
+            'ui.log',
+            `TRAPKID ANALYZER SIGNAL ACCEPTED → ${currentSignal.signalId} → hotDigit=${currentSignal.hotDigit}`
+        );
+
+        Promise.resolve(this.prepareAnalyzerPrediction())
                 .then(() => {
                     const analyzerSignal = this.analyzerSignal || globalObserver.getState('trapkid_analyzer')?.signal;
                     if (!analyzerSignal?.signalId) {
@@ -312,9 +332,19 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                     // exact symbol, DIGITMATCH type and hotDigit.
                     this.is_proposal_subscription_required = false;
 
+                    globalObserver.emit(
+                        'ui.log',
+                        `TRAPKID ANALYZER BUY NOW → ${analyzerSignal.signalId} → digit=${analyzerSignal.hotDigit}`
+                    );
+
                     return this.purchase('DIGITMATCH')
                         .then(() => {
                             const stateAfterPurchase = globalObserver.getState('trapkid_analyzer') || {};
+                            if (!this.contractId || this.isSold) {
+                                throw new Error(
+                                    'TRAPKID ANALYZER: local contract was not created after the Analyzer BUY.'
+                                );
+                            }
                             const pendingExit = stateAfterPurchase.pendingEarlyExit;
 
                             // If Analyzer emitted EARLY_SELL_READY while the local
