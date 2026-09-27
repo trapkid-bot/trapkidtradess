@@ -625,10 +625,12 @@ export default Engine =>
                                     profit: Number.isFinite(profit) ? profit : currentContract.profit,
                                     deriv_contract_id: String(derivContractId),
                                     deriv_transaction_id:
-                                        openContract.transaction_id ??
+                                        openContract.transaction_ids?.buy ??
+                                        this.derivBuyTransactionId ??
                                         currentContract.deriv_transaction_id ??
                                         null,
                                     deriv_sell_transaction_id:
+                                        openContract.transaction_ids?.sell ??
                                         openContract.transaction_id ??
                                         currentContract.deriv_sell_transaction_id ??
                                         null,
@@ -677,11 +679,24 @@ export default Engine =>
                                 contract_id: String(derivContractId),
                                 sold_for: Number.isFinite(finalPayout) ? finalPayout : null,
                                 transaction_id:
+                                    openContract.transaction_ids?.sell ??
                                     openContract.transaction_id ??
+                                    null,
+                                buy_transaction_id:
+                                    openContract.transaction_ids?.buy ??
                                     this.derivBuyTransactionId ??
                                     null,
+                                sell_transaction_id:
+                                    openContract.transaction_ids?.sell ??
+                                    openContract.transaction_id ??
+                                    null,
+                                transaction_ids: openContract.transaction_ids || null,
                                 buy_price: Number.isFinite(buyPrice) ? buyPrice : null,
                                 profit: Number.isFinite(profit) ? profit : null,
+                                payout: Number.isFinite(finalPayout) ? finalPayout : null,
+                                bid_price: Number.isFinite(Number(openContract.bid_price))
+                                    ? Number(openContract.bid_price)
+                                    : null,
                                 balance_after: Number.isFinite(balanceAfter) ? balanceAfter : null,
                             };
                         }
