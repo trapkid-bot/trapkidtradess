@@ -38,21 +38,6 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // Per-signal financial exit lock. Sell.js keeps this key after a failed
         // SELL so duplicate Analyzer bridge events cannot retry the same contract.
         this.analyzerStateExitObserver = state => {
-            // Some Analyzer bridge versions publish EARLY_SELL_READY as state
-            // before (or instead of) emitting trapkid.analyzer.exit. Treat the
-            // exact Analyzer state as an equivalent exit trigger. The signalId,
-            // lockedAt and hot digit are still validated by onAnalyzerEarlyExit.
-            if (state?.exit?.status !== 'EARLY_SELL_READY') return;
-            // Ignore lifecycle states emitted by the exit handler itself.
-            // Otherwise trapkid.analyzer.updated feeds straight back into the
-            // EARLY_SELL handler and creates duplicate SELL requests.
-            if (
-                ['EARLY_EXIT_COMMAND_RECEIVED', 'EARLY_EXIT_EXECUTING', 'EARLY_SELL_FAILED', 'ANALYZER_SETTLED'].includes(
-                    String(state?.status || '')
-                )
-            ) {
-                return;
-            }
             const stateSignal = state?.signal;
             const engineSignal = this.analyzerSignal;
             const signal =
@@ -62,31 +47,82 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                       ? engineSignal
                       : null;
             if (!signal?.signalId || !Number.isFinite(Number(signal.lockedAt))) return;
-            const commandKey = String(signal.signalId) + ':' + String(signal.lockedAt);
-            // Analyzer command keys can carry the command-generation timestamp,
-            // which is not always identical to the signal's lockedAt timestamp.
-            // The signalId is the authoritative trade identity here; normalize
-            // the state to the canonical signalId:lockedAt key before executing.
-            const stateCommandKey = String(state.commandKey || '');
-            const commandBelongsToSignal =
-                stateCommandKey === commandKey ||
-                (stateCommandKey.startsWith(String(signal.signalId) + ':') &&
-                    stateCommandKey.split(':')[0] === String(signal.signalId));
-            if (!commandBelongsToSignal) return;
-            const stateExitSignalId = String(state.exit.signalId || '');
-            if (stateExitSignalId && stateExitSignalId !== String(signal.signalId)) return;
-            if (Number(state.exit.digit) !== Number(signal.hotDigit)) return;
-            if (this.isSold || this.analyzerDerivSellPromise) return;
-            // If the exit arrives while the real Deriv BUY is still in flight,
-            // let the normal handler persist it as pendingEarlyExit. It will be
-            // consumed immediately after the same Deriv contract is confirmed.
+
+            const signalId = String(signal.signalId);
+            const commandKey = signalId + ':' + String(signal.lockedAt);
+            const currentStatus = String(state?.status || '');
+            if (['MATCH_SETTLED', 'ANALYZER_SETTLED'].includes(currentStatus) || this.isSold) return;
+
+            const hotDigit = Number(signal.hotDigit);
+            if (!Number.isInteger(hotDigit) || hotDigit < 0 || hotDigit > 9) return;
+
+            const tick = state?.lastTick;
+            const tickDigit = Number.isInteger(Number(tick?.digit))
+                ? Number(tick.digit)
+                : (() => {
+                    const quote = String(tick?.quote ?? '');
+                    const digits = quote.replace(/[^0-9]/g, '');
+                    return digits ? Number(digits.slice(-1)) : NaN;
+                })();
+
+            const exit = state?.exit;
+            const analyzerReady =
+                exit?.status === 'EARLY_SELL_READY' &&
+                Number(exit?.digit) === hotDigit &&
+                (!exit?.signalId || String(exit.signalId) === signalId);
+
+            const matchFound = tickDigit === hotDigit;
+
+            if (!analyzerReady && !matchFound) return;
+            if (this.analyzerExitHandling || this.analyzerDerivSellPromise) return;
+
+            const matchExit = matchFound
+                ? {
+                    signalId,
+                    digit: hotDigit,
+                    hotDigit,
+                    quote: Number(tick?.quote),
+                    epoch: Number(tick?.epoch || Date.now()),
+                    status: 'MATCH_FOUND',
+                    exitCode: commandKey,
+                }
+                : {
+                    signalId,
+                    digit: hotDigit,
+                    hotDigit,
+                    quote: Number(exit?.quote),
+                    epoch: Number(exit?.epoch || Date.now()),
+                    status: 'EARLY_SELL_READY',
+                    exitCode: exit?.exitCode || commandKey,
+                };
+
+            globalObserver.setState({
+                trapkid_analyzer: {
+                    ...(globalObserver.getState('trapkid_analyzer') || {}),
+                    status: 'MATCH_FOUND',
+                    analyzerExecutionStatus: 'MATCH_FOUND',
+                    signal,
+                    signalId,
+                    commandKey,
+                    exit: matchExit,
+                    analyzerExitStatus: 'MATCH_FOUND',
+                    analyzerExitDigit: hotDigit,
+                    executionTrigger: 'MATCH_FOUND',
+                    holdUntilAnalyzerExit: false,
+                    matchFound: true,
+                    matchFoundAt: Date.now(),
+                },
+            });
+            globalObserver.emit('ui.log', 'TRAPKID MATCH → HOT DIGIT ' + hotDigit + ' APPEARED → SETTLING SAME CONTRACT');
+            globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
+
             void this.onAnalyzerEarlyExit({
-                source: 'TRAPKID_ANALYZER_STATE',
+                source: 'TRAPKID_MATCH_STREAM',
                 command: 'ANALYZER_EARLY_EXIT',
                 commandKey,
-                signalId: String(signal.signalId),
+                signalId,
                 signal,
-                exit: state.exit,
+                exit: matchExit,
                 receivedAt: Date.now(),
             });
         };
