@@ -76,9 +76,12 @@ export default Engine =>
                     !activeSignal ||
                     String(signal.signalId) !== String(activeSignal.signalId) ||
                     Number(signal.lockedAt) !== Number(activeSignal.lockedAt) ||
-                    !Number.isInteger(signal.prediction) ||
+                    !Number.isInteger(signal.entryDigit) ||
+                    signal.entryDigit < 0 ||
+                    signal.entryDigit > 9 ||
                     !Number.isInteger(signal.hotDigit) ||
-                    Number(signal.prediction) !== Number(signal.hotDigit)
+                    signal.hotDigit < 0 ||
+                    signal.hotDigit > 9
                 ) {
                     globalObserver?.emit?.(
                         'ui.log.error',
@@ -116,7 +119,7 @@ export default Engine =>
                         signalId: signal.signalId,
                         commandKey: analyzerSignalKey,
                         purchaseInFlightKey: analyzerSignalKey,
-                        entryPrediction: signal.prediction,
+                        entryPrediction: signal.entryDigit,
                         entrySource: 'ANALYZER_ONLY',
                         exitSource: 'ANALYZER_EARLY_SELL_ONLY',
                         executionTrigger: 'ANALYZER_ENTRY_COMMAND',
@@ -125,8 +128,9 @@ export default Engine =>
 
                 // Analyzer is the sole source of the actual Match entry values.
                 // Any Bot Builder prediction value is overwritten here.
-                // Hot digit is the sole canonical Analyzer prediction.
-                this.tradeOptions.prediction = signal.hotDigit;
+                // Analyzer entryDigit is the sole canonical DIGITMATCH barrier.
+                // hotDigit is retained separately for the Analyzer-controlled exit.
+                this.tradeOptions.prediction = signal.entryDigit;
                 this.tradeOptions.symbol = signal.symbol;
                 // Analyzer supplies the decision; the bot keeps its normal
                 // Deriv purchase pipeline. Execution is fixed to 1 tick.
@@ -141,10 +145,10 @@ export default Engine =>
                         signal,
                         signalId: signal.signalId,
                         commandKey: String(signal.signalId) + ':' + String(signal.lockedAt),
-                        prediction: signal.prediction,
+                        prediction: signal.entryDigit,
                         lockedDigit: signal.lockedDigit,
                         hotDigit: signal.hotDigit,
-                        entryPrediction: signal.prediction,
+                        entryPrediction: signal.entryDigit,
                         entrySource: 'ANALYZER_ONLY',
                         exitSource: 'ANALYZER_EARLY_SELL_ONLY',
                     },
@@ -372,7 +376,7 @@ export default Engine =>
 
                 // IMPORTANT:
                 // - Logical DBot/Analyzer duration = 1 tick.
-                // - Physical Deriv expiry = 60-tick safety ceiling; Analyzer still owns the actual exit.
+                // - Physical Deriv expiry = 10-tick DIGITMATCH safety ceiling; Analyzer still owns the actual exit.
                 // - EARLY_SELL_READY is the only event that closes the real contract.
                 // A real 1-tick Deriv contract can expire before the Analyzer exit;
                 // Analyzer exit because Deriv expires it at the tick boundary.
