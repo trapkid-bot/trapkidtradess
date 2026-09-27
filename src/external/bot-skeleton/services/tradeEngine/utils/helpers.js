@@ -7,38 +7,32 @@ import { error as logError } from './broadcast';
 
 const getAnalyzerTradeDuration = trade_option => {
     const state = globalObserver.getState('trapkid_analyzer') || {};
-    const signal = state.signal;
+    const signal = state.signal || {};
     const analyzerActive =
         !!signal?.signalId &&
-        String(state.commandKey || '') === String(signal.signalId) + ':' + String(signal.lockedAt) &&
-        [
-            'COMMAND_ACCEPTED',
-            'COMMAND_RECEIVED',
-            'ANALYZER_DATA_BOUND',
-            'WAITING_FOR_ANALYZER_EXIT',
-            'ANALYZER_EXECUTION',
-            'ANALYZER_TRADE_LOCKED',
-            'ANALYZER_PURCHASE_AUTHORIZED',
-            'ANALYZER_PURCHASE_BOUND',
-            'RUNNING',
-            'EARLY_EXIT_COMMAND_RECEIVED',
-            'WAITING_FOR_ANALYZER_EXIT_DIGIT',
-            'EARLY_EXIT_EXECUTING',
-        ].includes(String(state.status || ''));
+        String(state.commandKey || '') === String(signal.signalId) + ':' + String(signal.lockedAt);
 
     if (analyzerActive && (trade_option?.contractTypes || []).includes('DIGITMATCH')) {
-        // Analyzer supplies the contract decision only. The DBot execution
-        // setting remains exactly one tick for this Analyzer DIGITMATCH path.
-        // EARLY_SELL_READY is handled by the normal sell pipeline.
+        // Analyzer is the only source allowed to provide duration metadata.
+        // Never manufacture a duration or fall back to Builder/DBot settings.
         return {
-            duration: 1,
-            duration_unit: 't',
+            duration:
+                signal?.duration ??
+                signal?.logicalDuration ??
+                signal?.analyzerDuration ??
+                null,
+            duration_unit:
+                signal?.duration_unit ??
+                signal?.durationUnit ??
+                signal?.logicalDurationUnit ??
+                signal?.analyzerDurationUnit ??
+                null,
         };
     }
 
     return {
-        duration: trade_option.duration,
-        duration_unit: trade_option.duration_unit,
+        duration: trade_option?.duration,
+        duration_unit: trade_option?.duration_unit,
     };
 };
 
