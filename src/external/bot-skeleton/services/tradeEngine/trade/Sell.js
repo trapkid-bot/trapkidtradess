@@ -126,7 +126,7 @@ export default Engine =>
             // Do not reference the old per-engine buyResponseContractId here.
             globalObserver.emit(
                 'ui.log',
-                'TRAPKID MATCH → SAME DERIV CONTRACT → ' +
+                'TRAPKID ANALYZER → SAME DERIV CONTRACT → ' +
                     contractId +
                     ' → signal=' +
                     String(signal.signalId) +
@@ -168,7 +168,7 @@ export default Engine =>
                 }
 
                 if (!sellResponse) {
-                    throw lastSellError || new Error('TRAPKID MATCH → SELL request returned no response.');
+                    throw lastSellError || new Error('TRAPKID ANALYZER → SELL request returned no response.');
                 }
 
                 // Verification happens AFTER the SELL request so verification
@@ -197,7 +197,7 @@ export default Engine =>
 
             let result;
             try {
-                // Analyzer owns the Match settlement event. Only an explicit
+                // Analyzer owns the exit event. Only an explicit
                 // EARLY_SELL_READY may reach the SELL request for this contract.
                 result = await sellContractAndGetInfo();
             } catch (error) {
@@ -222,7 +222,7 @@ export default Engine =>
                 });
                 globalObserver.emit(
                     'ui.log.error',
-                    'TRAPKID MATCH → Analyzer settlement pending for SAME CONTRACT=' + contractId +
+                    'TRAPKID ANALYZER → Analyzer early sell pending for SAME CONTRACT=' + contractId +
                     ' → ' + errorMessage
                 );
                 return false;
@@ -238,11 +238,11 @@ export default Engine =>
             if (
                 String(sold?.contract_id ?? poc?.contract_id ?? contractId) !== contractId ||
                 !Number.isFinite(soldFor) ||
-                (!brokerSettled && sellTransactionId == null)
+                sellTransactionId == null
             ) {
                 globalObserver.emit(
                     'ui.log.error',
-                    'TRAPKID MATCH → settlement did not confirm the SAME CONTRACT=' + contractId
+                    'TRAPKID ANALYZER → settlement did not confirm the SAME CONTRACT=' + contractId
                 );
                 return false;
             }
@@ -272,7 +272,8 @@ export default Engine =>
                 analyzer_exit_code: String(signal.signalId) + ':' + String(exit?.epoch || ''),
                 analyzer_exit_digit: hotDigit,
                 analyzer_exit_quote: Number.isFinite(Number(exit?.quote)) ? Number(exit.quote) : null,
-                analyzer_contract_id: contractId,                financial_status: 'DERIV_SELL_CONFIRMED',
+                analyzer_contract_id: contractId,
+                financial_status: 'DERIV_SELL_CONFIRMED',
                 status: 'sold',
                 is_sold: true,
                 is_expired: false,
