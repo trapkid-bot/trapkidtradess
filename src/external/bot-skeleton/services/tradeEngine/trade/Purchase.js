@@ -423,9 +423,6 @@ export default Engine =>
                 // settlement trigger is Analyzer EARLY_SELL_READY for the
                 // Analyzer hot digit. It never accepts broker expiry/win/loss
                 // as an Analyzer exit.
-                if (analyzerMode && this.contractId) {
-                    void this.monitorAnalyzerSettlement(String(this.contractId), purchasedSignalKey);
-                }
 
                 if (this.is_proposal_subscription_required) {
                     this.renewProposalsOnPurchase();
