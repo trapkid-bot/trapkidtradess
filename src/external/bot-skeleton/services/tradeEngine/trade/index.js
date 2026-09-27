@@ -573,6 +573,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // the Analyzer DIGITMATCH purchase. Keep this lifecycle promise open
         // until the matching Analyzer EARLY_SELL_READY closes the same contract.
         return this.analyzerCyclePromise;
+    }
 
     // Compatibility method required by the Blockly interpreter. The old
     // Ticks mixin exposed this method, but Analyzer-only execution deliberately
