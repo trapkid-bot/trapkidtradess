@@ -90,13 +90,70 @@ export default Engine =>
                     String(hotDigit)
             );
 
+            const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+
+            const getOpenContract = async () => {
+                return api_base.api.send({
+                    proposal_open_contract: 1,
+                    contract_id: Number(contractId),
+                });
+            };
+
             const sellContractAndGetInfo = async () => {
+                // BUY responses can arrive a fraction before Deriv exposes the
+                // position through the open-contract endpoint. Confirm the SAME
+                // current BUY contract is visible before sending SELL.
+                let openContractResponse = null;
+                let lastOpenContractError = null;
+
+                for (let attempt = 0; attempt < 8; attempt += 1) {
+                    try {
+                        const response = await getOpenContract();
+                        const poc = response?.proposal_open_contract;
+
+                        if (
+                            poc &&
+                            String(poc.contract_id || '') === contractId &&
+                            !poc.is_sold &&
+                            !poc.is_expired
+                        ) {
+                            openContractResponse = response;
+                            break;
+                        }
+
+                        if (poc && String(poc.contract_id || '') === contractId) {
+                            return {
+                                sellResponse: null,
+                                contractResponse: response,
+                                notSellable: true,
+                            };
+                        }
+                    } catch (error) {
+                        lastOpenContractError = error;
+                        const code = error?.error?.code || error?.code || '';
+                        // The position may need a few hundred milliseconds to
+                        // become visible. Retry only the transient/not-yet-visible
+                        // case; other API errors are surfaced immediately.
+                        if (!['ContractNotFound', 'NoOpenPosition', 'InvalidSellContractProposal'].includes(code)) {
+                            throw error;
+                        }
+                    }
+
+                    await wait(250);
+                }
+
+                if (!openContractResponse) {
+                    throw lastOpenContractError || new Error(
+                        'TRAPKID DERIV EARLY SELL → current BUY contract is not visible as an open position.'
+                    );
+                }
+
                 const sellResponse = await api_base.api.send({
                     sell: Number(contractId),
                     price: 0,
                 });
 
-                let contractResponse = null;
+                let contractResponse = openContractResponse;
                 try {
                     contractResponse = await api_base.api.send({
                         proposal_open_contract: 1,
@@ -111,15 +168,29 @@ export default Engine =>
 
             let result;
             try {
-                // Do not endlessly retry terminal sell errors. Normal DBot
-                // recovery is retained for transient API/connection failures,
-                // while a contract that is no longer sellable returns cleanly.
+                // Do not endlessly retry terminal sell errors. The helper above
+                // contains a bounded visibility wait for the exact current BUY
+                // contract and then sends only one SELL request.
                 result = await doUntilDone(sellContractAndGetInfo, []);
             } catch (error) {
                 globalObserver.emit(
                     'ui.log.error',
                     'TRAPKID DERIV EARLY SELL → ' +
                         (error?.error?.message || error?.error?.code || error?.message || 'sell failed')
+                );
+                return false;
+            }
+
+            if (result?.notSellable) {
+                const poc = result?.contractResponse?.proposal_open_contract;
+                const reason = poc?.is_expired
+                    ? 'contract expired before EARLY_SELL_READY reached the broker'
+                    : poc?.is_sold
+                      ? 'contract was already sold'
+                      : 'contract is not currently sellable';
+                globalObserver.emit(
+                    'ui.log.error',
+                    'TRAPKID DERIV EARLY SELL → ' + reason + ' → contract=' + contractId
                 );
                 return false;
             }
