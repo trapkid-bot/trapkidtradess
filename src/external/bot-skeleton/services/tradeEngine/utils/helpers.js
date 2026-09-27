@@ -13,20 +13,26 @@ const getAnalyzerTradeDuration = trade_option => {
         String(state.commandKey || '') === String(signal.signalId) + ':' + String(signal.lockedAt);
 
     if (analyzerActive && (trade_option?.contractTypes || []).includes('DIGITMATCH')) {
-        // Analyzer is the only source allowed to provide duration metadata.
-        // Never manufacture a duration or fall back to Builder/DBot settings.
+        // Analyzer signal arrival authorizes the DIGITMATCH execution.
+        // The Analyzer currently does not transmit duration metadata, so the
+        // actual DIGITMATCH proposal must use the Analyzer execution contract:
+        // one tick. This is proposal construction only; it does NOT control
+        // the Analyzer-owned MATCH_FOUND lifecycle/exit logic.
+        const analyzerDuration =
+            signal?.duration ??
+            signal?.logicalDuration ??
+            signal?.analyzerDuration ??
+            null;
+        const analyzerDurationUnit =
+            signal?.duration_unit ??
+            signal?.durationUnit ??
+            signal?.logicalDurationUnit ??
+            signal?.analyzerDurationUnit ??
+            null;
+
         return {
-            duration:
-                signal?.duration ??
-                signal?.logicalDuration ??
-                signal?.analyzerDuration ??
-                null,
-            duration_unit:
-                signal?.duration_unit ??
-                signal?.durationUnit ??
-                signal?.logicalDurationUnit ??
-                signal?.analyzerDurationUnit ??
-                null,
+            duration: analyzerDuration ?? 1,
+            duration_unit: analyzerDurationUnit ?? 't',
         };
     }
 
