@@ -152,9 +152,15 @@ const PopoverContent = ({ contract }: TPopoverContent) => (
                             ((contract as any)?.is_sold ? 'ANALYZER_SETTLED' : 'HOLDING_FOR_ANALYZER_EARLY_SELL')}
                     </div>
                 </PopoverItem>
+                <PopoverItem title='Analyzer prediction / hot digit'>
+                    <div className='transactions__popover-value'>
+                        {(contract as any)?.analyzer_hot_digit ?? (contract as any)?.prediction ?? '—'}
+                    </div>
+                </PopoverItem>
                 <PopoverItem title='Analyzer exit'>
                     <div className='transactions__popover-value'>
                         {(contract as any)?.analyzer_exit_status || 'WAITING_FOR_ANALYZER_EARLY_SELL'}
+                        {(contract as any)?.analyzer_exit_digit != null ? ` • Hot digit ${(contract as any).analyzer_exit_digit}` : ''}
                     </div>
                 </PopoverItem>
             </React.Fragment>
