@@ -545,99 +545,35 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         this.analyzerExecutionStarted = true;
 
         const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
-        const displayedSignal = analyzerState.signal;
-        const signal =
-            displayedSignal?.signalId &&
-            displayedSignal?.symbol &&
-            Number.isFinite(Number(displayedSignal.lockedAt)) &&
-            Number.isInteger(Number(displayedSignal.hotDigit))
-                ? {
-                    ...displayedSignal,
-                    signalId: String(displayedSignal.signalId),
-                    lockedAt: Number(displayedSignal.lockedAt),
-                    hotDigit: Number(displayedSignal.hotDigit),
-                    prediction: Number(displayedSignal.hotDigit),
-                }
-                : await this.waitForAnalyzerSignal?.(10000);
 
-        if (!signal?.signalId || !signal?.symbol || !Number.isFinite(Number(signal.lockedAt))) {
-            globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER → no locked signal available; BUY blocked.');
-            if (this.resolveAnalyzerCycle) {
-                const resolve = this.resolveAnalyzerCycle;
-                this.resolveAnalyzerCycle = null;
-                resolve();
-            }
-            return;
-        }
+        // IMPORTANT: start() NEVER purchases an Analyzer contract.
+        // It only arms the bot and waits for the explicit Analyzer execution
+        // command. EXECUTE_ANALYZER_SIGNAL is the sole BUY trigger.
+        this.analyzerExecutionStarted = true;
 
-        this.analyzerSignal = signal;
-        this.analyzerCommandKey = String(signal.signalId) + ':' + String(signal.lockedAt);
-
-        // Analyze is the command: authorize the exact locked signal immediately.
-        // No separate READY status is required. LOCKED is enough once the user
-        // explicitly clicks Analyze, because that click is the entry command.
         globalObserver.setState({
             trapkid_analyzer: {
                 ...analyzerState,
-                status: 'ANALYZER_PURCHASE_AUTHORIZED',
+                status: 'WAITING_FOR_ANALYZER_COMMAND',
                 analyzerStatus: 'ANALYZE_CLICK',
-                entryReady: true,
-                signal,
-                signalId: signal.signalId,
-                commandKey: this.analyzerCommandKey,
-                symbol: signal.symbol,
-                entryPrediction: Number(signal.hotDigit),
-                lockedDigit: signal.lockedDigit,
-                hotDigit: Number(signal.hotDigit),
-                entrySource: 'ANALYZER_ONLY',
-                exitSource: 'ANALYZER_EARLY_SELL_ONLY',
+                entryReady: false,
+                executionArmed: false,
+                executionTrigger: 'WAITING_FOR_ANALYZER_COMMAND',
                 holdUntilAnalyzerExit: true,
-                executionArmed: true,
-                executionTrigger: 'ANALYZER_ENTRY',
                 cycleFinished: false,
             },
         });
         globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
+        globalObserver.emit(
+            'ui.log',
+            'TRAPKID ANALYZER → BOT ARMED. BUY IS BLOCKED UNTIL EXECUTE_ANALYZER_SIGNAL COMMAND.'
+        );
 
-        try {
-            await this.prepareAnalyzerPrediction();
+        // The command handler is the only place that authorizes and starts
+        // the Analyzer DIGITMATCH purchase. Keep this lifecycle promise open
+        // until the matching Analyzer EARLY_SELL_READY closes the same contract.
+        return this.analyzerCyclePromise;
 
-            this.tradeOptions = {
-                ...this.tradeOptions,
-                contractTypes: ['DIGITMATCH'],
-                symbol: signal.symbol,
-                prediction: Number(signal.hotDigit),
-                // Logical DBot/Analyzer duration stays 1 tick.
-                duration: 1,
-                duration_unit: 't',
-            };
-
-            // Analyzer controls the entry. The purchase implementation creates
-            // the real Deriv proposal/contract; no Builder strategy is consulted.
-            this.is_proposal_subscription_required = false;
-            globalObserver.emit(
-                'ui.log',
-                'TRAPKID ANALYZER ANALYZE CLICK → BUY NOW → ' +
-                    signal.signalId +
-                    ' → ' +
-                    signal.symbol +
-                    ' → DIGITMATCH ' +
-                    signal.hotDigit
-            );
-
-            await this.purchase('DIGITMATCH');
-
-            // IMPORTANT: a successful BUY does NOT finish this Analyzer cycle.
-            // The real Deriv contract remains the active position until the
-            // matching Analyzer EARLY_SELL_READY event closes that same contract.
-            return this.analyzerCyclePromise;
-        } catch (error) {
-            globalObserver.emit(
-                'ui.log.error',
-                error?.message || 'TrapKid Analyzer entry failed.'
-            );
-        }
-    }
     // Compatibility method required by the Blockly interpreter. The old
     // Ticks mixin exposed this method, but Analyzer-only execution deliberately
     // does not create a Deriv ticksService or tick-history promise.
