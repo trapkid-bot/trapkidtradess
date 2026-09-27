@@ -32,10 +32,9 @@ export const analyzerPurchaseReservations = analyzerPurchaseReservationStore;
 // ANALYZER-ONLY EXECUTION RULES — these override Builder/local trade rules.
 // Analyzer hotDigit is the canonical DIGITMATCH prediction/barrier.
 // Analyzer entryDigit belongs only to the locked Analyzer entry-code metadata.
-// The Analyzer lifecycle remains logically 1 tick, but the broker contract
-// must stay open long enough for the Analyzer hot digit to appear. Analyzer
-// execution therefore uses a 60-second physical hold and closes it only on
-// EARLY_SELL_READY for the matching hot digit.
+// Analyzer supplies the contract decision and the broker contract is exactly
+// 1 tick. EARLY_SELL_READY is the Analyzer-controlled exit trigger for that
+// exact BUY contract.
 const ANALYZER_PHYSICAL_HOLD_TICKS = 1;
 const ANALYZER_LOGICAL_DURATION = 1;
 const ANALYZER_LOGICAL_DURATION_UNIT = 't';
