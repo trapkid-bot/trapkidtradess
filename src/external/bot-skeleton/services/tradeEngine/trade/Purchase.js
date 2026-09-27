@@ -451,8 +451,15 @@ export default Engine =>
                 const buy = this.analyzerDerivBuyPromise
                     ? await this.analyzerDerivBuyPromise.catch(() => null)
                     : this.derivBuy;
-                const derivContractId = this.derivContractId || buy?.contract_id;
-                if (!derivContractId) return null;
+                const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
+                const activeSignalId = String(
+                    this.analyzerDerivSignalId ||
+                    this.analyzerSignal?.signalId ||
+                    analyzerState?.signal?.signalId ||
+                    ''
+                );
+                const derivContractId = String(this.derivContractId || buy?.contract_id || '');
+                if (!derivContractId || !activeSignalId) return null;
 
                 let response = null;
                 // Analyzer EARLY_SELL_READY is the single exit command. Retry only
@@ -488,6 +495,19 @@ export default Engine =>
                     const soldFor = Number(response.sell.sold_for);
                     const balanceAfter = Number(response.sell.balance_after);
                     const transactionId = response.sell.transaction_id ?? null;
+                    const returnedContractId = String(response.sell.contract_id ?? '');
+                    if (
+                        returnedContractId !== derivContractId ||
+                        !Number.isFinite(soldFor) ||
+                        !Number.isFinite(balanceAfter) ||
+                        transactionId == null
+                    ) {
+                        globalObserver.emit(
+                            'ui.log.error',
+                            'TRAPKID DERIV EARLY SELL → confirmation failed: contract_id, sold_for, balance_after, and transaction_id must match/return before local close'
+                        );
+                        return null;
+                    }
                     const buyPrice = Number(
                         this.derivBuy?.buy_price ??
                         this.data?.contract?.deriv_buy_price ??
@@ -503,6 +523,7 @@ export default Engine =>
                         contract_id: String(derivContractId),
                         transaction_id: transactionId,
                         sell_transaction_id: transactionId,
+                        analyzer_signal_id: activeSignalId,
                         sold_for: Number.isFinite(soldFor) ? soldFor : null,
                         balance_after: Number.isFinite(balanceAfter) ? balanceAfter : null,
                         currency: response.sell.currency || this.derivBuy?.currency || this.tradeOptions?.currency || 'USD',
@@ -532,10 +553,8 @@ export default Engine =>
                                     ? soldFor - Number(currentContract.buy_price)
                                     : currentContract.profit,
                             deriv_contract_id: String(derivContractId),
-                            deriv_transaction_id:
-                                transactionId ??
-                                currentContract.deriv_transaction_id ??
-                                null,
+                            // Keep the original BUY transaction ID intact.
+                        deriv_transaction_id: currentContract.deriv_transaction_id ?? null,
                             deriv_sell_transaction_id: transactionId,
                             deriv_sell_price: Number.isFinite(soldFor) ? soldFor : null,
                             deriv_balance_after_sell: Number.isFinite(balanceAfter) ? balanceAfter : null,
