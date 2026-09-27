@@ -108,13 +108,6 @@ export default Engine =>
 
             const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
 
-            const getOpenContract = async () => {
-                return api_base.api.send({
-                    proposal_open_contract: 1,
-                    contract_id: Number(contractId),
-                });
-            };
-
             const sellContractAndGetInfo = async () => {
                 // CRITICAL 1-TICK TIMING RULE:
                 // EARLY_SELL_READY is already an explicit Analyzer exit command.
