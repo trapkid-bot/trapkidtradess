@@ -178,6 +178,45 @@ export default Engine =>
                 this.isExpired = false;
                 this.isSellAvailable = true;
 
+                // Keep the normal DBot contract model as the single source for
+                // the purchased position. Analyzer only supplied the values used
+                // to construct this contract.
+                this.data.contract = {
+                    ...(this.data.contract || {}),
+                    id: String(buy.contract_id),
+                    contract_id: String(buy.contract_id),
+                    deriv_contract_id: String(buy.contract_id),
+                    transaction_ids: {
+                        buy: buy.transaction_id ?? null,
+                        sell: null,
+                    },
+                    contract_type: 'DIGITMATCH',
+                    symbol: this.analyzerSignal?.symbol || this.tradeOptions?.symbol,
+                    underlying_symbol: this.analyzerSignal?.symbol || this.tradeOptions?.symbol,
+                    barrier: Number(this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
+                    prediction: Number(this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
+                    buy_price: Number(buy.buy_price),
+                    payout: Number(buy.payout),
+                    currency: buy.currency || this.tradeOptions?.currency || 'USD',
+                    analyzer_source: 'ANALYZER_ONLY',
+                    analyzer_signal_id: this.analyzerSignal?.signalId || null,
+                    analyzer_command_key: this.analyzerCommandKey || null,
+                    analyzer_hot_digit: Number(this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
+                    analyzer_prediction: Number(this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
+                    analyzer_duration: 1,
+                    analyzer_duration_unit: 't',
+                    analyzer_exit_status: 'WAITING_FOR_ANALYZER_EXIT',
+                    deriv_transaction_id: buy.transaction_id ?? null,
+                    deriv_buy_price: Number(buy.buy_price),
+                    deriv_potential_payout: Number(buy.payout),
+                    deriv_balance_after_buy: Number(buy.balance_after),
+                    financial_status: 'DERIV_BUY_CONFIRMED',
+                    status: 'open',
+                    is_sold: false,
+                    is_expired: false,
+                };
+                contract(this.data.contract);
+
                 if (this.analyzerSignal) {
                     this.analyzerPurchaseKey =
                         String(this.analyzerSignal.signalId) + ':' + String(this.analyzerSignal.lockedAt);
