@@ -225,7 +225,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                 prediction: hotDigit,
                 // MATCH MODE: use a valid DIGITMATCH duration. MATCH_FOUND is the
                 // Analyzer hot-digit exit event for this same contract.
-                duration: 10,
+                duration: 1,
                 duration_unit: 't',
             };
             this.is_proposal_subscription_required = false;
@@ -340,6 +340,12 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                     exitCode: bridgeExit.exitCode || null,
                 }
                 : (this.getAnalyzerExit?.() || null);
+        // Only MATCH_FOUND is a valid Analyzer Match settlement event.
+        // EARLY_SELL_READY must never close a Match contract.
+        if (String(exit?.status || '') !== 'MATCH_FOUND') {
+            return;
+        }
+
         if (
             !exit ||
             String(exit.signalId || activeSignalId) !== activeSignalId ||
