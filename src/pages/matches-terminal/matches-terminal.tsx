@@ -391,7 +391,7 @@ const MatchesTerminal = () => {
             contract_type: 'DIGITMATCH',
             currency,
             duration: ANALYZER_PHYSICAL_HOLD_SECONDS,
-            duration_unit: 's'
+            duration_unit: 's',
             barrier: String(entry.prediction),
             underlying_symbol: entry.symbol,
         });
