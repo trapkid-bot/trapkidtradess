@@ -141,6 +141,16 @@ const PopoverContent = ({ contract }: TPopoverContent) => (
                         {(contract as any)?.analyzer_entry_digit ?? (contract as any)?.analyzer_hot_digit ?? '—'}
                     </div>
                 </PopoverItem>
+                <PopoverItem title='Locked entry quote'>
+                    <div className='transactions__popover-value'>
+                        {(contract as any)?.analyzer_entry_quote ?? (contract as any)?.analyzer_locked_quote ?? '—'}
+                    </div>
+                </PopoverItem>
+                <PopoverItem title='Analyzer Match lifecycle'>
+                    <div className='transactions__popover-value'>
+                        {(contract as any)?.analyzer_execution_status || 'MATCH_OPEN'}
+                    </div>
+                </PopoverItem>
                 <PopoverItem title='Deriv contract ID'>
                     <div className='transactions__popover-value' style={{ wordBreak: 'break-all' }}>
                         {(contract as any)?.analyzer_contract_id || (contract as any)?.deriv_contract_id || (contract as any)?.contract_id || '—'}
@@ -286,6 +296,9 @@ const Transaction = ({ contract, active_transaction_id, onClickTransaction }: TT
                                     </span>
                                     <span style={{ fontSize: 9, lineHeight: 1.1, opacity: 0.7 }}>
                                         Entry {(contract as any)?.analyzer_entry_digit ?? '—'} • Hot {(contract as any)?.analyzer_hot_digit ?? '—'}
+                                    </span>
+                                    <span style={{ fontSize: 9, lineHeight: 1.1, opacity: 0.7 }}>
+                                        Locked quote {(contract as any)?.analyzer_entry_quote ?? (contract as any)?.analyzer_locked_quote ?? '—'}
                                     </span>
                                 </>
                             )}
