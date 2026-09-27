@@ -327,7 +327,24 @@ const TrapKidAnalyzerDock = () => {
     const exitDigit = Number(details?.exit?.digit ?? executionState?.exit?.digit);
     const exitStatus = String(details?.exit?.status || executionState?.exit?.status || 'IDLE');
     const exitValid = exitStatus === 'EARLY_SELL_READY' && Number.isInteger(exitDigit) && exitDigit === hotDigit;
-    const derivContractId = String(executionState?.derivContractId || executionState?.analyzerContractId || executionState?.signal?.contractId || '—');
+    const executionContractSignalId = String(
+        executionState?.analyzerContractSignalId ||
+        executionState?.analyzer_contract_signal_id ||
+        ''
+    );
+    const rawDerivContractId = String(
+        executionState?.derivContractId ||
+        executionState?.analyzerContractId ||
+        executionState?.signal?.contractId ||
+        ''
+    );
+    // Never display a contract from another Analyzer cycle. If the bridge has
+    // not yet associated the real BUY response with this signal, show waiting
+    // instead of a stale contract ID.
+    const derivContractId =
+        executionContractSignalId && activeSignalId && executionContractSignalId !== activeSignalId
+            ? '—'
+            : rawDerivContractId || '—';
     const buyPrice = executionState?.derivBuyPrice ?? executionState?.derivBuy?.buy_price;
     const buyTransactionId = executionState?.derivTransactionId || executionState?.derivBuy?.transaction_id || '—';
     const sellTransactionId = executionState?.derivSellTransactionId || '—';
