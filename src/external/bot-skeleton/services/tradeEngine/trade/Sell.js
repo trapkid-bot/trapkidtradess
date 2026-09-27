@@ -76,10 +76,10 @@ export default Engine =>
 
             let result;
             try {
-                result = await doUntilDone(
-                    sellContractAndGetInfo,
-                    ['NoOpenPosition', 'InvalidSellContractProposal', 'UnrecognisedRequest']
-                );
+                // Do not endlessly retry terminal sell errors. Normal DBot
+                // recovery is retained for transient API/connection failures,
+                // while a contract that is no longer sellable returns cleanly.
+                result = await doUntilDone(sellContractAndGetInfo, []);
             } catch (error) {
                 globalObserver.emit(
                     'ui.log.error',
