@@ -19,25 +19,11 @@ export default Engine =>
                 return Promise.resolve();
             }
 
-            const expectedSignalKey = analyzerSignal?.signalId
-                ? String(analyzerSignal.signalId) + ':' + String(analyzerSignal.lockedAt)
-                : '';
-            const stateCommandKey = String(analyzerState.commandKey || '');
-            const commandBelongsToSignal =
-                !!analyzerSignal?.signalId &&
-                (
-                    stateCommandKey === expectedSignalKey ||
-                    (
-                        stateCommandKey.startsWith(String(analyzerSignal.signalId) + ':') &&
-                        stateCommandKey.split(':')[0] === String(analyzerSignal.signalId)
-                    )
-                );
-
-            if (
-                !analyzerSignal?.signalId ||
-                !commandBelongsToSignal ||
-                String(analyzerState.executionTrigger || '') !== 'EARLY_SELL_READY'
-            ) {
+            // This method is reached only from the Analyzer command path.
+            // Do not require a second transient UI/state flag before sending the
+            // sell request. The exact Analyzer signal is the authorization and
+            // the Deriv contract_id below is the only financial execution handle.
+            if (!analyzerSignal?.signalId) {
                 return Promise.resolve();
             }
 
@@ -65,9 +51,13 @@ export default Engine =>
             }
 
             if (!derivSettlement) {
+                // Allow a later Analyzer command to retry the SAME Deriv contract.
+                // A failed sell request must not permanently poison the one-shot
+                // promise and leave the UI stuck in "waiting".
+                this.analyzerDerivSellPromise = null;
                 globalObserver.emit(
                     'ui.log.error',
-                    'TRAPKID ANALYZER EXIT → Deriv did not return the early-sell proceeds; transaction remains open'
+                    'TRAPKID ANALYZER EXIT → Deriv did not return the early-sell proceeds; SAME contract sell will remain retryable'
                 );
                 return Promise.resolve();
             }
