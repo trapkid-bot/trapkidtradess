@@ -8,16 +8,9 @@ const LINK_VERSION = 'ANALYZER-DBOT-BRIDGE-01';
 
 const TrapKidAnalyzerDock = () => {
     const [details, setDetails] = React.useState<any>(null);
-    const [analyzerApi, setAnalyzerApi] = React.useState(() => {
-        try {
-            const saved = window.localStorage.getItem('trapkid_analyzer_url') || '';
-            const legacy = /thesis-quality-remote-rendered\.trycloudflare\.com/i.test(saved);
-            return (!legacy && saved ? saved : ANALYZER_API).replace(/\/$/, '');
-        } catch {
-            return ANALYZER_API;
-        }
-    });
-    const [urlDraft, setUrlDraft] = React.useState(analyzerApi);
+    // Automatic connection: never depend on a manually entered URL or localStorage.
+    // The Render site always watches the known Analyzer endpoint below.
+    const [analyzerApi] = React.useState(ANALYZER_API);
     const [connectionError, setConnectionError] = React.useState('');
     const [open, setOpen] = React.useState(false);
     const [pos, setPos] = React.useState({ x: 22, y: 120 });
@@ -333,22 +326,10 @@ const TrapKidAnalyzerDock = () => {
                         <div className='tk-link-proof'><span className={connected ? 'is-live' : 'is-offline'} /> {connected ? 'ANALYZER DATA CHANNEL LIVE' : 'ANALYZER DATA CHANNEL OFFLINE'}</div>
                         <code>GET /api/status?client=dbot</code>
                         <small>HTTP only. Last successful read: {lastSeen ? new Date(lastSeen).toLocaleTimeString() : 'waiting…'}</small>
-                        <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                            <input
-                                value={urlDraft}
-                                onChange={e => setUrlDraft(e.target.value)}
-                                onPointerDown={e => e.stopPropagation()}
-                                placeholder='https://your-analyzer.trycloudflare.com'
-                                aria-label='Analyzer URL'
-                                style={{ flex: 1, minWidth: 0 }}
-                            />
-                            <button
-                                type='button'
-                                onPointerDown={e => e.stopPropagation()}
-                                onClick={e => { e.stopPropagation(); saveAnalyzerUrl(); }}
-                            >CONNECT</button>
+                        <div style={{ marginTop: 8 }}>
+                            <small>Automatic connection is enabled. The dock checks the Analyzer every second and reconnects whenever the Analyzer becomes available again.</small>
                         </div>
-                        {connectionError && <small style={{ display: 'block', marginTop: 6 }}>Connection: {connectionError}</small>}
+                        {connectionError && <small style={{ display: 'block', marginTop: 6 }}>Connection: {connectionError} — retrying automatically…</small>}
                     </div>
                 </div>
             )}
