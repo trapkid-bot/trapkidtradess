@@ -120,7 +120,6 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // Those flags can legitimately change during a UI/state refresh while
         // the real Deriv contract is still open.
         if (!boundSignalKey) return;
-        const commandSignalId = String(command?.signalId || command?.signal?.signalId || '');
         const commandKeyFromEvent = String(command?.commandKey || command?.key || '');
         const activeSignalId = String(signal?.signalId || '');
         const activeSignalKey = activeSignalId + ':' + String(signal?.lockedAt || '');
