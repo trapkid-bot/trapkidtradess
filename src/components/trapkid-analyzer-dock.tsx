@@ -331,8 +331,8 @@ const TrapKidAnalyzerDock = () => {
     const buyPrice = executionState?.derivBuyPrice ?? executionState?.derivBuy?.buy_price;
     const buyTransactionId = executionState?.derivTransactionId || executionState?.derivBuy?.transaction_id || '—';
     const sellTransactionId = executionState?.derivSellTransactionId || '—';
-    const soldFor = executionState?.derivPayout ?? executionState?.payout;
-    const balanceAfterSell = executionState?.derivBalanceAfterSell;
+    const soldFor = executionState?.financialStatus === 'DERIV_SELL_CONFIRMED' || executionState?.financial_status === 'DERIV_SELL_CONFIRMED'\n        ? (executionState?.derivSellPrice ?? executionState?.derivPayout ?? executionState?.payout)\n        : (executionState?.derivSellPrice ?? (executionState?.deriv_sell_price));
+    const balanceAfterSell = executionState?.derivBalanceAfterSell;\n    const sellConfirmed = String(executionState?.financialStatus || executionState?.financial_status || '') === 'DERIV_SELL_CONFIRMED' && Boolean(executionState?.derivSellTransactionId || executionState?.deriv_sell_transaction_id);
     const lifecycle = String(executionState?.status || (connected ? 'CONNECTED_WAITING' : 'DISCONNECTED'));
 
     const beginDrag = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -410,8 +410,8 @@ const TrapKidAnalyzerDock = () => {
                         <span>STAKE / BUY<b>{Number.isFinite(Number(buyPrice)) ? Number(buyPrice).toFixed(2) : '—'}</b></span>
                         <span>BUY TX<b>{buyTransactionId}</b></span>
                         <span>SELL TX<b>{sellTransactionId}</b></span>
-                        <span>SOLD FOR<b>{Number.isFinite(Number(soldFor)) ? Number(soldFor).toFixed(2) : '—'}</b></span>
-                        <span>BALANCE AFTER<b>{Number.isFinite(Number(balanceAfterSell)) ? Number(balanceAfterSell).toFixed(2) : '—'}</b></span>
+                        <span>SOLD FOR<b>{sellConfirmed && Number.isFinite(Number(soldFor)) ? Number(soldFor).toFixed(2) : '—'}</b></span>
+                        <span>BALANCE AFTER<b>{sellConfirmed && Number.isFinite(Number(balanceAfterSell)) ? Number(balanceAfterSell).toFixed(2) : '—'}</b></span>
                     </div>
 
                     <div className='tk-analyzer-global-dbot'>
