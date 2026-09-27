@@ -418,11 +418,13 @@ export default Engine =>
                     );
                 }
 
-                // Analyzer EARLY_SELL_READY owns the exit. Do not start an
-                // automatic settlement watcher here: broker expiry could close the
-                // contract on a non-hot digit before the Analyzer exit command.
-                // Sell.js records the final financial state only after the same
-                // BUY contract is sold on the Analyzer hot digit.
+                // Restore the working contract watcher, but its only
+                // settlement trigger is Analyzer EARLY_SELL_READY for the
+                // Analyzer hot digit. It never accepts broker expiry/win/loss
+                // as an Analyzer exit.
+                if (analyzerMode && this.contractId) {
+                    void this.monitorAnalyzerSettlement(String(this.contractId), purchasedSignalKey);
+                }
 
                 if (this.is_proposal_subscription_required) {
                     this.renewProposalsOnPurchase();
