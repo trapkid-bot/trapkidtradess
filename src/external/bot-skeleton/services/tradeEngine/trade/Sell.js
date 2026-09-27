@@ -23,8 +23,8 @@ export default Engine =>
             if (
                 !signal?.signalId ||
                 String(state.commandKey || '') !== String(signal.signalId) + ':' + String(signal.lockedAt) ||
-                String(state.executionTrigger || '') !== 'MATCH_FOUND' &&
-                String(exit?.status || '') !== 'MATCH_FOUND'
+                String(state.executionTrigger || '') !== 'EARLY_SELL_READY' &&
+                String(exit?.status || '') !== 'EARLY_SELL_READY'
             ) {
                 return false;
             }
@@ -198,7 +198,7 @@ export default Engine =>
             let result;
             try {
                 // Analyzer owns the Match settlement event. Only an explicit
-                // MATCH_FOUND may reach the SELL request for this contract.
+                // EARLY_SELL_READY may reach the SELL request for this contract.
                 result = await sellContractAndGetInfo();
             } catch (error) {
                 const errorCode = error?.error?.code || error?.code || '';
@@ -207,11 +207,11 @@ export default Engine =>
                 globalObserver.setState({
                     trapkid_analyzer: {
                         ...failedState,
-                        status: 'MATCH_SETTLEMENT_PENDING',
-                        analyzerExecutionStatus: 'MATCH_SETTLEMENT_PENDING',
-                        executionTrigger: 'MATCH_FOUND',
+                        status: 'ANALYZER_EARLY_SELL_PENDING',
+                        analyzerExecutionStatus: 'ANALYZER_EARLY_SELL_PENDING',
+                        executionTrigger: 'EARLY_SELL_READY',
                         holdUntilAnalyzerExit: true,
-                        analyzerExitStatus: 'MATCH_FOUND',
+                        analyzerExitStatus: 'EARLY_SELL_READY',
                         earlySellErrorCode: errorCode || null,
                         earlySellError: errorMessage,
                         analyzerContractId: contractId,
@@ -227,27 +227,9 @@ export default Engine =>
                 );
                 return false;
             }
-
-            if (result?.notSellable) {
-                const poc = result?.contractResponse?.proposal_open_contract;
-                const finalTickRaw = poc?.exit_tick_display ?? poc?.exit_tick;
-                const finalTickDigits = String(finalTickRaw ?? '').replace(/[^0-9]/g, '');
-                const finalDigit = finalTickDigits ? Number(finalTickDigits.slice(-1)) : NaN;
-                const brokerClosed =
-                    String(poc?.contract_id ?? '') === contractId &&
-                    (poc?.is_sold === 1 || poc?.is_sold === true ||
-                     poc?.is_expired === 1 || poc?.is_expired === true);
-                if (brokerClosed && Number.isInteger(finalDigit) && finalDigit === hotDigit) {
-                    result = { brokerSettled: true, contractResponse: result.contractResponse };
-                } else {
-                    return false;
-                }
-            }
-
             const sold = result?.sellResponse?.sell;
             const poc = result?.contractResponse?.proposal_open_contract;
-            const brokerSettled = false;
-            const soldFor = Number(sold?.sold_for ?? poc?.sell_price ?? poc?.payout ?? poc?.bid_price);
+            const soldFor = Number(sold?.sold_for ?? poc?.sell_price ?? poc?.bid_price);
             const balanceAfter = Number(sold?.balance_after);
             const sellTransactionId =
                 sold?.transaction_id ??
@@ -285,13 +267,12 @@ export default Engine =>
                 deriv_sell_price: soldFor,
                 deriv_sell_transaction_id: sellTransactionId,
                 deriv_balance_after_sell: Number.isFinite(balanceAfter) ? balanceAfter : null,
-                analyzer_exit_status: 'MATCH_FOUND',
-                analyzer_execution_status: 'MATCH_SETTLED',
+                analyzer_exit_status: 'EARLY_SELL_READY',
+                analyzer_execution_status: 'ANALYZER_EARLY_SELL_CONFIRMED',
                 analyzer_exit_code: String(signal.signalId) + ':' + String(exit?.epoch || ''),
                 analyzer_exit_digit: hotDigit,
                 analyzer_exit_quote: Number.isFinite(Number(exit?.quote)) ? Number(exit.quote) : null,
-                analyzer_contract_id: contractId,
-                financial_status: brokerSettled ? 'DERIV_CONTRACT_SETTLED' : 'DERIV_SELL_CONFIRMED',
+                analyzer_contract_id: contractId,                financial_status: 'DERIV_SELL_CONFIRMED',
                 status: 'sold',
                 is_sold: true,
                 is_expired: false,
@@ -325,26 +306,26 @@ export default Engine =>
             globalObserver.setState({
                 trapkid_analyzer: {
                     ...state,
-                    status: 'MATCH_SETTLED',
+                    status: 'ANALYZER_EARLY_SELL_CONFIRMED',
                     signal,
                     signalId: signal.signalId,
                     commandKey: String(signal.signalId) + ':' + String(signal.lockedAt),
-                    executionTrigger: 'MATCH_SETTLED',
+                    executionTrigger: 'ANALYZER_EARLY_SELL_CONFIRMED',
                     holdUntilAnalyzerExit: false,
-                    settlementSource: 'MATCH_FOUND',
+                    settlementSource: 'EARLY_SELL_READY',
                     analyzerContractId: contractId,
                     derivContractId: contractId,
                     derivSellTransactionId: sellTransactionId,
                     derivSellPrice: soldFor,
                     derivPayout: soldFor,
                     payout: soldFor,
-                    financialStatus: brokerSettled ? 'DERIV_CONTRACT_SETTLED' : 'DERIV_SELL_CONFIRMED',
+                    financialStatus: 'DERIV_SELL_CONFIRMED',
                     financial_status: 'DERIV_SELL_CONFIRMED',
                     profit,
                     derivBalanceAfterSell: Number.isFinite(balanceAfter) ? balanceAfter : null,
                     exit: {
                         ...(exit || {}),
-                        status: 'MATCH_FOUND',
+                        status: 'EARLY_SELL_READY',
                         signalId: String(signal.signalId),
                         digit: hotDigit,
                     },
