@@ -15,7 +15,7 @@ let purchase_reference;
 // DIGITMATCH is a short-duration contract. Use the longest common
 // broker-supported digit duration as the physical ceiling, while the
 // Analyzer still owns the actual exit lifecycle.
-const ANALYZER_PHYSICAL_HOLD_TICKS = 10;
+const ANALYZER_PHYSICAL_HOLD_TICKS = 60;
 const ANALYZER_LOGICAL_DURATION = 1;
 const ANALYZER_LOGICAL_DURATION_UNIT = 't';
 
@@ -224,6 +224,7 @@ export default Engine =>
                     analyzer_execution_status: 'HOLDING_FOR_ANALYZER_EARLY_SELL',
                     analyzer_exit_code: null,
                     analyzer_contract_id: String(buy.contract_id),
+                    analyzer_contract_signal_id: this.analyzerSignal?.signalId || null,
                     deriv_transaction_id: buy.transaction_id ?? null,
                     deriv_buy_price: Number(buy.buy_price),
                     deriv_potential_payout: Number(buy.payout),
@@ -274,6 +275,7 @@ export default Engine =>
                             ? Number(this.analyzerSignal?.entryQuote ?? this.analyzerSignal?.lockedQuote)
                             : null,
                         analyzerContractId: String(buy.contract_id),
+                        analyzerContractSignalId: this.analyzerSignal?.signalId || null,
                         analyzerPotentialPayout: Number.isFinite(Number(buy.payout)) ? Number(buy.payout) : null,
                         payout: Number.isFinite(Number(buy.payout)) ? Number(buy.payout) : null,
                         analyzerLogicalDuration: ANALYZER_LOGICAL_DURATION,
@@ -376,7 +378,7 @@ export default Engine =>
 
                 // IMPORTANT:
                 // - Logical DBot/Analyzer duration = 1 tick.
-                // - Physical Deriv expiry = 10-tick DIGITMATCH safety ceiling; Analyzer still owns the actual exit.
+                // - Physical Deriv expiry = 60-tick safety ceiling; Analyzer still owns the actual exit.
                 // - EARLY_SELL_READY is the only event that closes the real contract.
                 // A real 1-tick Deriv contract can expire before the Analyzer exit;
                 // Analyzer exit because Deriv expires it at the tick boundary.
