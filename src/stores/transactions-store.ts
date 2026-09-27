@@ -302,6 +302,7 @@ export default class TransactionsStore {
         if (ledger) data = this.mergeDerivLedgerIntoContract(data, ledger);
         const isAnalyzerOnly = String((data as any).analyzer_source || '') === 'ANALYZER_ONLY';
         const derivSettlementConfirmed = [
+            'DERIV_SELL_CONFIRMED',
             'DERIV_SETTLEMENT_CONFIRMED',
             'DERIV_SETTLEMENT_RECONCILED',
         ].includes(String((data as any).financial_status || ''));
@@ -444,6 +445,7 @@ export default class TransactionsStore {
 
                 const analyzerOnly = String((contract as any).analyzer_source || '') === 'ANALYZER_ONLY';
                 const derivSettled = [
+                    'DERIV_SELL_CONFIRMED',
                     'DERIV_SETTLEMENT_CONFIRMED',
                     'DERIV_SETTLEMENT_RECONCILED',
                 ].includes(String((contract as any).financial_status || ''));
