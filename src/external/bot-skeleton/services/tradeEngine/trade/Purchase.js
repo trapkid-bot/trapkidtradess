@@ -13,7 +13,16 @@ let purchase_reference;
 // This module singleton is the immutable in-process source for SELL. It prevents
 // another TradeEngine instance or stale observer state from supplying an older
 // contract_id for the current Analyzer signal.
-export const analyzerContractBindings = new Map();
+// Keep the Analyzer signal -> BUY contract registry on the application global.
+// TradeEngine can have more than one observer/module instance; a module-local Map
+// can therefore be duplicated by the bundler and lose the BUY binding between
+// Purchase and Sell. The registry contains broker contract IDs only; it does not
+// change any Analyzer trading rule.
+const analyzerContractBindingStore =
+    globalThis.__TRAPKID_ANALYZER_CONTRACT_BINDINGS__ ||
+    (globalThis.__TRAPKID_ANALYZER_CONTRACT_BINDINGS__ = new Map());
+
+export const analyzerContractBindings = analyzerContractBindingStore;
 
 // ANALYZER-ONLY EXECUTION RULES — these override Builder/local trade rules.
 // Analyzer entryDigit is the ONLY DIGITMATCH purchase barrier.
