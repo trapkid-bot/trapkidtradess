@@ -185,27 +185,6 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             duration_unit: this.tradeOptions?.duration_unit,
         };
 
-        globalObserver.setState({
-            trapkid_analyzer: {
-                ...analyzerState,
-                status: 'EARLY_EXIT_COMMAND_RECEIVED',
-                signal,
-                signalId: signal.signalId,
-                commandKey,
-                symbol: signal.symbol,
-                prediction: Number(signal.hotDigit),
-                hotDigit: Number(signal.hotDigit),
-                entryPrediction: Number(signal.hotDigit),
-                entrySource: 'ANALYZER_ONLY',
-                exitSource: 'ANALYZER_EARLY_SELL_ONLY',
-                executionTrigger: 'EARLY_SELL_READY',
-                holdUntilAnalyzerExit: false,
-                executionArmed: true,
-                cycleFinished: false,
-            },
-        });
-        globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
-
         // The contract is already purchased in Analyzer mode. This event
         // only closes that existing contract.
         globalObserver.setState({
