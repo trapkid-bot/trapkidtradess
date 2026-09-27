@@ -200,6 +200,10 @@ export default Engine =>
                     analyzer_source: 'ANALYZER_ONLY',
                     analyzer_signal_id: this.analyzerSignal?.signalId || null,
                     analyzer_command_key: this.analyzerCommandKey || null,
+                    analyzer_entry_code: this.analyzerCommandKey || null,
+                    analyzer_entry_digit: Number(this.analyzerSignal?.entryDigit ?? this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
+                    analyzer_entry_quote: Number(this.analyzerSignal?.entryQuote ?? this.analyzerSignal?.lockedQuote ?? NaN),
+                    analyzer_locked_quote: Number(this.analyzerSignal?.lockedQuote ?? this.analyzerSignal?.entryQuote ?? NaN),
                     analyzer_hot_digit: Number(this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
                     analyzer_prediction: Number(this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
                     // Logical DBot contract identity: keep the configured Match
@@ -212,7 +216,10 @@ export default Engine =>
                     analyzer_duration_unit: ANALYZER_LOGICAL_DURATION_UNIT,
                     deriv_physical_duration: ANALYZER_PHYSICAL_HOLD_TICKS,
                     deriv_physical_duration_unit: 't',
-                    analyzer_exit_status: 'WAITING_FOR_ANALYZER_EXIT',
+                    analyzer_exit_status: 'WAITING_FOR_ANALYZER_EARLY_SELL',
+                    analyzer_execution_status: 'HOLDING_FOR_ANALYZER_EARLY_SELL',
+                    analyzer_exit_code: null,
+                    analyzer_contract_id: String(buy.contract_id),
                     deriv_transaction_id: buy.transaction_id ?? null,
                     deriv_buy_price: Number(buy.buy_price),
                     deriv_potential_payout: Number(buy.payout),
@@ -222,6 +229,12 @@ export default Engine =>
                     is_sold: false,
                     is_expired: false,
                 };
+                if (!Number.isFinite(this.data.contract.analyzer_entry_quote)) {
+                    this.data.contract.analyzer_entry_quote = null;
+                }
+                if (!Number.isFinite(this.data.contract.analyzer_locked_quote)) {
+                    this.data.contract.analyzer_locked_quote = null;
+                }
                 contract(this.data.contract);
 
                 if (this.analyzerSignal) {
@@ -278,11 +291,13 @@ export default Engine =>
                 // flight, the exit handler stores it as pending. Execute that
                 // already-authorized exit immediately after contractId exists.
                 const postPurchaseState = globalObserver.getState('trapkid_analyzer') || {};
+                const liveExit = postPurchaseState.exit;
                 const pendingExit = postPurchaseState.pendingEarlyExit;
+                const readyExit = pendingExit?.status === 'EARLY_SELL_READY' ? pendingExit : liveExit;
                 const pendingMatches =
-                    pendingExit?.status === 'EARLY_SELL_READY' &&
-                    String(pendingExit.signalId || '') === String(this.analyzerSignal?.signalId || '') &&
-                    Number(pendingExit.digit) === Number(this.analyzerSignal?.hotDigit);
+                    readyExit?.status === 'EARLY_SELL_READY' &&
+                    String(readyExit.signalId || this.analyzerSignal?.signalId || '') === String(this.analyzerSignal?.signalId || '') &&
+                    Number(readyExit.digit) === Number(this.analyzerSignal?.hotDigit);
 
                 this.store.dispatch(purchaseSuccessful());
 
@@ -299,7 +314,10 @@ export default Engine =>
                             hotDigit: Number(this.analyzerSignal?.hotDigit),
                             entrySource: 'ANALYZER_ONLY',
                             exitSource: 'ANALYZER_EARLY_SELL_ONLY',
-                            exit: { ...pendingExit, status: 'EARLY_SELL_READY' },
+                            exit: { ...readyExit, status: 'EARLY_SELL_READY' },
+                            analyzer_exit_status: 'EARLY_SELL_READY',
+                            analyzer_execution_status: 'EARLY_SELL_EXECUTING',
+                            analyzer_exit_code: String(this.analyzerSignal?.signalId || '') + ':' + String(readyExit?.epoch || ''),
                             executionTrigger: 'EARLY_SELL_READY',
                             holdUntilAnalyzerExit: false,
                             executionArmed: true,
