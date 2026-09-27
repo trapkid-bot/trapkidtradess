@@ -1212,7 +1212,9 @@ export default Engine =>
                         ? durationValue
                         : 0,
                 tick_passed: 0,
-                is_valid_to_sell: false,
+                // Analyzer controls the exit, so the live contract must remain
+                // eligible for an early Deriv sell until EARLY_SELL_READY arrives.
+                is_valid_to_sell: true,
                 is_valid_to_cancel: false,
                 is_settleable: false,
                 analyzer_source: 'ANALYZER_ONLY',
