@@ -294,12 +294,6 @@ export default Engine =>
                 sold?.transaction_id ??
                 poc?.transaction_ids?.sell ??
                 null;
-            const brokerBuyTransactionId =
-                poc?.transaction_ids?.buy ??
-                this.derivBuyTransactionId ??
-                currentContract?.transaction_ids?.buy ??
-                null;
-
             if (
                 String(sold?.contract_id ?? poc?.contract_id ?? contractId) !== contractId ||
                 !Number.isFinite(soldFor) ||
