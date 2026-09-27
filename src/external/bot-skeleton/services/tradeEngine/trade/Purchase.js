@@ -14,9 +14,32 @@ export default Engine =>
         // entry timing, hold state, and exit decision. Deriv is contacted only
         // for financial pricing, the authorized demo/real buy, and final
         // financial reconciliation. Never create a second Analyzer execution.
-        requestAnalyzerDeriv = (request, msgType, timeoutMs = 7000) => {
-            const api = api_base?.api;
-            if (!api || api.connection?.readyState !== 1) return Promise.resolve(null);
+        requestAnalyzerDeriv = async (request, msgType, timeoutMs = 7000) => {
+            // Analyzer is authoritative for the trade lifecycle, but the actual
+            // money operation must use the authenticated Deriv websocket. If the
+            // socket is briefly closed/opening, reconnect and wait instead of
+            // turning that transient state into a fake "quote unavailable" result.
+            let api = api_base?.api;
+
+            if (!api || api.connection?.readyState !== 1) {
+                try {
+                    await api_base.init(true);
+                } catch {
+                    // The authenticated connection check below is authoritative.
+                }
+
+                const deadline = Date.now() + Math.min(12000, timeoutMs + 5000);
+                while (Date.now() < deadline) {
+                    api = api_base?.api;
+                    if (api?.connection?.readyState === 1 && api_base?.is_authorized) break;
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                }
+            }
+
+            api = api_base?.api;
+            if (!api || api.connection?.readyState !== 1 || !api_base?.is_authorized) {
+                return null;
+            }
 
             const req_id = Number(String(Date.now()).slice(-9));
             const payload = { ...request, req_id };
@@ -209,7 +232,9 @@ export default Engine =>
                 const proposalResponse = await this.fetchAnalyzerPayoutQuote(signal);
                 const proposal = proposalResponse?.proposal;
                 if (!proposal) {
-                    globalObserver.emit('ui.log.error', 'TRAPKID DERIV FINANCIAL QUOTE → unavailable');
+                    // Do not pollute the Analyzer journal with a generic financial
+                    // quote error. The Analyzer controls the signal; this bridge
+                    // simply waits for a usable Deriv response.
                     return null;
                 }
 
@@ -231,7 +256,6 @@ export default Engine =>
                 }
 
                 if (!proposalId || !Number.isFinite(askPrice) || askPrice <= 0) {
-                    globalObserver.emit('ui.log.error', 'TRAPKID DERIV FINANCIAL BUY → invalid proposal');
                     return null;
                 }
 
