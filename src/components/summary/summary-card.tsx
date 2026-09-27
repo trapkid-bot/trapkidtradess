@@ -126,7 +126,7 @@ const SummaryCard = observer(({ contract_info, is_contract_loading, is_bot_runni
                                     <span>Entry digit: <b>{(contract_info as any)?.analyzer_entry_digit ?? '—'}</b></span>
                                     <span>Locked entry quote: <b>{(contract_info as any)?.analyzer_entry_quote ?? (contract_info as any)?.analyzer_locked_quote ?? '—'}</b></span>
                                     <span>Execution: <b>1 tick DIGITMATCH</b></span>
-                                    <span>Lifecycle: <b>{(contract_info as any)?.analyzer_execution_status || 'MATCH_OPEN'}</b></span>
+                                    <span>Lifecycle: <b>{(contract_info as any)?.analyzer_execution_status || 'EARLY_SELL_READY'}</b></span>
                                 </div>
                             </div>
                         )} 
