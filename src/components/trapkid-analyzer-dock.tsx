@@ -60,11 +60,32 @@ const TrapKidAnalyzerDock = () => {
                         lockedAt >= mountedAtRef.current - 10000;
 
                     const analyzerStatus = String(data?.status || signal?.status || '').toUpperCase();
-                    const entryReady =
+                    const explicitReady =
                         data?.entryReady === true ||
                         signal?.entryReady === true ||
                         analyzerStatus === 'READY' ||
+                        String(signal?.status || '').toUpperCase() === 'READY' ||
                         String(data?.command?.status || '').toUpperCase() === 'READY';
+
+                    // The user's Analyze click is represented by Analyzer creating
+                    // a fresh LOCKED signal. No second READY button/command is
+                    // required. A fresh lock is executable exactly once.
+                    const lockStillFresh =
+                        Number.isFinite(lockedAt) &&
+                        (!Number.isFinite(Number(signal?.expiresAt)) ||
+                            Date.now() < Number(signal.expiresAt));
+                    const analyzeCreatedLock =
+                        !!signalKey &&
+                        !!signal?.signalId &&
+                        !!signal?.symbol &&
+                        Number.isInteger(Number(signal?.hotDigit ?? signal?.prediction ?? signal?.lockedDigit)) &&
+                        lockStillFresh &&
+                        (isNewSignal ||
+                            initialSignalIsFresh ||
+                            ['LOCKED', 'SIGNAL_LOCKED', 'ANALYZED'].includes(String(signal?.status || '').toUpperCase()) ||
+                            ['LOCKED', 'SIGNAL_LOCKED', 'ANALYZED'].includes(analyzerStatus));
+
+                    const entryReady = explicitReady || analyzeCreatedLock;
 
                     const currentAnalyzerState = globalObserver.getState('trapkid_analyzer') || {};
                     const commandBoundToSignal =
@@ -189,8 +210,8 @@ const TrapKidAnalyzerDock = () => {
                         );
                     }
 
-                    // Never convert a LOCKED signal into an execution command.
-                    // Only an explicit Analyzer READY state may authorize entry.
+                    // Analyze is the entry command. A fresh Analyzer LOCKED
+                    // signal is therefore executable once; READY remains compatible.
                     if (
                         signalKey &&
                         entryReady &&
@@ -204,6 +225,7 @@ const TrapKidAnalyzerDock = () => {
                             commandKey: signalKey,
                             status: 'READY',
                             entryReady: true,
+                            executionTrigger: 'ANALYZER_ENTRY',
                             receivedAt: now,
                             signal,
                             analyzer: data,
@@ -214,8 +236,10 @@ const TrapKidAnalyzerDock = () => {
                                 ...(globalObserver.getState('trapkid_analyzer') || {}),
                                 ...data,
                                 status: 'COMMAND_RECEIVED',
-                                analyzerStatus: 'READY',
+                                analyzerStatus: 'ANALYZE_CLICK',
                                 entryReady: true,
+                                executionArmed: true,
+                                executionTrigger: 'ANALYZER_ENTRY',
                                 commandKey: signalKey,
                                 lastSeen: now,
                             },
