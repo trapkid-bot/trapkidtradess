@@ -358,6 +358,28 @@ export default Engine =>
                 });
                 globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
+                // If Analyzer emitted EARLY_SELL_READY while the proposal/BUY
+                // request was in flight, the exit is stored as pending. As soon
+                // as the exact BUY contract is bound, execute that pending exit
+                // immediately instead of waiting for another bridge/tick event.
+                const postPurchaseState = globalObserver.getState('trapkid_analyzer') || {};
+                const liveExit = postPurchaseState.exit;
+                const pendingExit = postPurchaseState.pendingEarlyExit;
+                const readyExit = pendingExit?.status === 'EARLY_SELL_READY' ? pendingExit : liveExit;
+                if (readyExit?.status === 'EARLY_SELL_READY' && !this.isSold) {
+                    queueMicrotask(() => {
+                        void this.onAnalyzerEarlyExit?.({
+                            source: 'TRAPKID_ANALYZER_POST_PURCHASE',
+                            command: 'ANALYZER_EARLY_EXIT',
+                            commandKey: postPurchaseState.commandKey || this.analyzerCommandKey,
+                            signalId: postPurchaseState.signalId || this.analyzerSignal?.signalId,
+                            signal: postPurchaseState.signal || this.analyzerSignal,
+                            exit: readyExit,
+                            receivedAt: Date.now(),
+                        });
+                    });
+                }
+
                 if (this.is_proposal_subscription_required) {
                     this.renewProposalsOnPurchase();
                 }
