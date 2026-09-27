@@ -34,7 +34,7 @@ export const analyzerPurchaseReservations = analyzerPurchaseReservationStore;
 // Analyzer entryDigit belongs only to the locked Analyzer entry-code metadata.
 // Analyzer supplies the contract decision and the broker contract is exactly
 // 1 tick. EARLY_SELL_READY is the Analyzer-controlled exit trigger for that
-// exact BUY contract.
+// exact BUY contract. No alternate duration is used.
 const ANALYZER_PHYSICAL_HOLD_TICKS = 1;
 const ANALYZER_LOGICAL_DURATION = 1;
 const ANALYZER_LOGICAL_DURATION_UNIT = 't';
