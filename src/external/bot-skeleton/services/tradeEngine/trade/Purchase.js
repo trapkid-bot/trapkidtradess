@@ -271,6 +271,11 @@ export default Engine =>
                             ? Number(this.analyzerSignal?.entryQuote ?? this.analyzerSignal?.lockedQuote)
                             : null,
                         analyzerContractId: String(buy.contract_id),
+                        // Immutable-in-cycle BUY binding. SELL must use this exact
+                        // contract for the matching Analyzer signal, even if a
+                        // stale bridge/UI field later overwrites derivContractId.
+                        analyzerBuyContractId: String(buy.contract_id),
+                        analyzerBuySignalId: this.analyzerSignal?.signalId || null,
                         analyzerContractSignalId: this.analyzerSignal?.signalId || null,
                         analyzerPotentialPayout: Number.isFinite(Number(buy.payout)) ? Number(buy.payout) : null,
                         payout: Number.isFinite(Number(buy.payout)) ? Number(buy.payout) : null,
