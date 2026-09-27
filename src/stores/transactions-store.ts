@@ -301,13 +301,14 @@ export default class TransactionsStore {
         const ledger = this.getDerivLedgerForContract(data);
         if (ledger) data = this.mergeDerivLedgerIntoContract(data, ledger);
         const isAnalyzerOnly = String((data as any).analyzer_source || '') === 'ANALYZER_ONLY';
-        const derivSettlementConfirmed = [
+        const settlementConfirmed = [
+            'ANALYZER_SIMULATED_SETTLEMENT',
             'DERIV_SELL_CONFIRMED',
             'DERIV_SETTLEMENT_CONFIRMED',
             'DERIV_SETTLEMENT_RECONCILED',
         ].includes(String((data as any).financial_status || ''));
         const is_completed = isAnalyzerOnly
-            ? derivSettlementConfirmed && isEnded(data as ProposalOpenContract)
+            ? settlementConfirmed && isEnded(data as ProposalOpenContract)
             : isEnded(data as ProposalOpenContract);
         const { run_id } = this.root_store.run_panel;
         const current_account = this.core?.client?.loginid as string;
@@ -444,12 +445,13 @@ export default class TransactionsStore {
                 this.recovered_completed_transactions.push(contract.contract_id);
 
                 const analyzerOnly = String((contract as any).analyzer_source || '') === 'ANALYZER_ONLY';
+                const financialStatus = String((contract as any).financial_status || '');
                 const derivSettled = [
                     'DERIV_SELL_CONFIRMED',
                     'DERIV_SETTLEMENT_CONFIRMED',
                     'DERIV_SETTLEMENT_RECONCILED',
-                ].includes(String((contract as any).financial_status || ''));
-                if (!analyzerOnly || derivSettled) {
+                ].includes(financialStatus);
+                if (!analyzerOnly || derivSettled || financialStatus === 'ANALYZER_SIMULATED_SETTLEMENT') {
                     journal.onLogSuccess({
                         log_type: profit && profit > 0 ? LogTypes.PROFIT : LogTypes.LOST,
                         extra: { currency, profit },
