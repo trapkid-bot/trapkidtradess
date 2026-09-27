@@ -11,11 +11,11 @@ let purchase_reference;
 
 // Analyzer logical duration remains 1 tick, but the real Deriv position
 // must stay sellable until EARLY_SELL_READY. Deriv has no separate
-// "display duration" field, so use a long physical expiry as the safety ceiling.
+// "display duration" field, so use the maximum practical DIGITMATCH tick lifetime as the safety ceiling.
 // DIGITMATCH is a short-duration contract. Use the longest common
 // broker-supported digit duration as the physical ceiling, while the
 // Analyzer still owns the actual exit lifecycle.
-const ANALYZER_PHYSICAL_HOLD_TICKS = 60;
+const ANALYZER_PHYSICAL_HOLD_TICKS = 10;
 const ANALYZER_LOGICAL_DURATION = 1;
 const ANALYZER_LOGICAL_DURATION_UNIT = 't';
 
