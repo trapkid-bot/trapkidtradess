@@ -260,8 +260,8 @@ export default Engine =>
                     analyzer_duration_unit: ANALYZER_LOGICAL_DURATION_UNIT,
                     deriv_physical_duration: ANALYZER_PHYSICAL_HOLD_TICKS,
                     deriv_physical_duration_unit: 't',
-                    analyzer_exit_status: 'WAITING_FOR_ANALYZER_EARLY_SELL',
-                    analyzer_execution_status: 'HOLDING_FOR_ANALYZER_EARLY_SELL',
+                    analyzer_exit_status: 'WAITING_FOR_DERIV_SETTLEMENT',
+                    analyzer_execution_status: 'WAITING_FOR_DERIV_SETTLEMENT',
                     analyzer_exit_code: null,
                     analyzer_contract_id: String(buy.contract_id),
                     analyzer_contract_signal_id: this.analyzerSignal?.signalId || null,
@@ -343,10 +343,9 @@ export default Engine =>
                 });
                 globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
-                // EARLY_SELL_READY is an EXIT event, never an entry event.
-                // If Analyzer emitted it while the proposal/buy was still in
-                // flight, the exit handler stores it as pending. Execute that
-                // already-authorized exit immediately after contractId exists.
+                // EARLY_SELL_READY is an Analyzer observation only.
+                // Never send a Deriv SELL request from this event. The BUY has
+                // already created the contract; settlement is handled by Deriv.
                 const postPurchaseState = globalObserver.getState('trapkid_analyzer') || {};
                 const liveExit = postPurchaseState.exit;
                 const pendingExit = postPurchaseState.pendingEarlyExit;
@@ -362,29 +361,41 @@ export default Engine =>
                     globalObserver.setState({
                         trapkid_analyzer: {
                             ...(globalObserver.getState('trapkid_analyzer') || {}),
-                            status: 'EARLY_EXIT_COMMAND_RECEIVED',
+                            status: 'WAITING_FOR_ANALYZER_SETTLEMENT',
+                            analyzerExecutionStatus: 'WAITING_FOR_DERIV_SETTLEMENT',
                             signal: this.analyzerSignal,
                             signalId: this.analyzerSignal?.signalId,
                             commandKey: purchasedSignalKey,
                             symbol: this.analyzerSignal?.symbol,
-                            prediction: Number(this.analyzerSignal?.hotDigit),
+                            prediction: Number(this.analyzerSignal?.entryDigit),
+                            entryDigit: Number(this.analyzerSignal?.entryDigit),
                             hotDigit: Number(this.analyzerSignal?.hotDigit),
                             entrySource: 'ANALYZER_ONLY',
-                            exitSource: 'ANALYZER_EARLY_SELL_ONLY',
+                            exitSource: 'ANALYZER_EXIT_SIGNAL_ONLY',
                             exit: { ...readyExit, status: 'EARLY_SELL_READY' },
                             analyzer_exit_status: 'EARLY_SELL_READY',
-                            analyzer_execution_status: 'EARLY_SELL_EXECUTING',
-                            analyzer_exit_code: String(this.analyzerSignal?.signalId || '') + ':' + String(readyExit?.epoch || ''),
-                            executionTrigger: 'EARLY_SELL_READY',
+                            analyzer_execution_status: 'WAITING_FOR_DERIV_SETTLEMENT',
+                            executionTrigger: 'ANALYZER_EARLY_SELL_READY',
                             holdUntilAnalyzerExit: false,
                             executionArmed: true,
                             pendingEarlyExit: null,
+                            settlementSource: 'DERIV_AUTOMATIC_SETTLEMENT',
+                            analyzerContractId: String(this.contractId),
+                            derivContractId: String(this.contractId),
                         },
                     });
                     globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
-                    void this.sellAtMarket('ANALYZER_EARLY_SELL').catch(error => {
-                        globalObserver.emit('ui.log.error', error?.message || 'Analyzer early sell failed.');
-                    });
+                    globalObserver.emit(
+                        'ui.log',
+                        'TRAPKID ANALYZER → EARLY_SELL_READY observed after BUY → NO SELL REQUEST → waiting for automatic settlement of SAME CONTRACT=' + String(this.contractId)
+                    );
+                }
+
+                // The purchased DIGITMATCH contract now belongs to Deriv until
+                // automatic settlement. Poll only this exact contract so the
+                // final win/loss/payout is recorded against the actual BUY ID.
+                if (analyzerMode && this.contractId) {
+                    void this.monitorAnalyzerSettlement(String(this.contractId), purchasedSignalKey);
                 }
 
                 if (this.is_proposal_subscription_required) {
@@ -697,6 +708,138 @@ export default Engine =>
                 delayIndex++
             ).then(onSuccess);
         }
+        async monitorAnalyzerSettlement(contractId, signalKey) {
+            const exactContractId = String(contractId || '');
+            if (!exactContractId) return false;
+
+            if (this.analyzerSettlementPromise) return this.analyzerSettlementPromise;
+
+            this.analyzerSettlementPromise = (async () => {
+                const maxChecks = 80;
+                const intervalMs = 100;
+
+                for (let attempt = 0; attempt < maxChecks; attempt += 1) {
+                    let response;
+                    try {
+                        response = await api_base.api.send({
+                            proposal_open_contract: 1,
+                            contract_id: exactContractId,
+                        });
+                    } catch (error) {
+                        if (attempt === maxChecks - 1) throw error;
+                        await new Promise(resolve => setTimeout(resolve, intervalMs));
+                        continue;
+                    }
+
+                    const poc = response?.proposal_open_contract;
+                    if (!poc || String(poc.contract_id || exactContractId) !== exactContractId) {
+                        await new Promise(resolve => setTimeout(resolve, intervalMs));
+                        continue;
+                    }
+
+                    const status = String(poc.status || '').toLowerCase();
+                    const settled = Boolean(poc.is_sold) || ['won', 'lost', 'sold', 'expired'].includes(status);
+                    if (!settled) {
+                        await new Promise(resolve => setTimeout(resolve, intervalMs));
+                        continue;
+                    }
+
+                    let balanceAfter = null;
+                    try {
+                        const balanceResponse = await api_base.api.send({ balance: 1 });
+                        const balance = Number(balanceResponse?.balance?.balance);
+                        if (Number.isFinite(balance)) balanceAfter = balance;
+                    } catch (error) {
+                        // Settlement is already confirmed; balance lookup is supplementary.
+                    }
+
+                    const payout = Number(poc.payout);
+                    const profit = Number(poc.profit);
+                    const buyPrice = Number(this.data?.contract?.buy_price ?? this.derivBuy?.buy_price ?? this.tradeOptions?.amount);
+                    const finalProfit = Number.isFinite(profit)
+                        ? profit
+                        : (Number.isFinite(payout) && Number.isFinite(buyPrice) ? payout - buyPrice : null);
+                    const won = status === 'won' || (Number.isFinite(payout) && Number.isFinite(finalProfit) && finalProfit >= 0);
+
+                    this.data.contract = {
+                        ...(this.data.contract || {}),
+                        contract_id: exactContractId,
+                        deriv_contract_id: exactContractId,
+                        status: 'settled',
+                        is_sold: false,
+                        is_expired: status === 'expired',
+                        is_settleable: false,
+                        financial_status: 'DERIV_SETTLED',
+                        analyzer_execution_status: 'ANALYZER_SETTLED',
+                        analyzer_settlement_status: status,
+                        payout: Number.isFinite(payout) ? payout : this.data.contract?.payout,
+                        profit: Number.isFinite(finalProfit) ? finalProfit : this.data.contract?.profit,
+                        deriv_payout: Number.isFinite(payout) ? payout : null,
+                        deriv_profit: Number.isFinite(finalProfit) ? finalProfit : null,
+                        deriv_balance_after_settlement: balanceAfter,
+                        settlement_status: status,
+                        won,
+                        exit_tick: poc.exit_tick ?? null,
+                        exit_tick_time: poc.exit_tick_time ?? null,
+                    };
+
+                    this.isSold = false;
+                    this.isExpired = status === 'expired';
+                    this.isSellAvailable = false;
+                    this.derivSettlement = poc;
+
+                    globalObserver.setState({
+                        trapkid_analyzer: {
+                            ...(globalObserver.getState('trapkid_analyzer') || {}),
+                            status: 'ANALYZER_SETTLED',
+                            analyzerExecutionStatus: 'ANALYZER_SETTLED',
+                            executionTrigger: 'DERIV_AUTOMATIC_SETTLEMENT',
+                            settlementSource: 'DERIV_AUTOMATIC_SETTLEMENT',
+                            analyzerContractId: exactContractId,
+                            derivContractId: exactContractId,
+                            derivSettlementStatus: status,
+                            derivPayout: Number.isFinite(payout) ? payout : null,
+                            payout: Number.isFinite(payout) ? payout : null,
+                            profit: Number.isFinite(finalProfit) ? finalProfit : null,
+                            won,
+                            derivBalanceAfterSettlement: balanceAfter,
+                            cycleFinished: true,
+                            holdUntilAnalyzerExit: false,
+                        },
+                    });
+                    globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
+                    globalObserver.emit('deriv.contract.settled', {
+                        local_contract_id: this.analyzerSignal?.signalId || null,
+                        contract_id: exactContractId,
+                        status,
+                        payout: Number.isFinite(payout) ? payout : null,
+                        profit: Number.isFinite(finalProfit) ? finalProfit : null,
+                        balance_after: balanceAfter,
+                        won,
+                    });
+                    contract(this.data.contract);
+                    contractStatus({ id: 'contract.settled', data: exactContractId, contract: this.data.contract });
+
+                    if (this.resolveAnalyzerCycle) {
+                        const resolve = this.resolveAnalyzerCycle;
+                        this.resolveAnalyzerCycle = null;
+                        resolve();
+                    }
+                    return true;
+                }
+
+                globalObserver.emit(
+                    'ui.log.error',
+                    'TRAPKID ANALYZER → settlement confirmation timed out for SAME CONTRACT=' + exactContractId
+                );
+                return false;
+            })().finally(() => {
+                this.analyzerSettlementPromise = null;
+            });
+
+            return this.analyzerSettlementPromise;
+        }
+
         getPurchaseReference = () => purchase_reference;
         regeneratePurchaseReference = () => {
             purchase_reference = getUUID();
