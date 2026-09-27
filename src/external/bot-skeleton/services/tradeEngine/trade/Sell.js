@@ -197,70 +197,117 @@ export default Engine =>
 
             let result;
             try {
-                // Analyzer SELL has its own bounded retry policy so RateLimit
-                // cannot recurse indefinitely through the generic DBot recovery loop.
+                // Analyzer Match settlement is allowed to confirm the same
+                // contract even when a 1-tick DIGITMATCH has already reached
+                // its broker expiry. In that case SELL is no longer a valid
+                // operation; the broker's final contract record is the
+                // settlement record for the exact BUY contract.
                 result = await sellContractAndGetInfo();
             } catch (error) {
-                const errorCode = error?.error?.code || error?.code || '';
-                const errorMessage = error?.error?.message || error?.message || 'sell failed';
-                const failedState = globalObserver.getState('trapkid_analyzer') || {};
-                globalObserver.setState({
-                    trapkid_analyzer: {
-                        ...failedState,
-                        status: 'EARLY_SELL_FAILED',
-                        analyzerExecutionStatus: 'EARLY_SELL_FAILED',
-                        executionTrigger: String(state.executionTrigger || 'MATCH_FOUND'),
-                        holdUntilAnalyzerExit: true,
-                        analyzerExitStatus: String(state.executionTrigger || exit?.status || 'MATCH_FOUND'),
-                        earlySellErrorCode: errorCode || null,
-                        earlySellError: errorMessage,
-                        analyzerContractId: contractId,
-                        derivContractId: contractId,
-                        // Release only the in-flight lock. Keep the immutable
-                        // BUY binding so the next retry can target the SAME contract.
-                        analyzerSellInFlight: false,
-                        analyzerSellAttemptKey: null,
-                    },
-                });
-                globalObserver.emit(
-                    'ui.log.error',
-                    'TRAPKID DERIV EARLY SELL → ' + errorMessage + ' → SAME CONTRACT=' + contractId
-                );
-                globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
-                return false;
+                let contractResponse = null;
+                try {
+                    contractResponse = await api_base.api.send({
+                        proposal_open_contract: 1,
+                        contract_id: Number(contractId),
+                    });
+                } catch {
+                    // Preserve the original broker error if the contract record
+                    // cannot be read.
+                }
+
+                const poc = contractResponse?.proposal_open_contract;
+                const finalContractId = String(poc?.contract_id ?? '');
+                const finalTickRaw = poc?.exit_tick_display ?? poc?.exit_tick;
+                const finalTickDigits = String(finalTickRaw ?? '').replace(/[^0-9]/g, '');
+                const finalDigit = finalTickDigits ? Number(finalTickDigits.slice(-1)) : NaN;
+                const brokerClosed =
+                    finalContractId === contractId &&
+                    (poc?.is_sold === 1 || poc?.is_sold === true ||
+                     poc?.is_expired === 1 || poc?.is_expired === true);
+
+                // A one-tick contract may already be broker-settled by the time
+                // the Analyzer MATCH_FOUND reaches the SELL bridge. If its exact
+                // final tick is the Analyzer hot digit, confirm that SAME contract
+                // as MATCH_SETTLED instead of reporting a false SELL failure.
+                if (brokerClosed && Number.isInteger(finalDigit) && finalDigit === hotDigit) {
+                    globalObserver.emit(
+                        'ui.log',
+                        'TRAPKID MATCH → SAME CONTRACT ALREADY SETTLED → contract=' +
+                            contractId + ' → hotDigit=' + hotDigit
+                    );
+                    result = {
+                        brokerSettled: true,
+                        contractResponse,
+                    };
+                } else {
+                    const errorCode = error?.error?.code || error?.code || '';
+                    const errorMessage = error?.error?.message || error?.message || 'sell failed';
+                    const failedState = globalObserver.getState('trapkid_analyzer') || {};
+                    globalObserver.setState({
+                        trapkid_analyzer: {
+                            ...failedState,
+                            status: 'MATCH_SETTLEMENT_PENDING',
+                            analyzerExecutionStatus: 'MATCH_SETTLEMENT_PENDING',
+                            executionTrigger: 'MATCH_FOUND',
+                            holdUntilAnalyzerExit: true,
+                            analyzerExitStatus: 'MATCH_FOUND',
+                            earlySellErrorCode: errorCode || null,
+                            earlySellError: errorMessage,
+                            analyzerContractId: contractId,
+                            derivContractId: contractId,
+                            analyzerSellInFlight: false,
+                            analyzerSellAttemptKey: null,
+                        },
+                    });
+                    globalObserver.emit(
+                        'ui.log.error',
+                        'TRAPKID MATCH → settlement pending for SAME CONTRACT=' + contractId +
+                        ' → ' + errorMessage
+                    );
+                    globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
+                    return false;
+                }
             }
 
             if (result?.notSellable) {
                 const poc = result?.contractResponse?.proposal_open_contract;
-                const reason = poc?.is_expired
-                    ? 'contract expired before EARLY_SELL_READY reached the broker'
-                    : poc?.is_sold
-                      ? 'contract was already sold'
-                      : 'contract is not currently sellable';
-                globalObserver.emit(
-                    'ui.log.error',
-                    'TRAPKID DERIV EARLY SELL → ' + reason + ' → contract=' + contractId
-                );
-                return false;
+                const finalTickRaw = poc?.exit_tick_display ?? poc?.exit_tick;
+                const finalTickDigits = String(finalTickRaw ?? '').replace(/[^0-9]/g, '');
+                const finalDigit = finalTickDigits ? Number(finalTickDigits.slice(-1)) : NaN;
+                const brokerClosed =
+                    String(poc?.contract_id ?? '') === contractId &&
+                    (poc?.is_sold === 1 || poc?.is_sold === true ||
+                     poc?.is_expired === 1 || poc?.is_expired === true);
+                if (brokerClosed && Number.isInteger(finalDigit) && finalDigit === hotDigit) {
+                    result = { brokerSettled: true, contractResponse: result.contractResponse };
+                } else {
+                    return false;
+                }
             }
 
             const sold = result?.sellResponse?.sell;
             const poc = result?.contractResponse?.proposal_open_contract;
-            const soldFor = Number(sold?.sold_for ?? poc?.sell_price);
+            const brokerSettled = result?.brokerSettled === true;
+            const soldFor = Number(sold?.sold_for ?? poc?.sell_price ?? poc?.payout ?? poc?.bid_price);
             const balanceAfter = Number(sold?.balance_after);
             const sellTransactionId =
                 sold?.transaction_id ??
                 poc?.transaction_ids?.sell ??
                 null;
+            const brokerBuyTransactionId =
+                poc?.transaction_ids?.buy ??
+                this.derivBuyTransactionId ??
+                currentContract?.transaction_ids?.buy ??
+                null;
 
             if (
                 String(sold?.contract_id ?? poc?.contract_id ?? contractId) !== contractId ||
                 !Number.isFinite(soldFor) ||
-                sellTransactionId == null
+                (!brokerSettled && sellTransactionId == null)
             ) {
                 globalObserver.emit(
                     'ui.log.error',
-                    'TRAPKID DERIV EARLY SELL → Deriv did not confirm the same contract with sold_for and transaction_id.'
+                    'TRAPKID MATCH → settlement did not confirm the SAME CONTRACT=' + contractId
                 );
                 return false;
             }
@@ -291,7 +338,7 @@ export default Engine =>
                 analyzer_exit_digit: hotDigit,
                 analyzer_exit_quote: Number.isFinite(Number(exit?.quote)) ? Number(exit.quote) : null,
                 analyzer_contract_id: contractId,
-                financial_status: 'DERIV_SELL_CONFIRMED',
+                financial_status: brokerSettled ? 'DERIV_CONTRACT_SETTLED' : 'DERIV_SELL_CONFIRMED',
                 status: 'sold',
                 is_sold: true,
                 is_expired: false,
@@ -338,7 +385,7 @@ export default Engine =>
                     derivSellPrice: soldFor,
                     derivPayout: soldFor,
                     payout: soldFor,
-                    financialStatus: 'DERIV_SELL_CONFIRMED',
+                    financialStatus: brokerSettled ? 'DERIV_CONTRACT_SETTLED' : 'DERIV_SELL_CONFIRMED',
                     financial_status: 'DERIV_SELL_CONFIRMED',
                     profit,
                     derivBalanceAfterSell: Number.isFinite(balanceAfter) ? balanceAfter : null,
