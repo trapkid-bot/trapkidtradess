@@ -51,7 +51,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             const signalId = String(signal.signalId);
             const commandKey = signalId + ':' + String(signal.lockedAt);
             const currentStatus = String(state?.status || '');
-            if (['MATCH_SETTLED', 'ANALYZER_SETTLED'].includes(currentStatus) || this.isSold) return;
+            if (['MATCH_FOUND', 'MATCH_SETTLED', 'ANALYZER_SETTLED'].includes(currentStatus) || this.isSold) return;
 
             const hotDigit = Number(signal.hotDigit);
             if (!Number.isInteger(hotDigit) || hotDigit < 0 || hotDigit > 9) return;
