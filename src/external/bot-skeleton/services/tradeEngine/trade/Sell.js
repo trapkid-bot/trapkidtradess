@@ -103,7 +103,6 @@ export default Engine =>
                 null;
             const exitDigit = Number(exit?.digit ?? analyzerState?.exit?.digit);
             const settledAtMs = Number(exit?.epoch) > 0 ? Number(exit.epoch) * 1000 : Date.now();
-            const derivSellTransactionId = derivSell?.transaction_id ?? null;
 
             this.data.contract = {
                 ...contract,
