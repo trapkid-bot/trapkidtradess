@@ -21,7 +21,6 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // polling, open-contract polling, or broker settlement callbacks.
         this.analyzerOnly = true;
         this.accountInfo = { loginid: 'ANALYZER', currency: 'USD' };
-        this.observe();
         this.data = {
             contract: {},
             proposals: [],
@@ -59,6 +58,11 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // The cycle resolves only after EARLY_SELL_READY settles this same contract.
         this.analyzerCyclePromise = Promise.resolve();
         this.resolveAnalyzerCycle = null;
+
+        // Register only after all Analyzer handlers have been assigned.
+        // Registering undefined handlers causes the Observer to throw
+        // "t is not a function" when the Analyzer bridge emits an event.
+        this.observe();
     }
 
     onAnalyzerCommand = async command => {
