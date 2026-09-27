@@ -184,11 +184,28 @@ export default Engine =>
                 // cannot recurse indefinitely through the generic DBot recovery loop.
                 result = await sellContractAndGetInfo();
             } catch (error) {
+                const errorCode = error?.error?.code || error?.code || '';
+                const errorMessage = error?.error?.message || error?.message || 'sell failed';
+                const failedState = globalObserver.getState('trapkid_analyzer') || {};
+                globalObserver.setState({
+                    trapkid_analyzer: {
+                        ...failedState,
+                        status: 'EARLY_SELL_FAILED',
+                        analyzerExecutionStatus: 'EARLY_SELL_FAILED',
+                        executionTrigger: 'EARLY_SELL_READY',
+                        holdUntilAnalyzerExit: true,
+                        analyzerExitStatus: 'EARLY_SELL_READY',
+                        earlySellErrorCode: errorCode || null,
+                        earlySellError: errorMessage,
+                        analyzerContractId: contractId,
+                        derivContractId: contractId,
+                    },
+                });
                 globalObserver.emit(
                     'ui.log.error',
-                    'TRAPKID DERIV EARLY SELL → ' +
-                        (error?.error?.message || error?.error?.code || error?.message || 'sell failed')
+                    'TRAPKID DERIV EARLY SELL → ' + errorMessage + ' → SAME CONTRACT=' + contractId
                 );
+                globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
                 return false;
             }
 
@@ -297,8 +314,11 @@ export default Engine =>
                     analyzerContractId: contractId,
                     derivContractId: contractId,
                     derivSellTransactionId: sellTransactionId,
+                    derivSellPrice: soldFor,
                     derivPayout: soldFor,
                     payout: soldFor,
+                    financialStatus: 'DERIV_SELL_CONFIRMED',
+                    financial_status: 'DERIV_SELL_CONFIRMED',
                     profit,
                     derivBalanceAfterSell: Number.isFinite(balanceAfter) ? balanceAfter : null,
                     exit: {
