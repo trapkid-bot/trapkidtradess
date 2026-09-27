@@ -140,26 +140,34 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // expiry is no longer allowed to cancel the pending/active lifecycle.
         if (!signalIsBoundToThisTrade && Number.isFinite(lockExpiry) && Date.now() >= lockExpiry) return;
 
+        // Use the EXIT command/state payload itself first. Do not let a
+        // stale local getAnalyzerExit() snapshot override a fresh
+        // EARLY_SELL_READY command from the Analyzer.
         const bridgeExit = command?.exit || analyzerState?.exit;
-        const exit = this.getAnalyzerExit?.() || (
+        const exit =
             bridgeExit?.status === 'EARLY_SELL_READY'
                 ? {
-                    signalId: String(bridgeExit.signalId || commandSignalId),
-                    digit: Number(bridgeExit.digit),
+                    signalId: String(bridgeExit.signalId || commandSignalId || activeSignalId),
+                    digit: Number(bridgeExit.digit ?? signal.hotDigit),
                     hotDigit: Number(signal.hotDigit),
                     quote: Number(bridgeExit.quote),
                     epoch: Number(bridgeExit.epoch),
+                    status: 'EARLY_SELL_READY',
+                    exitCode: bridgeExit.exitCode || null,
                 }
-                : null
-        );
+                : (this.getAnalyzerExit?.() || null);
         if (
             !exit ||
-            String(exit.signalId) !== activeSignalId ||
+            String(exit.signalId || activeSignalId) !== activeSignalId ||
             !Number.isInteger(Number(exit.digit)) ||
             Number(exit.digit) < 0 ||
             Number(exit.digit) > 9 ||
             Number(exit.digit) !== Number(signal.hotDigit)
         ) {
+            globalObserver.emit(
+                'ui.log.error',
+                'TRAPKID ANALYZER COMMAND → EARLY_SELL_READY REJECTED: signal/digit mismatch'
+            );
             return;
         }
 
