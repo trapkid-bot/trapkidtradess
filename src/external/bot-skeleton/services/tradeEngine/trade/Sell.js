@@ -31,27 +31,24 @@ export default Engine =>
             const contract = this.data?.contract || {};
             const fallbackStake = Number(contract.buy_price ?? this.tradeOptions?.amount ?? 0);
 
-            // EARLY_SELL_READY is an Analyzer signal, not a financial result.
-            // For DIGITMATCH the money result must come from Deriv. Do not market-sell
-            // merely because the Analyzer observed the digit: an early Deriv sell
-            // returns sold_for (which can be below stake) rather than the contract
-            // payout. Instead reconcile the purchased Deriv contract until Deriv
-            // reports its authoritative terminal payout/profit.
+            // Analyzer is authoritative for the exit decision. Once the Analyzer
+            // verifies EARLY_SELL_READY, execute the real Deriv early-sell request.
+            // Deriv is used only for the actual amount returned (sold_for), transaction
+            // ID, and resulting balance. Do not wait for contract expiry here.
             let derivSettlement = null;
             try {
-                derivSettlement = await this.settleAnalyzerDerivContract?.();
+                derivSettlement = await this.sellAnalyzerDerivContract?.();
             } catch (error) {
                 globalObserver.emit(
                     'ui.log.error',
-                    `TRAPKID DERIV SETTLEMENT ERROR → ${error?.message || 'Unknown error'}`
+                    `TRAPKID DERIV EARLY SELL ERROR → ${error?.message || 'Unknown error'}`
                 );
             }
 
             if (!derivSettlement) {
-                // Never turn a missing Deriv response into a local loss or win.
                 globalObserver.emit(
                     'ui.log.error',
-                    'TRAPKID DERIV SETTLEMENT → no authoritative final result; transaction remains open'
+                    'TRAPKID ANALYZER EXIT → Deriv did not return the early-sell proceeds; transaction remains open'
                 );
                 return Promise.resolve();
             }
@@ -143,8 +140,8 @@ export default Engine =>
                 deriv_balance_after_sell: Number.isFinite(Number(derivSettlement?.balance_after))
                     ? Number(derivSettlement.balance_after)
                     : null,
-                financial_status: 'DERIV_SETTLEMENT_CONFIRMED',
-                exit_spot: Number.isFinite(derivExitSpot) ? derivExitSpot : null,
+                financial_status: 'DERIV_SELL_CONFIRMED',
+                exit_spot: Number.isFinite(analyzerExitQuoteValue) ? analyzerExitQuoteValue : derivExitSpot,
                 exit_tick: Number.isFinite(derivExitSpot)
                     ? Math.abs(Math.trunc(derivExitSpot * 100)) % 10
                     : Number.isInteger(exitDigit)
@@ -182,7 +179,7 @@ export default Engine =>
                     commandKey: analyzerState.commandKey,
                     executionTrigger: 'ANALYZER_SETTLED',
                     holdUntilAnalyzerExit: false,
-                    settlementSource: 'DERIV_SETTLEMENT',
+                    settlementSource: 'ANALYZER_EARLY_SELL',
                     analyzerContractId: contractId,
                     analyzerEntryCode: this.data.contract.analyzer_entry_code,
                     analyzerExitCode: this.data.contract.analyzer_exit_code,
@@ -202,7 +199,7 @@ export default Engine =>
             globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
             globalObserver.emit(
                 'ui.log',
-                `TRAPKID ANALYZER SETTLED → ${contractId} → Deriv payout=${payout} → profit=${finalProfit}`
+                `TRAPKID ANALYZER EXIT EXECUTED → ${contractId} → Deriv proceeds=${payout} → profit=${finalProfit}`
             );
 
             if (this.afterPromise) {
