@@ -187,19 +187,29 @@ const TrapKidAnalyzerDock = () => {
                         // immediately so TradeEngine can act on the exact signal without
                         // waiting for another poll/render cycle.
                         analyzerExitStatus:
-                            remoteExitReady
-                                ? 'EARLY_SELL_READY'
-                                : currentAnalyzerState.analyzerExitStatus || null,
+                            preserveActiveExecution
+                                ? (currentAnalyzerState.analyzerExitStatus || null)
+                                : remoteExitReady
+                                  ? 'EARLY_SELL_READY'
+                                  : currentAnalyzerState.analyzerExitStatus || null,
                         analyzerExecutionStatus:
-                            remoteExitReady && String(currentAnalyzerState.status || '') !== 'ANALYZER_EARLY_SELL_CONFIRMED'
-                                ? 'EARLY_EXIT_EXECUTING'
-                                : currentAnalyzerState.analyzerExecutionStatus || null,
+                            preserveActiveExecution
+                                ? (currentAnalyzerState.analyzerExecutionStatus || null)
+                                : remoteExitReady && String(currentAnalyzerState.status || '') !== 'ANALYZER_EARLY_SELL_CONFIRMED'
+                                  ? 'EARLY_EXIT_EXECUTING'
+                                  : currentAnalyzerState.analyzerExecutionStatus || null,
                         executionTrigger:
-                            remoteExitReady && String(currentAnalyzerState.status || '') !== 'ANALYZER_EARLY_SELL_CONFIRMED'
-                                ? 'EARLY_SELL_READY'
-                                : currentAnalyzerState.executionTrigger || null,
+                            preserveActiveExecution
+                                ? (currentAnalyzerState.executionTrigger || null)
+                                : remoteExitReady && String(currentAnalyzerState.status || '') !== 'ANALYZER_EARLY_SELL_CONFIRMED'
+                                  ? 'EARLY_SELL_READY'
+                                  : currentAnalyzerState.executionTrigger || null,
                         holdUntilAnalyzerExit:
-                            remoteExitReady ? false : currentAnalyzerState.holdUntilAnalyzerExit,
+                            preserveActiveExecution
+                                ? currentAnalyzerState.holdUntilAnalyzerExit
+                                : remoteExitReady
+                                  ? false
+                                  : currentAnalyzerState.holdUntilAnalyzerExit,
                     };
                     // A fresh Analyzer signal starts a new execution cycle.
                     // Never carry the previous cycle's Deriv contract/settlement
