@@ -30,9 +30,6 @@ export default class TransactionsStore {
         this.core = core;
         this.is_transaction_details_modal_open = false;
         this.disposeReactionsFn = this.registerReactions();
-        globalObserver.register('deriv.contract.buy', this.onDerivBuyEvent);
-        globalObserver.register('deriv.contract.open', this.onDerivOpenContractEvent);
-        globalObserver.register('deriv.contract.sell', this.onDerivSellEvent);
 
         makeObservable(this, {
             elements: observable,
@@ -54,6 +51,10 @@ export default class TransactionsStore {
             onDerivOpenContractEvent: action.bound,
             onDerivSellEvent: action.bound,
         });
+
+        globalObserver.register('deriv.contract.buy', this.onDerivBuyEvent);
+        globalObserver.register('deriv.contract.open', this.onDerivOpenContractEvent);
+        globalObserver.register('deriv.contract.sell', this.onDerivSellEvent);
     }
     TRANSACTION_CACHE = 'transaction_cache';
 
