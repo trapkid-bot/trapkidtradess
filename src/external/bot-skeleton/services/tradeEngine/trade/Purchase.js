@@ -22,7 +22,12 @@ const analyzerContractBindingStore =
     globalThis.__TRAPKID_ANALYZER_CONTRACT_BINDINGS__ ||
     (globalThis.__TRAPKID_ANALYZER_CONTRACT_BINDINGS__ = new Map());
 
+const analyzerPurchaseReservationStore =
+    globalThis.__TRAPKID_ANALYZER_PURCHASE_RESERVATIONS__ ||
+    (globalThis.__TRAPKID_ANALYZER_PURCHASE_RESERVATIONS__ = new Set());
+
 export const analyzerContractBindings = analyzerContractBindingStore;
+export const analyzerPurchaseReservations = analyzerPurchaseReservationStore;
 
 // ANALYZER-ONLY EXECUTION RULES — these override Builder/local trade rules.
 // Analyzer entryDigit is the ONLY DIGITMATCH purchase barrier.
@@ -112,19 +117,24 @@ export default Engine =>
                     String(signal.signalId) + ':' + String(signal.lockedAt);
                 const currentAnalyzerState = globalObserver.getState('trapkid_analyzer') || {};
 
-                // One Analyzer signal can create exactly one contract.
-                // Keep this guard in shared observer state so it survives
-                // engine/restart callbacks.
+                // One Analyzer signal can create exactly ONE real Deriv BUY.
+                // The observer state above is not an atomic lock: two TradeEngine
+                // instances can read it before either instance writes it. Use the
+                // shared application registry as the synchronous reservation so
+                // the second instance is blocked BEFORE it can call Deriv BUY.
                 if (
                     currentAnalyzerState.purchaseConsumedKey === analyzerSignalKey ||
-                    currentAnalyzerState.purchaseInFlightKey === analyzerSignalKey
+                    currentAnalyzerState.purchaseInFlightKey === analyzerSignalKey ||
+                    analyzerPurchaseReservations.has(analyzerSignalKey)
                 ) {
                     return Promise.resolve();
                 }
 
-                // Reserve the signal before sending the purchase request so
-                // concurrent/restarted purchase callbacks cannot create a
-                // second contract from the same Analyzer signal.
+                analyzerPurchaseReservations.add(analyzerSignalKey);
+
+                // Mirror the reservation into Analyzer state for UI/lifecycle
+                // visibility, but the shared registry above is the actual
+                // concurrency guard.
                 globalObserver.setState({
                     trapkid_analyzer: {
                         ...currentAnalyzerState,
@@ -193,12 +203,22 @@ export default Engine =>
                 this.derivBuyTransactionId = buy.transaction_id ?? null;
 
                 // Bind the broker's actual BUY contract to this exact Analyzer signal
-                // before publishing any lifecycle/UI state. SELL must use this value.
+                // before publishing any lifecycle/UI state. This binding is immutable:
+                // a later TradeEngine instance must NEVER replace it with another
+                // contract for the same signal.
                 if (this.analyzerSignal?.signalId && Number.isFinite(Number(this.analyzerSignal?.lockedAt))) {
-                    analyzerContractBindings.set(
-                        String(this.analyzerSignal.signalId) + ':' + String(this.analyzerSignal.lockedAt),
-                        String(buy.contract_id)
-                    );
+                    const signalKey =
+                        String(this.analyzerSignal.signalId) + ':' + String(this.analyzerSignal.lockedAt);
+                    const existingContractId = String(analyzerContractBindings.get(signalKey) || '');
+                    if (!existingContractId) {
+                        analyzerContractBindings.set(signalKey, String(buy.contract_id));
+                    } else if (existingContractId !== String(buy.contract_id)) {
+                        globalObserver.emit(
+                            'ui.log.error',
+                            'TRAPKID ANALYZER BUY BLOCKED → duplicate contract for the same signal. ' +
+                                'BOUND=' + existingContractId + ' RECEIVED=' + String(buy.contract_id)
+                        );
+                    }
                 }
                 this.isSold = false;
                 this.isExpired = false;
