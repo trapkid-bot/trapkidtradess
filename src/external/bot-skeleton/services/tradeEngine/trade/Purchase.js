@@ -9,6 +9,13 @@ import { observer as globalObserver } from '../../../utils/observer';
 let delayIndex = 0;
 let purchase_reference;
 
+// Analyzer logical duration remains 1 tick, but the real Deriv position
+// must stay sellable until EARLY_SELL_READY. Deriv has no separate
+// "display duration" field, so use a long physical expiry as the safety ceiling.
+const ANALYZER_HOLD_SECONDS = 24 * 60 * 60;
+const ANALYZER_LOGICAL_DURATION = 1;
+const ANALYZER_LOGICAL_DURATION_UNIT = 't';
+
 export default Engine =>
     class Purchase extends Engine {
         async purchase(contract_type) {
@@ -191,8 +198,10 @@ export default Engine =>
                     analyzer_command_key: this.analyzerCommandKey || null,
                     analyzer_hot_digit: Number(this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
                     analyzer_prediction: Number(this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
-                    analyzer_duration: 1,
-                    analyzer_duration_unit: 't',
+                    analyzer_duration: ANALYZER_LOGICAL_DURATION,
+                    analyzer_duration_unit: ANALYZER_LOGICAL_DURATION_UNIT,
+                    deriv_physical_duration: ANALYZER_HOLD_SECONDS,
+                    deriv_physical_duration_unit: 's',
                     analyzer_exit_status: 'WAITING_FOR_ANALYZER_EXIT',
                     deriv_transaction_id: buy.transaction_id ?? null,
                     deriv_buy_price: Number(buy.buy_price),
@@ -234,6 +243,10 @@ export default Engine =>
                         derivBuyPrice: Number.isFinite(Number(buy.buy_price)) ? Number(buy.buy_price) : null,
                         analyzerPotentialPayout: Number.isFinite(Number(buy.payout)) ? Number(buy.payout) : null,
                         payout: Number.isFinite(Number(buy.payout)) ? Number(buy.payout) : null,
+                        analyzerLogicalDuration: ANALYZER_LOGICAL_DURATION,
+                        analyzerLogicalDurationUnit: ANALYZER_LOGICAL_DURATION_UNIT,
+                        derivPhysicalDuration: ANALYZER_HOLD_SECONDS,
+                        derivPhysicalDurationUnit: 's',
                         payoutSource: 'DERIV_BUY',
                         derivBalanceAfterBuy: Number.isFinite(Number(buy.balance_after)) ? Number(buy.balance_after) : null,
                         signal: this.analyzerSignal || globalObserver.getState('trapkid_analyzer')?.signal,
@@ -319,14 +332,24 @@ export default Engine =>
                     throw new Error('TRAPKID ANALYZER BUY -> missing stake, market, or hot digit.');
                 }
 
+                // IMPORTANT:
+                // - Logical DBot/Analyzer duration = 1 tick.
+                // - Physical Deriv expiry = long enough for the Analyzer lifecycle.
+                // - EARLY_SELL_READY is the only event that closes the real contract.
+                // A real 1-tick Deriv contract cannot remain open for a later
+                // Analyzer exit because Deriv expires it at the tick boundary.
+                const logicalDuration = ANALYZER_LOGICAL_DURATION;
+                const logicalDurationUnit = ANALYZER_LOGICAL_DURATION_UNIT;
+                const physicalHoldDuration = ANALYZER_HOLD_SECONDS;
+
                 const proposalRequest = {
                     proposal: 1,
                     amount,
                     basis: 'stake',
                     contract_type: 'DIGITMATCH',
                     currency,
-                    duration: 1,
-                    duration_unit: 't',
+                    duration: physicalHoldDuration,
+                    duration_unit: 's',
                     underlying_symbol: symbol,
                     barrier: String(hotDigit),
                 };
@@ -359,6 +382,10 @@ export default Engine =>
                         analyzerPotentialPayout: Number.isFinite(potentialPayout) ? potentialPayout : null,
                         payout: Number.isFinite(potentialPayout) ? potentialPayout : null,
                         payoutSource: 'DERIV_PROPOSAL',
+                        analyzerLogicalDuration: logicalDuration,
+                        analyzerLogicalDurationUnit: logicalDurationUnit,
+                        derivPhysicalDuration: physicalHoldDuration,
+                        derivPhysicalDurationUnit: 's',
                     },
                 });
                 globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
