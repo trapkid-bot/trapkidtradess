@@ -183,8 +183,8 @@ export default Engine =>
                     // SELL response is authoritative for sold_for/transaction_id.
                 }
 
-                const sell = sellResponse?.sell;
-                const responseContractId = String(sell?.contract_id ?? '');
+                const sellPayload = sellResponse?.sell;
+                const responseContractId = String(sellPayload?.contract_id ?? '');
                 if (responseContractId && responseContractId !== contractId) {
                     throw new Error(
                         'TRAPKID DERIV EARLY SELL → Deriv returned a different contract ID. expected=' +
