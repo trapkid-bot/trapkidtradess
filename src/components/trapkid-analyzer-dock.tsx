@@ -149,6 +149,23 @@ const TrapKidAnalyzerDock = () => {
                                       : 'CONNECTED_WAITING',
                         ...(commandBoundToSignal ? { commandKey: signalKey } : {}),
                         lastSeen: now,
+                        // Mirror the Analyzer exit command into shared execution state
+                        // immediately so TradeEngine can act on the exact signal without
+                        // waiting for another poll/render cycle.
+                        analyzerExitStatus:
+                            remoteExitReady
+                                ? 'EARLY_SELL_READY'
+                                : currentAnalyzerState.analyzerExitStatus || null,
+                        analyzerExecutionStatus:
+                            remoteExitReady && String(currentAnalyzerState.status || '') !== 'ANALYZER_EARLY_SELL_CONFIRMED'
+                                ? 'EARLY_EXIT_EXECUTING'
+                                : currentAnalyzerState.analyzerExecutionStatus || null,
+                        executionTrigger:
+                            remoteExitReady && String(currentAnalyzerState.status || '') !== 'ANALYZER_EARLY_SELL_CONFIRMED'
+                                ? 'EARLY_SELL_READY'
+                                : currentAnalyzerState.executionTrigger || null,
+                        holdUntilAnalyzerExit:
+                            remoteExitReady ? false : currentAnalyzerState.holdUntilAnalyzerExit,
                     };
                     // A fresh Analyzer signal starts a new execution cycle.
                     // Never carry the previous cycle's Deriv contract/settlement
@@ -341,8 +358,8 @@ const TrapKidAnalyzerDock = () => {
     const hotDigit = Number(details?.analysis?.hotDigit ?? details?.signal?.hotDigit);
     const exitDigit = Number(details?.exit?.digit ?? executionState?.exit?.digit);
     const exitStatus = String(
-        executionState?.status === 'MATCH_FOUND' || executionState?.status === 'MATCH_SETTLED'
-            ? 'MATCH_FOUND'
+        executionState?.analyzerExitStatus === 'EARLY_SELL_READY' || executionState?.status === 'EARLY_EXIT_EXECUTING' || executionState?.status === 'ANALYZER_EARLY_SELL_CONFIRMED'
+            ? 'EARLY_SELL_READY'
             : details?.exit?.status || executionState?.exit?.status || 'IDLE'
     );
     const exitValid = exitStatus === 'EARLY_SELL_READY' && Number.isInteger(exitDigit) && exitDigit === hotDigit;
@@ -458,7 +475,7 @@ const TrapKidAnalyzerDock = () => {
                     </div>
 
                     <div className='tk-analyzer-global-dbot'>
-                        <strong>{executionState?.status === 'MATCH_SETTLED' ? 'MATCH SETTLED — HOT DIGIT FOUND' : executionState?.status === 'MATCH_FOUND' || exitStatus === 'MATCH_FOUND' ? 'MATCH FOUND — SETTLING SAME CONTRACT' : 'MATCH OPEN — WAITING FOR HOT DIGIT'}</strong>
+                        <strong>{executionState?.status === 'ANALYZER_EARLY_SELL_CONFIRMED' ? 'ANALYZER EXIT CONFIRMED — SAME CONTRACT CLOSED' : executionState?.status === 'EARLY_EXIT_EXECUTING' || exitStatus === 'EARLY_SELL_READY' ? 'ANALYZER EARLY SELL — CLOSING SAME CONTRACT' : 'MATCH OPEN — WAITING FOR ANALYZER EARLY SELL'}</strong>
                     </div>
 
                     <div className='tk-analyzer-global-dbot'>
