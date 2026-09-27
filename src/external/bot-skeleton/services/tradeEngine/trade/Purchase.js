@@ -99,8 +99,11 @@ export default Engine =>
                         if (Number(data?.req_id) !== req_id || data?.msg_type !== msgType) return;
                         finish(data);
                     });
-                    api.send(payload);
+                    // Arm the timeout BEFORE send(). A fast Deriv response can
+                    // otherwise arrive synchronously, finish the promise, and
+                    // leave a stray timer running on the UI thread.
                     timeout = setTimeout(() => finish(null), timeoutMs);
+                    api.send(payload);
                 } catch {
                     finish(null);
                 }
