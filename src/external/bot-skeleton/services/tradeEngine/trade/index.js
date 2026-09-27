@@ -196,6 +196,10 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             this.is_proposal_subscription_required = false;
             globalObserver.emit('ui.log', 'TRAPKID ANALYZER READY COMMAND → BUY AUTHORIZED → ' + activeKey + ' → digit=' + hotDigit);
             await this.purchase('DIGITMATCH');
+
+            // Keep Analyze active until the matching Analyzer EARLY_SELL_READY
+            // event has sold and financially confirmed the SAME Deriv contract.
+            return this.analyzerCyclePromise;
         } catch (error) {
             globalObserver.emit('ui.log.error', error?.message || 'Analyzer ready-command purchase failed.');
         }
