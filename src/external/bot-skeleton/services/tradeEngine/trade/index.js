@@ -47,7 +47,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             // Otherwise trapkid.analyzer.updated feeds straight back into the
             // EARLY_SELL handler and creates duplicate SELL requests.
             if (
-                ['EARLY_EXIT_COMMAND_RECEIVED', 'EARLY_EXIT_EXECUTING', 'ANALYZER_SETTLED'].includes(
+                ['EARLY_EXIT_COMMAND_RECEIVED', 'EARLY_EXIT_EXECUTING', 'EARLY_SELL_FAILED', 'ANALYZER_SETTLED'].includes(
                     String(state?.status || '')
                 )
             ) {
