@@ -23,7 +23,7 @@ export default Engine =>
             if (
                 !signal?.signalId ||
                 String(state.commandKey || '') !== String(signal.signalId) + ':' + String(signal.lockedAt) ||
-                !String(state.executionTrigger || '') !== 'MATCH_FOUND' &&
+                String(state.executionTrigger || '') !== 'MATCH_FOUND' &&
                 String(exit?.status || '') !== 'MATCH_FOUND'
             ) {
                 return false;
