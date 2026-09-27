@@ -388,6 +388,31 @@ export default Engine =>
                     barrier: String(hotDigit),
                 };
 
+                // Publish the normal DBot buying lifecycle before the broker
+                // request so Summary/Transactions can show the command moving
+                // from ANALYZER → BUYING instead of remaining visually empty.
+                contractStatus({
+                    id: 'contract.purchase_sent',
+                    data: amount,
+                    analyzer: true,
+                    contract_type: 'DIGITMATCH',
+                    symbol,
+                    prediction: hotDigit,
+                    analyzer_entry_code: this.analyzerCommandKey || null,
+                });
+                globalObserver.setState({
+                    trapkid_analyzer: {
+                        ...(globalObserver.getState('trapkid_analyzer') || {}),
+                        status: 'ANALYZER_EXECUTION',
+                        analyzerExecutionStatus: 'ANALYZER_BUYING',
+                        contractType: 'DIGITMATCH',
+                        stake: amount,
+                        entryDigit: hotDigit,
+                        analyzerEntryCode: this.analyzerCommandKey || null,
+                    },
+                });
+                globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
+
                 let proposalResponse;
                 try {
                     proposalResponse = await doUntilDone(
