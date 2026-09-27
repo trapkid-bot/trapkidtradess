@@ -695,8 +695,13 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
     }
 
     observe() {
-        // No Deriv observers in Analyzer-only mode. The Analyzer is the
-        // execution/settlement authority for the complete trade lifecycle.
+        // Analyzer-only observers are the timing bridge. There are no Deriv
+        // tick/settlement observers here, but the explicit Analyzer command
+        // and EARLY_SELL_READY events must be registered immediately so an
+        // exit that arrives during/just after the 1-tick BUY is not missed.
+        globalObserver.register('trapkid.analyzer.command', this.analyzerCommandObserver);
+        globalObserver.register('trapkid.analyzer.exit', this.analyzerExitObserver);
+        globalObserver.register('trapkid.analyzer.updated', this.analyzerStateExitObserver);
     }
 
 }
