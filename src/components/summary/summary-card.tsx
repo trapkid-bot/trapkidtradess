@@ -93,8 +93,24 @@ const SummaryCard = observer(({ contract_info, is_contract_loading, is_bot_runni
             data-testid='dt_mock_summary_card'
         >
             {is_contract_loading && !is_bot_running && <ContractCardLoader speed={2} />}
-            {is_bot_running && <ContractCardLoader speed={2} contract_stage={contract_stage} />}
-            {!is_contract_loading && contract_info && !is_bot_running && (
+            {is_bot_running && !contract_info && <ContractCardLoader speed={2} contract_stage={contract_stage} />}
+            {is_bot_running && contract_info && (contract_info as any)?.analyzer_source === 'ANALYZER_ONLY' && (
+                <div
+                    style={{
+                        marginBottom: 8,
+                        padding: '8px 10px',
+                        borderRadius: 8,
+                        background: 'var(--general-section-1)',
+                        border: '1px solid var(--general-section-2)',
+                    }}
+                >
+                    <strong style={{ display: 'block', fontSize: 12 }}>TRAPKID ANALYZER — CONTRACT ACTIVE</strong>
+                    <span style={{ fontSize: 11 }}>
+                        Holding the SAME Deriv contract • 1 tick logic • waiting for EARLY_SELL_READY
+                    </span>
+                </div>
+            )}
+            {!is_contract_loading && contract_info && (
                 <ContractCard
                     contract_info={contract_info}
                     getCardLabels={getCardLabels}
