@@ -331,8 +331,15 @@ const TrapKidAnalyzerDock = () => {
     const buyPrice = executionState?.derivBuyPrice ?? executionState?.derivBuy?.buy_price;
     const buyTransactionId = executionState?.derivTransactionId || executionState?.derivBuy?.transaction_id || '—';
     const sellTransactionId = executionState?.derivSellTransactionId || '—';
-    const soldFor = executionState?.financialStatus === 'DERIV_SELL_CONFIRMED' || executionState?.financial_status === 'DERIV_SELL_CONFIRMED'\n        ? (executionState?.derivSellPrice ?? executionState?.derivPayout ?? executionState?.payout)\n        : (executionState?.derivSellPrice ?? (executionState?.deriv_sell_price));
-    const balanceAfterSell = executionState?.derivBalanceAfterSell;\n    const sellConfirmed = String(executionState?.financialStatus || executionState?.financial_status || '') === 'DERIV_SELL_CONFIRMED' && Boolean(executionState?.derivSellTransactionId || executionState?.deriv_sell_transaction_id);
+    const soldFor =
+        executionState?.financialStatus === 'DERIV_SELL_CONFIRMED' ||
+        executionState?.financial_status === 'DERIV_SELL_CONFIRMED'
+            ? executionState?.derivSellPrice ?? executionState?.derivPayout ?? executionState?.payout
+            : executionState?.derivSellPrice ?? executionState?.deriv_sell_price;
+    const balanceAfterSell = executionState?.derivBalanceAfterSell;
+    const sellConfirmed =
+        String(executionState?.financialStatus || executionState?.financial_status || '') === 'DERIV_SELL_CONFIRMED' &&
+        Boolean(executionState?.derivSellTransactionId || executionState?.deriv_sell_transaction_id);
     const lifecycle = String(executionState?.status || (connected ? 'CONNECTED_WAITING' : 'DISCONNECTED'));
 
     const beginDrag = (e: React.PointerEvent<HTMLDivElement>) => {
