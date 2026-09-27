@@ -129,6 +129,36 @@ const PopoverContent = ({ contract }: TPopoverContent) => (
                 </div>
             </PopoverItem>
         )}
+        {(contract as any)?.analyzer_source === 'ANALYZER_ONLY' && (
+            <React.Fragment>
+                <PopoverItem title='Analyzer entry code'>
+                    <div className='transactions__popover-value' style={{ wordBreak: 'break-all' }}>
+                        {(contract as any)?.analyzer_entry_code || (contract as any)?.analyzer_command_key || '—'}
+                    </div>
+                </PopoverItem>
+                <PopoverItem title='Analyzer entry digit'>
+                    <div className='transactions__popover-value'>
+                        {(contract as any)?.analyzer_entry_digit ?? (contract as any)?.analyzer_hot_digit ?? '—'}
+                    </div>
+                </PopoverItem>
+                <PopoverItem title='Deriv contract ID'>
+                    <div className='transactions__popover-value' style={{ wordBreak: 'break-all' }}>
+                        {(contract as any)?.analyzer_contract_id || (contract as any)?.deriv_contract_id || (contract as any)?.contract_id || '—'}
+                    </div>
+                </PopoverItem>
+                <PopoverItem title='Analyzer lifecycle'>
+                    <div className='transactions__popover-value'>
+                        {(contract as any)?.analyzer_execution_status ||
+                            ((contract as any)?.is_sold ? 'ANALYZER_SETTLED' : 'HOLDING_FOR_ANALYZER_EARLY_SELL')}
+                    </div>
+                </PopoverItem>
+                <PopoverItem title='Analyzer exit'>
+                    <div className='transactions__popover-value'>
+                        {(contract as any)?.analyzer_exit_status || 'WAITING_FOR_ANALYZER_EARLY_SELL'}
+                    </div>
+                </PopoverItem>
+            </React.Fragment>
+        )}
         {contract.entry_spot && (
             <PopoverItem title={localize('Entry spot')}>
                 <div className='transactions__popover-value'>{contract.entry_spot}</div>
