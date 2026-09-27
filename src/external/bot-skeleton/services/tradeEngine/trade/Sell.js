@@ -148,10 +148,27 @@ export default Engine =>
                     );
                 }
 
-                const sellResponse = await api_base.api.send({
-                    sell: Number(contractId),
-                    price: 0,
-                });
+                let sellResponse = null;
+                let lastSellError = null;
+
+                for (let attempt = 0; attempt < 4; attempt += 1) {
+                    try {
+                        sellResponse = await api_base.api.send({
+                            sell: Number(contractId),
+                            price: 0,
+                        });
+                        break;
+                    } catch (error) {
+                        lastSellError = error;
+                        const code = error?.error?.code || error?.code || '';
+                        if (code !== 'RateLimit' || attempt === 3) throw error;
+                        await wait(750 * (attempt + 1));
+                    }
+                }
+
+                if (!sellResponse) {
+                    throw lastSellError || new Error('TRAPKID DERIV EARLY SELL → SELL request returned no response.');
+                }
 
                 let contractResponse = openContractResponse;
                 try {
@@ -168,10 +185,9 @@ export default Engine =>
 
             let result;
             try {
-                // Do not endlessly retry terminal sell errors. The helper above
-                // contains a bounded visibility wait for the exact current BUY
-                // contract and then sends only one SELL request.
-                result = await doUntilDone(sellContractAndGetInfo, []);
+                // Analyzer SELL has its own bounded retry policy so RateLimit
+                // cannot recurse indefinitely through the generic DBot recovery loop.
+                result = await sellContractAndGetInfo();
             } catch (error) {
                 globalObserver.emit(
                     'ui.log.error',
