@@ -191,6 +191,13 @@ export default class TransactionsStore {
             merged.balance_after = Number(ledger.balance_after);
             merged.deriv_balance_after = Number(ledger.balance_after);
         }
+        if (Number.isFinite(Number(ledger.exit_spot))) merged.exit_spot = Number(ledger.exit_spot);
+        if (Number.isFinite(Number(ledger.exit_spot_time))) merged.exit_spot_time = Number(ledger.exit_spot_time);
+        if (Number.isFinite(Number(ledger.entry_spot))) merged.entry_spot = Number(ledger.entry_spot);
+        if (Number.isFinite(Number(ledger.entry_spot_time))) merged.entry_spot_time = Number(ledger.entry_spot_time);
+        if (ledger.status) merged.deriv_status = ledger.status;
+        if (ledger.is_sold !== undefined) merged.deriv_is_sold = ledger.is_sold;
+        if (ledger.is_expired !== undefined) merged.deriv_is_expired = ledger.is_expired;
         if (ledger.contract_id) merged.deriv_contract_id = String(ledger.contract_id);
         if (ledger.buy_transaction_id || ledger.transaction_id) {
             merged.transaction_ids = {
@@ -293,7 +300,14 @@ export default class TransactionsStore {
     pushTransaction(data: TContractInfo) {
         const ledger = this.getDerivLedgerForContract(data);
         if (ledger) data = this.mergeDerivLedgerIntoContract(data, ledger);
-        const is_completed = isEnded(data as ProposalOpenContract);
+        const isAnalyzerOnly = String((data as any).analyzer_source || '') === 'ANALYZER_ONLY';
+        const derivSettlementConfirmed = [
+            'DERIV_SETTLEMENT_CONFIRMED',
+            'DERIV_SETTLEMENT_RECONCILED',
+        ].includes(String((data as any).financial_status || ''));
+        const is_completed = isAnalyzerOnly
+            ? derivSettlementConfirmed && isEnded(data as ProposalOpenContract)
+            : isEnded(data as ProposalOpenContract);
         const { run_id } = this.root_store.run_panel;
         const current_account = this.core?.client?.loginid as string;
 
@@ -428,10 +442,17 @@ export default class TransactionsStore {
             ) {
                 this.recovered_completed_transactions.push(contract.contract_id);
 
-                journal.onLogSuccess({
-                    log_type: profit && profit > 0 ? LogTypes.PROFIT : LogTypes.LOST,
-                    extra: { currency, profit },
-                });
+                const analyzerOnly = String((contract as any).analyzer_source || '') === 'ANALYZER_ONLY';
+                const derivSettled = [
+                    'DERIV_SETTLEMENT_CONFIRMED',
+                    'DERIV_SETTLEMENT_RECONCILED',
+                ].includes(String((contract as any).financial_status || ''));
+                if (!analyzerOnly || derivSettled) {
+                    journal.onLogSuccess({
+                        log_type: profit && profit > 0 ? LogTypes.PROFIT : LogTypes.LOST,
+                        extra: { currency, profit },
+                    });
+                }
             }
         }
     }
