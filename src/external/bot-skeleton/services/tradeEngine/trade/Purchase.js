@@ -15,7 +15,7 @@ let purchase_reference;
 // DIGITMATCH is a short-duration contract. Use the longest common
 // broker-supported digit duration as the physical ceiling, while the
 // Analyzer still owns the actual exit lifecycle.
-const ANALYZER_PHYSICAL_HOLD_TICKS = 10;
+const ANALYZER_PHYSICAL_HOLD_TICKS = 60;
 const ANALYZER_LOGICAL_DURATION = 1;
 const ANALYZER_LOGICAL_DURATION_UNIT = 't';
 
@@ -368,7 +368,7 @@ export default Engine =>
 
                 // IMPORTANT:
                 // - Logical DBot/Analyzer duration = 1 tick.
-                // - Physical Deriv expiry = short tick ceiling accepted by DIGITMATCH.
+                // - Physical Deriv expiry = 60-tick safety ceiling; Analyzer still owns the actual exit.
                 // - EARLY_SELL_READY is the only event that closes the real contract.
                 // A real 1-tick Deriv contract can expire before the Analyzer exit;
                 // Analyzer exit because Deriv expires it at the tick boundary.
