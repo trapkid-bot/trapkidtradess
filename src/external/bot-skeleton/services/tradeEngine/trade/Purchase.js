@@ -283,7 +283,7 @@ export default Engine =>
                         signal: this.analyzerSignal || globalObserver.getState('trapkid_analyzer')?.signal,
                         signalId: this.analyzerSignal?.signalId,
                         commandKey: this.analyzerCommandKey,
-                        entryPrediction: entryDigit,
+                        entryPrediction: Number(this.analyzerSignal?.entryDigit ?? this.tradeOptions?.prediction),
                         lockedQuote: this.analyzerSignal?.lockedQuote,
                         entrySource: 'ANALYZER_ONLY',
                         exitSource: 'ANALYZER_EARLY_SELL_ONLY',
