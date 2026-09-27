@@ -5,6 +5,7 @@ import { api_base } from '../../api/api-base';
 import { contractStatus, log } from '../utils/broadcast';
 import { doUntilDone, recoverFromError } from '../utils/helpers';
 import { DURING_PURCHASE } from './state/constants';
+import { sell } from './state/actions';
 
 export default Engine =>
     class Sell extends Engine {
