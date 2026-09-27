@@ -23,8 +23,8 @@ export default Engine =>
             if (
                 !signal?.signalId ||
                 String(state.commandKey || '') !== String(signal.signalId) + ':' + String(signal.lockedAt) ||
-                !['EARLY_SELL_READY', 'MATCH_FOUND'].includes(String(state.executionTrigger || '')) &&
-                !['EARLY_SELL_READY', 'MATCH_FOUND'].includes(String(exit?.status || ''))
+                !String(state.executionTrigger || '') !== 'MATCH_FOUND' &&
+                String(exit?.status || '') !== 'MATCH_FOUND'
             ) {
                 return false;
             }
@@ -126,7 +126,7 @@ export default Engine =>
             // Do not reference the old per-engine buyResponseContractId here.
             globalObserver.emit(
                 'ui.log',
-                'TRAPKID ANALYZER EARLY SELL → SAME DERIV CONTRACT → ' +
+                'TRAPKID MATCH → SAME DERIV CONTRACT → ' +
                     contractId +
                     ' → signal=' +
                     String(signal.signalId) +
@@ -168,7 +168,7 @@ export default Engine =>
                 }
 
                 if (!sellResponse) {
-                    throw lastSellError || new Error('TRAPKID DERIV EARLY SELL → SELL request returned no response.');
+                    throw lastSellError || new Error('TRAPKID MATCH → SELL request returned no response.');
                 }
 
                 // Verification happens AFTER the SELL request so verification
