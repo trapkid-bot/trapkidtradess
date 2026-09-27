@@ -546,19 +546,58 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
 
         const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
 
-        // IMPORTANT: start() NEVER purchases an Analyzer contract.
-        // It only arms the bot and waits for the explicit Analyzer execution
-        // command. EXECUTE_ANALYZER_SIGNAL is the sole BUY trigger.
+        // RUN arms the Analyzer-only engine and immediately consumes the
+        // currently locked Analyzer signal. The BUY must happen BEFORE
+        // EARLY_SELL_READY; that event belongs only to the exit side of the
+        // already-purchased contract.
         this.analyzerExecutionStarted = true;
 
+        const isFreshEntrySignal = state => {
+            const signal = state?.signal;
+            if (!signal?.signalId || !signal?.symbol) return false;
+            const exitReady = state?.exit?.status === 'EARLY_SELL_READY';
+            if (exitReady) return false;
+            const expiresAt = Number(signal.expiresAt);
+            if (Number.isFinite(expiresAt) && Date.now() >= expiresAt) return false;
+            const hotDigit = Number(signal.hotDigit);
+            return Number.isInteger(hotDigit) && hotDigit >= 0 && hotDigit <= 9;
+        };
+
+        const executeEntrySignal = signal => this.onAnalyzerCommand({
+            command: 'EXECUTE_ANALYZER_SIGNAL',
+            source: 'TRAPKID_ANALYZER_RUN',
+            signal,
+            signalId: String(signal.signalId),
+            commandKey: String(signal.signalId) + ':' + String(signal.lockedAt),
+            entryReady: true,
+            status: 'READY',
+        });
+
+        const currentAnalyzerState = globalObserver.getState('trapkid_analyzer') || {};
+        const currentSignal = currentAnalyzerState?.signal;
+
+        if (isFreshEntrySignal(currentAnalyzerState)) {
+            globalObserver.emit(
+                'ui.log',
+                'TRAPKID ANALYZER → RUN → BUY AUTHORIZED → ' +
+                    String(currentSignal.signalId) +
+                    ' → digit=' +
+                    String(currentSignal.hotDigit)
+            );
+            return executeEntrySignal(currentSignal);
+        }
+
+        // If the visible signal has already reached EARLY_SELL_READY, it is
+        // too late to enter that cycle. Wait for the next locked Analyzer
+        // signal instead of purchasing after the exit event.
         globalObserver.setState({
             trapkid_analyzer: {
-                ...analyzerState,
-                status: 'WAITING_FOR_ANALYZER_COMMAND',
-                analyzerStatus: 'ANALYZE_CLICK',
+                ...currentAnalyzerState,
+                status: 'WAITING_FOR_ANALYZER_SIGNAL',
+                analyzerStatus: 'WAITING_FOR_NEW_LOCK',
                 entryReady: false,
                 executionArmed: false,
-                executionTrigger: 'WAITING_FOR_ANALYZER_COMMAND',
+                executionTrigger: 'WAITING_FOR_ANALYZER_SIGNAL',
                 holdUntilAnalyzerExit: true,
                 cycleFinished: false,
             },
@@ -566,30 +605,43 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
         globalObserver.emit(
             'ui.log',
-            'TRAPKID ANALYZER → BOT ARMED. BUY IS BLOCKED UNTIL EXECUTE_ANALYZER_SIGNAL COMMAND.'
+            'TRAPKID ANALYZER → RUN → WAITING FOR NEXT LOCKED SIGNAL BEFORE BUY'
         );
 
-        // The Analyze command is carried through runAnalyzer() so it cannot
-        // be lost while the lightweight TradeEngine is being constructed.
-        const startupCommand = tradeOptions?.analyzerCommand;
-        if (startupCommand?.command === 'EXECUTE_ANALYZER_SIGNAL') {
-            globalObserver.emit(
-                'ui.log',
-                'TRAPKID ANALYZER → DURABLE ANALYZE COMMAND FOUND → EXECUTING NOW'
-            );
-            return this.onAnalyzerCommand({
-                ...startupCommand,
-                source: startupCommand.source || 'TRAPKID_ANALYZER_HTTP',
-                commandKey: String(startupCommand.commandKey || ''),
-                entryReady: true,
-                status: 'READY',
-            });
-        }
+        return new Promise(resolve => {
+            let finished = false;
+            const initialSignalKey = currentSignal?.signalId
+                ? String(currentSignal.signalId) + ':' + String(currentSignal.lockedAt)
+                : '';
 
-        // The command handler is the only place that authorizes and starts
-        // the Analyzer DIGITMATCH purchase. Keep this lifecycle promise open
-        // until the matching Analyzer EARLY_SELL_READY closes the same contract.
-        return this.analyzerCyclePromise;
+            const cleanup = () => {
+                globalObserver.unregister('trapkid.analyzer.updated', onUpdate);
+                globalObserver.unregister('bot.stop', onStop);
+            };
+            const finish = value => {
+                if (finished) return;
+                finished = true;
+                cleanup();
+                resolve(value);
+            };
+            const onStop = () => finish(false);
+            const onUpdate = state => {
+                const nextSignal = state?.signal;
+                const nextKey = nextSignal?.signalId
+                    ? String(nextSignal.signalId) + ':' + String(nextSignal.lockedAt)
+                    : '';
+                if (!nextKey || nextKey === initialSignalKey || !isFreshEntrySignal(state)) return;
+                finish(executeEntrySignal(nextSignal));
+            };
+
+            globalObserver.register('trapkid.analyzer.updated', onUpdate);
+            globalObserver.register('bot.stop', onStop);
+
+            const latestState = globalObserver.getState('trapkid_analyzer') || {};
+            if (isFreshEntrySignal(latestState)) {
+                onUpdate(latestState);
+            }
+        });
     }
 
     // Compatibility method required by the Blockly interpreter. The old
