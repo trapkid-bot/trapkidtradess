@@ -38,82 +38,22 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // Per-signal financial exit lock. Sell.js keeps this key after a failed
         // SELL so duplicate Analyzer bridge events cannot retry the same contract.
         this.analyzerStateExitObserver = state => {
-            const stateSignal = state?.signal;
-            const engineSignal = this.analyzerSignal;
-            const signal =
-                stateSignal?.signalId
-                    ? stateSignal
-                    : engineSignal?.signalId
-                      ? engineSignal
-                      : null;
-            if (!signal?.signalId || !Number.isFinite(Number(signal.lockedAt))) return;
-
-            const signalId = String(signal.signalId);
-            const commandKey = signalId + ':' + String(signal.lockedAt);
-            const currentStatus = String(state?.status || '');
-            if (['MATCH_FOUND', 'MATCH_SETTLED', 'ANALYZER_SETTLED'].includes(currentStatus) || this.isSold) return;
-
-            const hotDigit = Number(signal.hotDigit);
-            if (!Number.isInteger(hotDigit) || hotDigit < 0 || hotDigit > 9) return;
-
-            const tick = state?.lastTick;
-            const tickDigit = Number.isInteger(Number(tick?.digit))
-                ? Number(tick.digit)
-                : (() => {
-                    const quote = String(tick?.quote ?? '');
-                    const digits = quote.replace(/[^0-9]/g, '');
-                    return digits ? Number(digits.slice(-1)) : NaN;
-                })();
-
+            // Analyzer is authoritative for settlement. Never infer an exit
+            // from a local tick digit or create MATCH_FOUND/MATCH_OPEN states.
             const exit = state?.exit;
-            const matchFound = tickDigit === hotDigit;
-
-            if (!matchFound) return;
-            if (this.analyzerExitHandling || this.analyzerDerivSellPromise) return;
-
-            const matchExit = {
-                signalId,
-                digit: hotDigit,
-                hotDigit,
-                quote: Number(tick?.quote),
-                epoch: Number(tick?.epoch || Date.now()),
-                status: 'MATCH_FOUND',
-                exitCode: commandKey,
-            };
-
-            globalObserver.setState({
-                trapkid_analyzer: {
-                    ...(globalObserver.getState('trapkid_analyzer') || {}),
-                    status: 'MATCH_FOUND',
-                    analyzerExecutionStatus: 'MATCH_FOUND',
-                    signal,
-                    signalId,
-                    commandKey,
-                    exit: matchExit,
-                    analyzerExitStatus: 'EARLY_SELL_READY',
-                    analyzerExitDigit: hotDigit,
-                    executionTrigger: 'MATCH_FOUND',
-                    holdUntilAnalyzerExit: false,
-                    matchFound: true,
-                    matchFoundAt: Date.now(),
-                },
-            });
-            globalObserver.emit('ui.log', 'TRAPKID MATCH → HOT DIGIT ' + hotDigit + ' APPEARED → SETTLING SAME CONTRACT');
-            globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
+            if (String(exit?.status || '') !== 'EARLY_SELL_READY') return;
+            if (this.analyzerExitHandling || this.isSold) return;
 
             void this.onAnalyzerEarlyExit({
-                source: 'TRAPKID_MATCH_STREAM',
+                source: 'TRAPKID_ANALYZER_STATE',
                 command: 'ANALYZER_EARLY_EXIT',
-                commandKey,
-                signalId,
-                signal,
-                exit: matchExit,
+                commandKey: state?.commandKey || null,
+                signalId: state?.signalId || state?.signal?.signalId || null,
+                signal: state?.signal || null,
+                exit,
                 receivedAt: Date.now(),
             });
         };
-        globalObserver.register('trapkid.analyzer.exit', this.analyzerExitObserver);
-        globalObserver.register('trapkid.analyzer.command', this.analyzerCommandObserver);
-        globalObserver.register('trapkid.analyzer.updated', this.analyzerStateExitObserver);
         this.store = createStore(rootReducer, applyMiddleware(thunk));
         // Keep Analyze running while the Analyzer-owned Match contract is open.
         // The cycle resolves only after MATCH_FOUND settles this same contract.
