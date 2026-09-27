@@ -12,6 +12,7 @@ export default Engine =>
             return this.contractId && !this.isSold && this.isSellAvailable && !this.isExpired;
         }
 
+        // Analyzer-only settlement: bind SELL to the current BUY contract and never reuse a prior cycle ID.
         async sellAnalyzerEarlyExit() {
             const state = globalObserver.getState('trapkid_analyzer') || {};
             const signal = state?.signal?.signalId ? state.signal : this.analyzerSignal;
