@@ -256,7 +256,40 @@ const Transaction = ({ contract, active_transaction_id, onClickTransaction }: TT
                 </div>
                 <div className='transactions__cell transactions__stake'>
                     {contract ? (
-                        <Money amount={contract.buy_price} currency={contract.currency} show_currency />
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+                            <Money amount={contract.buy_price} currency={contract.currency} show_currency />
+                            {(contract as any)?.analyzer_source === 'ANALYZER_ONLY' && (
+                                <>
+                                    <span
+                                        style={{
+                                            fontSize: 9,
+                                            lineHeight: 1.1,
+                                            opacity: 0.65,
+                                            textTransform: 'uppercase',
+                                            letterSpacing: 0.3,
+                                        }}
+                                    >
+                                        Analyzer entry code
+                                    </span>
+                                    <span
+                                        style={{
+                                            fontSize: 9,
+                                            lineHeight: 1.15,
+                                            maxWidth: 180,
+                                            overflow: 'hidden',
+                                            textOverflow: 'ellipsis',
+                                            whiteSpace: 'nowrap',
+                                        }}
+                                        title={(contract as any)?.analyzer_entry_code || (contract as any)?.analyzer_command_key || ''}
+                                    >
+                                        {(contract as any)?.analyzer_entry_code || (contract as any)?.analyzer_command_key || '—'}
+                                    </span>
+                                    <span style={{ fontSize: 9, lineHeight: 1.1, opacity: 0.7 }}>
+                                        Entry {(contract as any)?.analyzer_entry_digit ?? '—'} • Hot {(contract as any)?.analyzer_hot_digit ?? '—'}
+                                    </span>
+                                </>
+                            )}
+                        </div>
                     ) : (
                         <TransactionFieldLoader />
                     )}
