@@ -391,7 +391,7 @@ const MatchesTerminal = () => {
                 return;
             }
 
-            const contractId = String(state.derivContractId || state.analyzerContractId || '');
+            const contractId = String(state.analyzerContractId || '');
             const signal = state.signal;
             if (!contractId || !signal?.signalId) return;
             if (!['ANALYZER_EXECUTION', 'ANALYZER_PURCHASE_AUTHORIZED', 'RUNNING', 'WAITING_FOR_EARLY_SELL_READY', 'EARLY_SELL_READY', 'EARLY_EXIT_EXECUTING', 'EARLY_EXIT_COMMAND_RECEIVED', 'ANALYZER_DATA_BOUND'].includes(String(state.status || ''))) return;
@@ -420,12 +420,12 @@ const MatchesTerminal = () => {
             setPrediction(nextTrade.prediction);
             setStatus(
                 state.status === 'RUNNING' || state.status === 'WAITING_FOR_EARLY_SELL_READY'
-                    ? 'ANALYZER BUY CONFIRMED • 1-TICK EXECUTION • OPEN • waiting for Analyzer EARLY_SELL_READY'
+                    ? 'ANALYZER LOCAL CONTRACT OPEN • waiting for Analyzer EARLY_SELL_READY'
                     : state.status === 'EARLY_SELL_READY'
-                      ? 'ANALYZER EARLY_SELL_READY • SAME CONTRACT EXIT AUTHORIZED'
+                      ? 'ANALYZER EARLY_SELL_READY • LOCAL CONTRACT EXIT AUTHORIZED'
                       : state.status === 'EARLY_EXIT_EXECUTING'
-                        ? 'ANALYZER EARLY SELL EXECUTING • SAME CONTRACT'
-                        : 'ANALYZER COMMAND RECEIVED • TradeEngine executing ' + nextTrade.signalId
+                        ? 'ANALYZER LOCAL SETTLEMENT EXECUTING'
+                        : 'ANALYZER COMMAND RECEIVED • Local contract executing ' + nextTrade.signalId
             );
         };
 
@@ -618,7 +618,7 @@ const MatchesTerminal = () => {
             </div>
 
             <div className='tk-disclaimer'>
-                <b>ANALYZER-COMMAND DBOT:</b> Analyze Market produces the execution signal. The DBot opens a DIGITMATCH proposal for 1 tick using the Analyzer market and hot digit, while the Analyzer live stream remains authoritative for the Analyzer lifecycle. <b>Match exit:</b> only the same Analyzer signal's <code>EARLY_SELL_READY</code> closes the contract. <code>EARLY_SELL_READY</code> is informational and is never the Match trigger. The locked entry quote is retained as Analyzer transaction metadata.
+                <b>ANALYZER-COMMAND DBOT:</b> Analyze Market produces the execution signal. The DBot creates a local Analyzer-owned DIGITMATCH contract and uses Deriv only for the financial proposal/potential payout quote. <b>Exit:</b> only the same Analyzer signal's <code>EARLY_SELL_READY</code> closes the local contract. The locked entry quote is retained as Analyzer transaction metadata.
             </div>
         </div>
     );
