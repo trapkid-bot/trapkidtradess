@@ -662,7 +662,21 @@ export default Engine =>
                                 },
                             });
 
-                            await this.refreshDerivAccountBalance(3);
+                            const refreshedBalance = await this.refreshDerivAccountBalance(3);
+                            const finalBalanceAfter = Number.isFinite(Number(refreshedBalance))
+                                ? Number(refreshedBalance)
+                                : Number.isFinite(balanceAfter)
+                                  ? balanceAfter
+                                  : null;
+
+                            if (currentContract) {
+                                this.data.contract = {
+                                    ...this.data.contract,
+                                    balance_after: finalBalanceAfter,
+                                    deriv_balance_after_sell: finalBalanceAfter,
+                                };
+                                contract(this.data.contract);
+                            }
 
                             globalObserver.emit(
                                 'ui.log',
@@ -671,7 +685,9 @@ export default Engine =>
                                     ' → payout=' +
                                     (Number.isFinite(finalPayout) ? finalPayout : '—') +
                                     ' → profit=' +
-                                    (Number.isFinite(profit) ? profit : '—')
+                                    (Number.isFinite(profit) ? profit : '—') +
+                                    ' → balance_after=' +
+                                    (Number.isFinite(finalBalanceAfter) ? finalBalanceAfter : '—')
                             );
 
                             return {
@@ -697,7 +713,7 @@ export default Engine =>
                                 bid_price: Number.isFinite(Number(openContract.bid_price))
                                     ? Number(openContract.bid_price)
                                     : null,
-                                balance_after: Number.isFinite(balanceAfter) ? balanceAfter : null,
+                                balance_after: finalBalanceAfter,
                             };
                         }
                     }
