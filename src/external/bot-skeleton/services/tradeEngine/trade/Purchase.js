@@ -1167,7 +1167,7 @@ export default Engine =>
 
             // The financial bridge is now awaited. A local contract is NOT created
             // if Deriv rejects, times out, or fails to return a real contract_id.
-            const derivBuy = await this.financialAnalyzerBuyPromise(signal, contractId);
+            const derivBuy = await this.openAnalyzerDerivContract(signal, contractId);
             if (!derivBuy?.contract_id) {
                 const failedState = globalObserver.getState('trapkid_analyzer') || {};
                 globalObserver.setState({
