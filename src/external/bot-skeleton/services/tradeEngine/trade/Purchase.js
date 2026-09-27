@@ -37,7 +37,41 @@ export default Engine =>
             }
 
             api = api_base?.api;
-            if (!api || api.connection?.readyState !== 1 || !api_base?.is_authorized) {
+            if (!api || api.connection?.readyState !== 1) {
+                globalObserver.emit(
+                    'ui.log.error',
+                    'TRAPKID DERIV CONNECTION → authenticated WebSocket is not open.'
+                );
+                return null;
+            }
+
+            // A live WebSocket is not enough: BUY/SELL/PROPOSAL requests must be
+            // sent on an authenticated account connection. The Analyzer entry is
+            // allowed to wait for authorization; it must never silently turn that
+            // wait into the generic "no real Deriv contract" error.
+            if (!api_base?.is_authorized) {
+                try {
+                    await api_base.authorizeAndSubscribe();
+                } catch (error) {
+                    globalObserver.emit(
+                        'ui.log.error',
+                        'TRAPKID DERIV AUTHORIZATION → ' +
+                            (error?.message || 'failed to authorize the active Deriv account')
+                    );
+                }
+            }
+
+            const authDeadline = Date.now() + 12000;
+            while (Date.now() < authDeadline) {
+                if (api_base?.is_authorized) break;
+                await new Promise(resolve => setTimeout(resolve, 200));
+            }
+
+            if (!api_base?.is_authorized) {
+                globalObserver.emit(
+                    'ui.log.error',
+                    'TRAPKID DERIV AUTHORIZATION → active account is not authorized; financial request was not sent.'
+                );
                 return null;
             }
 
