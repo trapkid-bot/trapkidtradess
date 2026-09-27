@@ -32,6 +32,9 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         this.pendingAnalyzerCommand = null;
         this.analyzerExitObserver = this.onAnalyzerEarlyExit;
         this.analyzerCommandObserver = this.onAnalyzerCommand;
+        // Prevent duplicate EXIT handlers from racing each other or recursively
+        // re-entering after the handler publishes an updated Analyzer state.
+        this.analyzerExitHandling = false;
         this.analyzerStateExitObserver = state => {
             // Some Analyzer bridge versions publish EARLY_SELL_READY as state
             // before (or instead of) emitting trapkid.analyzer.exit. Treat the
