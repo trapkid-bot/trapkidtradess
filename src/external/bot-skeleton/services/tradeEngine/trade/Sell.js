@@ -43,7 +43,15 @@ export default Engine =>
             // Use the contract created by the normal DBot purchase path.
             // Analyzer supplies the decision; normal Deriv SELL supplies the money result.
             const contractId = String(this.contractId || '');
+            const recordedDerivContractId = String(state.derivContractId || state.deriv_contract_id || '');
             if (!contractId || this.isSold) return false;
+            if (recordedDerivContractId && recordedDerivContractId !== contractId) {
+                globalObserver.emit(
+                    'ui.log.error',
+                    'TRAPKID ANALYZER SELL → Deriv contract ownership mismatch; SAME contract sell blocked.'
+                );
+                return false;
+            }
 
             globalObserver.emit(
                 'ui.log',
