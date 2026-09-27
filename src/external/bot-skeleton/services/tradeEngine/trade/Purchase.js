@@ -240,7 +240,8 @@ export default Engine =>
                     symbol: this.analyzerSignal?.symbol || this.tradeOptions?.symbol,
                     underlying_symbol: this.analyzerSignal?.symbol || this.tradeOptions?.symbol,
                     barrier: Number(this.analyzerSignal?.entryDigit ?? this.tradeOptions?.prediction),
-                    prediction: Number(this.analyzerSignal?.entryDigit ?? this.tradeOptions?.prediction),
+                    // DIGITMATCH prediction is the Analyzer hot digit.
+                    prediction: Number(this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
                     buy_price: Number(buy.buy_price),
                     payout: Number(buy.payout),
                     currency: buy.currency || this.tradeOptions?.currency || 'USD',
@@ -252,7 +253,7 @@ export default Engine =>
                     analyzer_entry_quote: Number(this.analyzerSignal?.entryQuote ?? this.analyzerSignal?.lockedQuote ?? NaN),
                     analyzer_locked_quote: Number(this.analyzerSignal?.lockedQuote ?? this.analyzerSignal?.entryQuote ?? NaN),
                     analyzer_hot_digit: Number(this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
-                    analyzer_prediction: Number(this.analyzerSignal?.entryDigit ?? this.tradeOptions?.prediction),
+                    analyzer_prediction: Number(this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
                     duration: ANALYZER_LOGICAL_DURATION,
                     duration_unit: ANALYZER_LOGICAL_DURATION_UNIT,
                     analyzer_duration: ANALYZER_LOGICAL_DURATION,
@@ -419,26 +420,28 @@ export default Engine =>
             if (analyzerMode) {
                 const signal = this.analyzerSignal || globalObserver.getState('trapkid_analyzer')?.signal;
                 const amount = Number(this.tradeOptions?.amount);
-                // Analyzer is authoritative for BOTH the market and the entry digit.
-                // Do not substitute the Builder prediction/hot digit when entryDigit
-                // is present. The hot digit remains Analyzer-owned exit intelligence.
+                // Analyzer is authoritative for the market and DIGITMATCH prediction.
+                // entryDigit remains the locked entry-code field; hotDigit is the
+                // canonical digit the DIGITMATCH contract must predict.
                 const symbol = String(signal?.symbol || '');
                 const entryDigit = Number(signal?.entryDigit);
                 const hotDigit = Number(signal?.hotDigit);
+                const predictionDigit = hotDigit;
                 // hotDigit is intentionally read for validation/exit state only; it is NEVER the purchase barrier.
                 const currency = this.tradeOptions?.currency || 'USD';
 
                 if (!signal?.signalId || !symbol || !Number.isFinite(amount) || amount <= 0 ||
-                    !Number.isInteger(entryDigit) || entryDigit < 0 || entryDigit > 9) {
+                    !Number.isInteger(entryDigit) || entryDigit < 0 || entryDigit > 9 ||
+                    !Number.isInteger(predictionDigit) || predictionDigit < 0 || predictionDigit > 9) {
                     throw new Error('TRAPKID ANALYZER BUY -> missing stake, Analyzer market, or Analyzer entry digit.');
                 }
 
                 // HARD ANALYZER-ONLY RULES:
                 // 1. Contract type is DIGITMATCH.
                 // 2. Market is Analyzer signal.symbol.
-                // 3. Purchase barrier is Analyzer signal.entryDigit ONLY.
-                // 4. Contract duration is physically 1 tick — no hidden 10/60-tick hold.
-                // 5. Analyzer signal.hotDigit is EXIT intelligence only; never the purchase barrier.
+                // 3. DIGITMATCH prediction/barrier is Analyzer signal.hotDigit.
+                // 4. Contract duration remains physically 1 tick — no other flow change.
+                // 5. entryDigit remains metadata for the locked Analyzer entry code.
                 // 6. The exact Deriv BUY contract_id is canonical and must be the contract sold.
                 // 7. EARLY_SELL_READY is the only Analyzer-authorized early SELL event.
                 // If the 1-tick contract expires before EARLY_SELL_READY, the broker has closed
@@ -456,7 +459,7 @@ export default Engine =>
                     duration: 1,
                     duration_unit: 't',
                     underlying_symbol: symbol,
-                    barrier: String(entryDigit),
+                    barrier: String(predictionDigit),
                 };
 
                 // Publish the normal DBot buying lifecycle before the broker
@@ -468,7 +471,7 @@ export default Engine =>
                     analyzer: true,
                     contract_type: 'DIGITMATCH',
                     symbol,
-                    prediction: entryDigit,
+                    prediction: predictionDigit,
                     analyzer_entry_code: this.analyzerCommandKey || null,
                 });
                 globalObserver.setState({
@@ -479,6 +482,7 @@ export default Engine =>
                         contractType: 'DIGITMATCH',
                         stake: amount,
                         entryDigit,
+                        prediction: predictionDigit,
                         analyzerEntryCode: this.analyzerCommandKey || null,
                     },
                 });
@@ -535,7 +539,7 @@ export default Engine =>
                         duration: 1,
                         duration_unit: 't',
                         underlying_symbol: symbol,
-                        barrier: String(entryDigit),
+                        barrier: String(predictionDigit),
                     });
                     const fresh = response?.proposal;
                     const freshId = fresh?.id;
@@ -586,6 +590,7 @@ export default Engine =>
                                 derivProposalId: activeProposalId,
                                 derivProposalAskPrice: activeAskPrice,
                                 analyzerEntryDigit: entryDigit,
+                                analyzerPrediction: predictionDigit,
                                 analyzerPotentialPayout: Number.isFinite(Number(fresh.proposal?.payout))
                                     ? Number(fresh.proposal.payout)
                                     : null,
