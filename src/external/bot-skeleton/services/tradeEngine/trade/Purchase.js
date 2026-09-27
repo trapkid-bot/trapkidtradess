@@ -331,7 +331,7 @@ export default Engine =>
                         payout: Number.isFinite(Number(buy.payout)) ? Number(buy.payout) : null,
                         analyzerLogicalDuration: ANALYZER_LOGICAL_DURATION,
                         analyzerLogicalDurationUnit: ANALYZER_LOGICAL_DURATION_UNIT,
-                        derivPhysicalDuration: ANALYZER_PHYSICAL_HOLD_SECONDS,
+                        derivPhysicalDuration: ANALYZER_PHYSICAL_HOLD_TICKS,
                         derivPhysicalDurationUnit: 's',
                         payoutSource: 'DERIV_BUY',
                         derivBalanceAfterBuy: Number.isFinite(Number(buy.balance_after)) ? Number(buy.balance_after) : null,
