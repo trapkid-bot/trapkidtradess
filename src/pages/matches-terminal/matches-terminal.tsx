@@ -459,7 +459,7 @@ const MatchesTerminal = () => {
                 buyPrice: Number(b.buy_price ?? proposal.ask),
                 bidPrice: Number(b.buy_price ?? proposal.ask),
                 openedAt: Date.now(),
-                holdTicks: entryHoldTicks,
+                holdTicks: ANALYZER_LOGICAL_DURATION,
                 entryDigit: Number.isInteger(Number(signal?.entryDigit)) ? Number(signal.entryDigit) : null,
                 hotDigit: Number.isInteger(Number(signal?.hotDigit)) ? Number(signal.hotDigit) : null,
                 lockedDigit: entryPrediction,
@@ -630,6 +630,42 @@ const MatchesTerminal = () => {
             }
         });
     }, [analyzerDetails, buyFromAnalyzerSignal]);
+
+    useEffect(() => {
+        const onAnalyzerCommand = (command: any) => {
+            if (String(command?.command || '') !== 'EXECUTE_ANALYZER_SIGNAL') return;
+            const signal = command?.signal;
+            if (!signal?.signalId || !signal?.symbol) return;
+
+            const signalId = String(signal.signalId);
+            const lockedAt = Number(signal.lockedAt);
+            const commandKey = signalId + ':' + (Number.isFinite(lockedAt) ? lockedAt : '');
+            if (!commandKey || tradeRef.current || sellingRef.current) return;
+
+            analyzerAuthorizedSignalRef.current = commandKey;
+            analyzerProcessedSignalRef.current = commandKey;
+            setStatus(
+                'ANALYZER ANALYZE CLICK → BUYING NOW • ' +
+                signalId +
+                ' • ' +
+                String(signal.symbol) +
+                ' • DIGITMATCH ' +
+                String(signal.hotDigit ?? signal.prediction ?? signal.lockedDigit ?? '—')
+            );
+
+            void buyFromAnalyzerSignal(signal).then(ok => {
+                if (!ok) {
+                    analyzerProcessedSignalRef.current = null;
+                    analyzerAuthorizedSignalRef.current = null;
+                }
+            });
+        };
+
+        globalObserver.register('trapkid.analyzer.command', onAnalyzerCommand);
+        return () => {
+            globalObserver.unregister('trapkid.analyzer.command', onAnalyzerCommand);
+        };
+    }, [buyFromAnalyzerSignal]);
 
     useEffect(() => {
         const tick = analyzerDetails?.lastTick;
