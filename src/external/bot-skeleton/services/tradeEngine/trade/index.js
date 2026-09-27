@@ -254,13 +254,12 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         }
     };
     onAnalyzerEarlyExit = async command => {
-        // Analyzer-only settlement lifecycle:
-        // BUY creates the real Deriv contract. EARLY_SELL_READY is an Analyzer
-        // signal/observation only; it MUST NOT send a Deriv SELL request.
-        // The exact purchased contract is left with Deriv until it settles.
+        // Analyzer Match lifecycle:
+        // BUY opens one match position. The live Analyzer stream owns the
+        // exit: the exact hot digit appearing creates MATCH_FOUND.
         const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
-        // Once this exact BUY has settled, a late Analyzer EARLY_SELL_READY
-        // notification is informational only and must never reopen the cycle.
+        // Once this exact BUY has settled, later match ticks are informational only
+        // and must never reopen the cycle.
         if (String(analyzerState.status || '') === 'ANALYZER_SETTLED' || this.derivSettlement) {
             return false;
         }
@@ -344,14 +343,14 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // EARLY_SELL_READY command from the Analyzer.
         const bridgeExit = command?.exit || analyzerState?.exit;
         const exit =
-            bridgeExit?.status === 'EARLY_SELL_READY'
+            ['EARLY_SELL_READY', 'MATCH_FOUND'].includes(String(bridgeExit?.status || ''))
                 ? {
                     signalId: String(bridgeExit.signalId || commandSignalId || activeSignalId),
                     digit: Number(bridgeExit.digit ?? signal.hotDigit),
                     hotDigit: Number(signal.hotDigit),
                     quote: Number(bridgeExit.quote),
                     epoch: Number(bridgeExit.epoch),
-                    status: 'EARLY_SELL_READY',
+                    status: String(bridgeExit.status || 'MATCH_FOUND'),
                     exitCode: bridgeExit.exitCode || null,
                 }
                 : (this.getAnalyzerExit?.() || null);
@@ -382,7 +381,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // between the EXIT event and this handler. The signalId is the trade
         // identity; the Deriv contract_id is the financial execution handle.
 
-        // EARLY_SELL_READY is the ONLY Analyzer-authorized exit trigger.
+        // The exact hot-digit match is the Analyzer-authorized exit trigger.
         // Sell.js already hard-validates signal identity, hotDigit equality,
         // and the immutable BUY contract binding before sending sell.
         // Do not hand the contract to Deriv's automatic expiry: that would
@@ -406,7 +405,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                     commandKey,
                     exit,
                     pendingEarlyExit: exit,
-                    analyzerExitStatus: 'EARLY_SELL_READY',
+                    analyzerExitStatus: String(exit.status || 'MATCH_FOUND'),
                     analyzerExitDigit: Number(signal.hotDigit),
                     executionTrigger: 'ANALYZER_EARLY_SELL_READY',
                     holdUntilAnalyzerExit: false,
@@ -430,11 +429,11 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                 entryDigit: Number(signal.entryDigit),
                 hotDigit: Number(signal.hotDigit),
                 exit,
-                executionTrigger: 'EARLY_SELL_READY',
+                executionTrigger: String(exit.status || 'MATCH_FOUND'),
                 holdUntilAnalyzerExit: false,
                 executionArmed: true,
                 cycleFinished: false,
-                settlementSource: 'ANALYZER_EARLY_SELL',
+                settlementSource: 'MATCH_FOUND',
                 analyzerContractId: contractId,
                 derivContractId: contractId,
                 pendingEarlyExit: null,
