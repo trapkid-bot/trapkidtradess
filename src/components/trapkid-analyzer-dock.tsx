@@ -59,6 +59,13 @@ const TrapKidAnalyzerDock = () => {
                         Number.isFinite(lockedAt) &&
                         lockedAt >= mountedAtRef.current - 10000;
 
+                    const analyzerStatus = String(data?.status || signal?.status || '').toUpperCase();
+                    const entryReady =
+                        data?.entryReady === true ||
+                        signal?.entryReady === true ||
+                        analyzerStatus === 'READY' ||
+                        String(data?.command?.status || '').toUpperCase() === 'READY';
+
                     const currentAnalyzerState = globalObserver.getState('trapkid_analyzer') || {};
                     const commandBoundToSignal =
                         signalKey && String(currentAnalyzerState.commandKey || '') === signalKey;
@@ -88,6 +95,8 @@ const TrapKidAnalyzerDock = () => {
                         connecting: Boolean(data?.connecting),
                         historyLoaded: Boolean(data?.historyLoaded),
                         symbol: data?.symbol || signal?.symbol || currentAnalyzerState.symbol || null,
+                        analyzerStatus,
+                        entryReady,
                         serverTime: data?.serverTime,
                         currency: data?.currency || currentAnalyzerState.currency || 'USD',
                         balance: data?.balance ?? currentAnalyzerState.balance,
@@ -180,9 +189,11 @@ const TrapKidAnalyzerDock = () => {
                         );
                     }
 
+                    // Never convert a LOCKED signal into an execution command.
+                    // Only an explicit Analyzer READY state may authorize entry.
                     if (
                         signalKey &&
-                        (isNewSignal || initialSignalIsFresh) &&
+                        entryReady &&
                         String(globalObserver.getState('trapkid_analyzer')?.commandKey || '') !== signalKey
                     ) {
                         analyzerSignalKeyRef.current = signalKey;
@@ -191,6 +202,8 @@ const TrapKidAnalyzerDock = () => {
                             source: 'TRAPKID_ANALYZER_HTTP',
                             command: 'EXECUTE_ANALYZER_SIGNAL',
                             commandKey: signalKey,
+                            status: 'READY',
+                            entryReady: true,
                             receivedAt: now,
                             signal,
                             analyzer: data,
@@ -201,6 +214,8 @@ const TrapKidAnalyzerDock = () => {
                                 ...(globalObserver.getState('trapkid_analyzer') || {}),
                                 ...data,
                                 status: 'COMMAND_RECEIVED',
+                                analyzerStatus: 'READY',
+                                entryReady: true,
                                 commandKey: signalKey,
                                 lastSeen: now,
                             },
