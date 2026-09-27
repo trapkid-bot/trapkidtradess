@@ -322,14 +322,14 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // between the EXIT event and this handler. The signalId is the trade
         // identity; the Deriv contract_id is the financial execution handle.
 
-        // The exact hot-digit match is the Analyzer-authorized exit trigger.
-        // Sell.js already hard-validates signal identity, hotDigit equality,
-        // and the immutable BUY contract binding before sending sell.
-        // Do not hand the contract to Deriv's automatic expiry: that would
-        // allow a different final digit to decide the financial outcome.
+        // The Analyzer local contract is the only lifecycle object. Deriv is
+        // intentionally absent from the execution/settlement path; it supplies
+        // only the financial proposal/potential payout during Purchase.js.
         const contractId = String(
-            this.derivBuy?.contract_id ||
+            analyzerState?.analyzerContractId ||
             analyzerState?.analyzerBuyContractId ||
+            this.analyzerContractId ||
+            this.derivBuy?.contract_id ||
             ''
         );
 
@@ -376,7 +376,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                 cycleFinished: false,
                 settlementSource: 'EARLY_SELL_READY',
                 analyzerContractId: contractId,
-                derivContractId: contractId,
+                derivContractId: null,
                 pendingEarlyExit: null,
                 analyzerExitStatus: 'EARLY_SELL_READY',
                 analyzerExitDigit: Number(signal.hotDigit),
@@ -385,9 +385,8 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
         try {
-            // This calls the existing Analyzer-only Sell.js path. That path
-            // refuses every exit digit except the Analyzer hotDigit and uses
-            // only the exact BUY contract_id for this signal.
+            // This settles the Analyzer-owned local contract. Deriv is not
+            // called here; its proposal was financial quote data only.
             const sold = await this.sellAtMarket('ANALYZER_EARLY_SELL');
             if (!sold) {
                 globalObserver.emit(
