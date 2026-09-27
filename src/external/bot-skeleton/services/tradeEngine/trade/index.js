@@ -72,11 +72,19 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // dropped executionArmed. Builder execution rules must not block it.
         if (!boundAnalyzerExit) return;
         const commandSignalId = String(command?.signalId || command?.signal?.signalId || '');
+        const commandKeyFromEvent = String(command?.commandKey || command?.key || '');
         const activeSignalId = String(signal?.signalId || '');
+        const activeSignalKey = activeSignalId + ':' + String(signal?.lockedAt || '');
 
-        if (!signal || !commandSignalId || commandSignalId !== activeSignalId) return;
+        // Some Analyzer bridge versions send the command key rather than
+        // duplicating signalId in the event payload. Both forms identify the
+        // exact locked trade; neither should be allowed to block the exit.
+        const eventIdentifiesSignal =
+            (commandSignalId && commandSignalId === activeSignalId) ||
+            (commandKeyFromEvent && commandKeyFromEvent === activeSignalKey);
 
-        const activeSignalKey = String(signal?.signalId || '') + ':' + String(signal?.lockedAt || '');
+        if (!signal || !eventIdentifiesSignal) return;
+
         const boundCommandKey = String(analyzerState.commandKey || '');
         const signalIsBoundToThisTrade =
             boundCommandKey === activeSignalKey &&
@@ -120,9 +128,12 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // EARLY_SELL_READY is an EXIT-only event. If the BUY is still in
         // flight, remember the exact exit instead of dropping the event.
         // The pending exit is consumed immediately after contractId exists.
-        if (!this.contractId && this.isSold) return;
+        if (this.isSold) return;
 
-        if (!this.contractId) {
+        // The Deriv contract ID is the authoritative execution handle. A UI
+        // refresh may lose the local Analyzer tracking ID while the real
+        // Deriv contract is still open.
+        if (!this.contractId && !this.derivContractId) {
             globalObserver.setState({
                 trapkid_analyzer: {
                     ...analyzerState,
@@ -203,7 +214,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         });
         globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
-        if (this.contractId && !this.isSold) {
+        if ((this.contractId || this.derivContractId) && !this.isSold) {
             void this.sellAtMarket('ANALYZER_EARLY_SELL')
                 .then(() => {
                     if (this.resolveAnalyzerCycle) {
