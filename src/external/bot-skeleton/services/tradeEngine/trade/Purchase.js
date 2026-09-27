@@ -32,9 +32,11 @@ export const analyzerPurchaseReservations = analyzerPurchaseReservationStore;
 // ANALYZER-ONLY EXECUTION RULES — these override Builder/local trade rules.
 // Analyzer hotDigit is the canonical DIGITMATCH prediction/barrier.
 // Analyzer entryDigit belongs only to the locked Analyzer entry-code metadata.
-// A real Deriv contract is requested for exactly 1 tick. We do not silently
-// substitute 10/60 ticks or another physical duration.
-const ANALYZER_PHYSICAL_HOLD_TICKS = 1;
+// The Analyzer lifecycle remains logically 1 tick, but the broker contract
+// must stay open long enough for the Analyzer hot digit to appear. Analyzer
+// execution therefore uses a 60-second physical hold and closes it only on
+// EARLY_SELL_READY for the matching hot digit.
+const ANALYZER_PHYSICAL_HOLD_TICKS = 60;
 const ANALYZER_LOGICAL_DURATION = 1;
 const ANALYZER_LOGICAL_DURATION_UNIT = 't';
 
@@ -483,8 +485,8 @@ export default Engine =>
                     basis: 'stake',
                     contract_type: 'DIGITMATCH',
                     currency,
-                    duration: 1,
-                    duration_unit: 't',
+                    duration: ANALYZER_PHYSICAL_HOLD_TICKS,
+                    duration_unit: 's',
                     underlying_symbol: symbol,
                     barrier: String(predictionDigit),
                 };
@@ -563,8 +565,8 @@ export default Engine =>
                         basis: 'stake',
                         contract_type: 'DIGITMATCH',
                         currency,
-                        duration: 1,
-                        duration_unit: 't',
+                        duration: ANALYZER_PHYSICAL_HOLD_TICKS,
+                        duration_unit: 's',
                         underlying_symbol: symbol,
                         barrier: String(predictionDigit),
                     });
@@ -746,7 +748,7 @@ export default Engine =>
             if (this.analyzerSettlementPromise) return this.analyzerSettlementPromise;
 
             this.analyzerSettlementPromise = (async () => {
-                const maxChecks = 300;
+                const maxChecks = 900;
                 const intervalMs = 100;
 
                 for (let attempt = 0; attempt < maxChecks; attempt += 1) {
