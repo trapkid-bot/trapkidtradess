@@ -94,31 +94,6 @@ const SummaryCard = observer(({ contract_info, is_contract_loading, is_bot_runni
         >
             {is_contract_loading && !is_bot_running && <ContractCardLoader speed={2} />}
             {is_bot_running && !contract_info && <ContractCardLoader speed={2} contract_stage={contract_stage} />}
-            {is_bot_running && contract_info && (contract_info as any)?.analyzer_source === 'ANALYZER_ONLY' && (
-                <div
-                    style={{
-                        marginBottom: 8,
-                        padding: '8px 10px',
-                        borderRadius: 8,
-                        background: 'var(--general-section-1)',
-                        border: '1px solid var(--general-section-2)',
-                    }}
-                >
-                    <strong style={{ display: 'block', fontSize: 12 }}>TRAPKID ANALYZER — CONTRACT ACTIVE</strong>
-                    <span style={{ display: 'block', fontSize: 11 }}>
-                        Entry code: {(contract_info as any)?.analyzer_entry_code || (contract_info as any)?.analyzer_command_key || '—'}
-                    </span>
-                    <span style={{ display: 'block', fontSize: 11 }}>
-                        Prediction / Hot digit: {(contract_info as any)?.analyzer_hot_digit ?? (contract_info as any)?.prediction ?? '—'}
-                    </span>
-                    <span style={{ display: 'block', fontSize: 11 }}>
-                        Exit: {(contract_info as any)?.analyzer_exit_status || 'WAITING_FOR_ANALYZER_EARLY_SELL'}
-                        {(contract_info as any)?.analyzer_exit_status === 'EARLY_SELL_READY'
-                            ? ' • Hot digit ' + String((contract_info as any)?.analyzer_exit_digit ?? (contract_info as any)?.analyzer_hot_digit ?? '—')
-                            : ' • watching for Analyzer hot digit'}
-                    </span>
-                </div>
-            )}
             {!is_contract_loading && contract_info && (
                 <ContractCard
                     contract_info={contract_info}
