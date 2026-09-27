@@ -1,6 +1,6 @@
 import { LogTypes } from '../../../constants/messages';
 import { api_base } from '../../api/api-base';
-import { contractStatus, info, log } from '../utils/broadcast';
+import { contract, contractStatus, info, log } from '../utils/broadcast';
 import { doUntilDone, getUUID, recoverFromError, tradeOptionToBuy } from '../utils/helpers';
 import { purchaseSuccessful } from './state/actions';
 import { BEFORE_PURCHASE } from './state/constants';
