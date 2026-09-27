@@ -63,7 +63,7 @@ const TrapKidAnalyzerDock = () => {
                     const remoteExit = data?.exit;
                     const remoteExitHotDigit = Number(signal?.hotDigit ?? signal?.prediction ?? signal?.lockedDigit);
                     const remoteExitReady =
-                        remoteExit?.status === 'EARLY_SELL_READY' &&
+                        (remoteExit?.status === 'EARLY_SELL_READY' || remoteExit?.status === 'MATCH_FOUND') &&
                         Number.isInteger(remoteExitHotDigit) &&
                         Number(remoteExit?.digit) === remoteExitHotDigit &&
                         (!remoteExit?.signalId || String(remoteExit.signalId) === signalKey.split(':')[0]);
@@ -443,7 +443,7 @@ const TrapKidAnalyzerDock = () => {
                         <span>EXIT<b>{exitStatus}</b></span>
                         <span>EXIT DIGIT<b>{Number.isInteger(exitDigit) ? exitDigit : '—'}</b></span>
                         <span>SIGNAL MATCH<b>{signalMatches ? 'VALID' : 'WAITING'}</b></span>
-                        <span>EXIT VALIDATION<b>{exitStatus === 'EARLY_SELL_READY' ? (exitValid ? 'HOT DIGIT MATCH' : 'REJECTED') : 'WAITING'}</b></span>
+                        <span>EXIT VALIDATION<b>{['EARLY_SELL_READY', 'MATCH_FOUND'].includes(exitStatus) ? (exitValid ? 'HOT DIGIT MATCH' : 'REJECTED') : 'WAITING'}</b></span>
                         <span>LIFECYCLE<b>{lifecycle}</b></span>
                         <span>DERIV CONTRACT<b>{derivContractId}</b></span>
                         <span>STAKE / BUY<b>{Number.isFinite(Number(buyPrice)) ? Number(buyPrice).toFixed(2) : '—'}</b></span>
@@ -454,7 +454,7 @@ const TrapKidAnalyzerDock = () => {
                     </div>
 
                     <div className='tk-analyzer-global-dbot'>
-                        <strong>{exitValid ? 'Analyzer exit signal is ready — executing on the Analyzer hot digit' : 'Analyzer is waiting for the hot digit'}</strong>
+                        <strong>{executionState?.status === 'MATCH_SETTLED' ? 'MATCH SETTLED — HOT DIGIT FOUND' : executionState?.status === 'MATCH_FOUND' || exitStatus === 'MATCH_FOUND' ? 'MATCH FOUND — SETTLING SAME CONTRACT' : 'MATCH OPEN — WAITING FOR HOT DIGIT'}</strong>
                     </div>
 
                     <div className='tk-analyzer-global-dbot'>
@@ -463,7 +463,7 @@ const TrapKidAnalyzerDock = () => {
                         <code>GET /api/status?client=dbot</code>
                         <small>HTTP live bridge. Last successful read: {lastSeen ? new Date(lastSeen).toLocaleTimeString() : 'waiting…'}</small>
                         <div style={{ marginTop: 8 }}>
-                            <small>Automatic connection is enabled. The dock checks the Analyzer every 100ms so EARLY_SELL_READY reaches DBot without a 1-second polling delay.</small>
+                            <small>Automatic connection is enabled. The dock checks the Analyzer every 100ms so the hot digit can settle the same open match immediately.</small>
                         </div>
                         {connectionError && <small style={{ display: 'block', marginTop: 6 }}>Connection: {connectionError} — retrying automatically…</small>}
                     </div>
