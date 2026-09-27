@@ -316,7 +316,7 @@ const TrapKidAnalyzerDock = () => {
         };
 
         void poll();
-        const timer = window.setInterval(poll, 1000);
+        const timer = window.setInterval(poll, 100);
         return () => {
             cancelled = true;
             window.clearInterval(timer);
@@ -415,7 +415,7 @@ const TrapKidAnalyzerDock = () => {
                     <div className='tk-analyzer-global-head'>
                         <div>
                             <b>TRAPKID ANALYZER • HTTP LINK</b>
-                            <small>{connected ? '● CONNECTED — LIVE POLLING' : '○ DISCONNECTED — CHECK ANALYZER'}</small>
+                            <small>{connected ? '● CONNECTED — LIVE 100MS LINK' : '○ DISCONNECTED — CHECK ANALYZER'}</small>
                         </div>
                         <button onPointerDown={e => e.stopPropagation()} onClick={e => { e.stopPropagation(); setOpen(false); }} aria-label='Close Analyzer panel'>×</button>
                     </div>
@@ -461,9 +461,9 @@ const TrapKidAnalyzerDock = () => {
                         <strong>ANALYZER → DBOT COMMAND LINK</strong>
                         <div className='tk-link-proof'><span className={connected ? 'is-live' : 'is-offline'} /> {connected ? 'ANALYZER DATA CHANNEL LIVE' : 'ANALYZER DATA CHANNEL OFFLINE'}</div>
                         <code>GET /api/status?client=dbot</code>
-                        <small>HTTP only. Last successful read: {lastSeen ? new Date(lastSeen).toLocaleTimeString() : 'waiting…'}</small>
+                        <small>HTTP live bridge. Last successful read: {lastSeen ? new Date(lastSeen).toLocaleTimeString() : 'waiting…'}</small>
                         <div style={{ marginTop: 8 }}>
-                            <small>Automatic connection is enabled. The dock checks the Analyzer every second and reconnects whenever the Analyzer becomes available again.</small>
+                            <small>Automatic connection is enabled. The dock checks the Analyzer every 100ms so EARLY_SELL_READY reaches DBot without a 1-second polling delay.</small>
                         </div>
                         {connectionError && <small style={{ display: 'block', marginTop: 6 }}>Connection: {connectionError} — retrying automatically…</small>}
                     </div>
