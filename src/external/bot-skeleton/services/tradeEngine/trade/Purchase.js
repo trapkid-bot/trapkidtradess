@@ -408,7 +408,7 @@ export default Engine =>
                             holdUntilAnalyzerExit: false,
                             executionArmed: true,
                             pendingEarlyExit: null,
-                            settlementSource: 'DERIV_AUTOMATIC_SETTLEMENT',
+                            settlementSource: 'ANALYZER_EARLY_SELL_PENDING',
                             analyzerContractId: String(this.contractId),
                             derivContractId: String(this.contractId),
                         },
