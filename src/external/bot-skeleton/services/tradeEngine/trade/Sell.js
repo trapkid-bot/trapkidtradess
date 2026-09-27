@@ -2,7 +2,7 @@ import { getLocalizedErrorMessage } from '@/constants/backend-error-messages';
 import { LogTypes } from '../../../constants/messages';
 import { observer as globalObserver } from '../../../utils/observer';
 import { api_base } from '../../api/api-base';
-import { contractStatus, log } from '../utils/broadcast';
+import { contract, contractStatus, log } from '../utils/broadcast';
 import { doUntilDone, recoverFromError } from '../utils/helpers';
 import { DURING_PURCHASE } from './state/constants';
 import { sell } from './state/actions';
