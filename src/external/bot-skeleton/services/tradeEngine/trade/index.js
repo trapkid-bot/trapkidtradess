@@ -495,8 +495,13 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                                 });
                             }
 
-                            // Keep Analyze active until Analyzer settles the contract.
-                            return this.analyzerCyclePromise;
+                            // The real Deriv BUY is complete at this point. Do NOT keep
+                            // the Blockly/UI start promise pending until EARLY_SELL_READY.
+                            // Doing so makes the Analyze runner look frozen while the
+                            // Analyzer is intentionally watching the open contract.
+                            // The exit observer remains active independently and will
+                            // sell the SAME Deriv contract when EARLY_SELL_READY arrives.
+                            return Promise.resolve();
                         })
                         .catch(error => {
                             globalObserver.emit(
