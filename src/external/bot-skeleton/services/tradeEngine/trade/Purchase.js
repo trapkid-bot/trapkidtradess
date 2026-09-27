@@ -12,7 +12,10 @@ let purchase_reference;
 // Analyzer logical duration remains 1 tick, but the real Deriv position
 // must stay sellable until EARLY_SELL_READY. Deriv has no separate
 // "display duration" field, so use a long physical expiry as the safety ceiling.
-const ANALYZER_HOLD_SECONDS = 24 * 60 * 60;
+// DIGITMATCH is a short-duration contract. Use the longest common
+// broker-supported digit duration as the physical ceiling, while the
+// Analyzer still owns the actual exit lifecycle.
+const ANALYZER_PHYSICAL_HOLD_TICKS = 10;
 const ANALYZER_LOGICAL_DURATION = 1;
 const ANALYZER_LOGICAL_DURATION_UNIT = 't';
 
@@ -208,7 +211,7 @@ export default Engine =>
 
                     analyzer_duration_unit: ANALYZER_LOGICAL_DURATION_UNIT,
                     deriv_physical_duration: ANALYZER_HOLD_SECONDS,
-                    deriv_physical_duration_unit: 's',
+                    deriv_physical_duration_unit: 't',
                     analyzer_exit_status: 'WAITING_FOR_ANALYZER_EXIT',
                     deriv_transaction_id: buy.transaction_id ?? null,
                     deriv_buy_price: Number(buy.buy_price),
@@ -252,8 +255,8 @@ export default Engine =>
                         payout: Number.isFinite(Number(buy.payout)) ? Number(buy.payout) : null,
                         analyzerLogicalDuration: ANALYZER_LOGICAL_DURATION,
                         analyzerLogicalDurationUnit: ANALYZER_LOGICAL_DURATION_UNIT,
-                        derivPhysicalDuration: ANALYZER_HOLD_SECONDS,
-                        derivPhysicalDurationUnit: 's',
+                        derivPhysicalDuration: ANALYZER_PHYSICAL_HOLD_TICKS,
+                        derivPhysicalDurationUnit: 't',
                         payoutSource: 'DERIV_BUY',
                         derivBalanceAfterBuy: Number.isFinite(Number(buy.balance_after)) ? Number(buy.balance_after) : null,
                         signal: this.analyzerSignal || globalObserver.getState('trapkid_analyzer')?.signal,
@@ -341,13 +344,13 @@ export default Engine =>
 
                 // IMPORTANT:
                 // - Logical DBot/Analyzer duration = 1 tick.
-                // - Physical Deriv expiry = long enough for the Analyzer lifecycle.
+                // - Physical Deriv expiry = short tick ceiling accepted by DIGITMATCH.
                 // - EARLY_SELL_READY is the only event that closes the real contract.
-                // A real 1-tick Deriv contract cannot remain open for a later
+                // A real 1-tick Deriv contract can expire before the Analyzer exit;
                 // Analyzer exit because Deriv expires it at the tick boundary.
                 const logicalDuration = ANALYZER_LOGICAL_DURATION;
                 const logicalDurationUnit = ANALYZER_LOGICAL_DURATION_UNIT;
-                const physicalHoldDuration = ANALYZER_HOLD_SECONDS;
+                const physicalHoldDuration = ANALYZER_PHYSICAL_HOLD_TICKS;
 
                 const proposalRequest = {
                     proposal: 1,
@@ -356,7 +359,7 @@ export default Engine =>
                     contract_type: 'DIGITMATCH',
                     currency,
                     duration: physicalHoldDuration,
-                    duration_unit: 's',
+                    duration_unit: 't',
                     underlying_symbol: symbol,
                     barrier: String(hotDigit),
                 };
@@ -392,7 +395,7 @@ export default Engine =>
                         analyzerLogicalDuration: logicalDuration,
                         analyzerLogicalDurationUnit: logicalDurationUnit,
                         derivPhysicalDuration: physicalHoldDuration,
-                        derivPhysicalDurationUnit: 's',
+                        derivPhysicalDurationUnit: 't',
                     },
                 });
                 globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
