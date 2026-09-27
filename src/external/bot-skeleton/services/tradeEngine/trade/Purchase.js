@@ -144,7 +144,7 @@ export default Engine =>
                         purchaseInFlightKey: analyzerSignalKey,
                         entryPrediction: signal.hotDigit,
                         entrySource: 'ANALYZER_ONLY',
-                        exitSource: 'ANALYZER_MATCH_STREAM',
+                        exitSource: 'ANALYZER_EARLY_SELL_READY',
                         executionTrigger: 'ANALYZER_ENTRY_COMMAND',
                     },
                 });
@@ -262,8 +262,8 @@ export default Engine =>
                     duration_unit: logicalDurationUnit,
                     analyzer_duration: logicalDuration,
                     analyzer_duration_unit: logicalDurationUnit,
-                    analyzer_exit_status: 'MATCH_OPEN',
-                    analyzer_execution_status: 'MATCH_OPEN',
+                    analyzer_exit_status: 'EARLY_SELL_READY',
+                    analyzer_execution_status: 'EARLY_SELL_READY',
                     analyzer_exit_code: null,
                     analyzer_contract_id: String(buy.contract_id),
                     analyzer_contract_signal_id: this.analyzerSignal?.signalId || null,
@@ -403,10 +403,11 @@ export default Engine =>
                 // 6. The exact Deriv BUY contract_id is canonical and must be the contract sold.
                 // 7. The matching hot digit is the Analyzer-authorized exit event.
                 // The exact BUY remains bound to this signal; no replacement contract is created.
-                // Duration is Analyzer-owned only. Never read a Builder/default
-                // duration and never manufacture a one-tick value.
-                logicalDuration = signal?.duration ?? signal?.logicalDuration ?? signal?.analyzerDuration ?? null;
-                logicalDurationUnit = signal?.duration_unit ?? signal?.durationUnit ?? signal?.logicalDurationUnit ?? signal?.analyzerDurationUnit ?? null;
+                // Analyzer controls the trade decision. The financial DIGITMATCH
+                // proposal itself must execute for one tick. This does NOT make
+                // the Deriv tick the settlement authority; Analyzer controls exit.
+                logicalDuration = signal?.duration ?? signal?.logicalDuration ?? signal?.analyzerDuration ?? 1;
+                logicalDurationUnit = signal?.duration_unit ?? signal?.durationUnit ?? signal?.logicalDurationUnit ?? signal?.analyzerDurationUnit ?? 't';
 
                 const proposalRequest = {
                     proposal: 1,
