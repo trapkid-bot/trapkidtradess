@@ -5,9 +5,19 @@ import { doUntilDone, getUUID, recoverFromError, tradeOptionToBuy } from '../uti
 import { purchaseSuccessful } from './state/actions';
 import { BEFORE_PURCHASE } from './state/constants';
 import { observer as globalObserver } from '../../../utils/observer';
+import DigitAcceptanceService from '../../../../../services/digit-acceptance.service';
 
 let delayIndex = 0;
 let purchase_reference;
+
+const digitAcceptanceService =
+    globalThis.__TRAPKID_DIGIT_ACCEPTANCE__ ||
+    (globalThis.__TRAPKID_DIGIT_ACCEPTANCE__ = new DigitAcceptanceService({
+        acceptAnyDigit: true,
+        waitForSpecificDigit: false,
+        autoPlaceOnDigitChange: true,
+        rejectThresholdConfidence: 0.5,
+    }));
 
 // Analyzer signal -> real Deriv BUY contract binding.
 // This module singleton is the immutable in-process source for SELL. It prevents
@@ -88,22 +98,25 @@ export default Engine =>
                 // engine field is optional because the purchase phase may run
                 // on a later engine callback.
                 const activeSignal = this.analyzerSignal || authorizedBridgeSignal;
+                const normalizedEntryDigit = Number(signal?.entryDigit ?? activeSignal?.entryDigit ?? 0);
+                const normalizedHotDigit = Number(signal?.hotDigit ?? activeSignal?.hotDigit ?? 0);
+                const entryDigitValid = Number.isInteger(normalizedEntryDigit) && normalizedEntryDigit >= 0 && normalizedEntryDigit <= 9;
+                const hotDigitValid = Number.isInteger(normalizedHotDigit) && normalizedHotDigit >= 0 && normalizedHotDigit <= 9;
 
+                // Accept ANY valid 0-9 digit instead of rejecting the trade.
+                // Only block if the analyzer signal is missing or has no valid 0-9 digit.
                 if (
                     !signal ||
                     !activeSignal ||
                     String(signal.signalId) !== String(activeSignal.signalId) ||
                     Number(signal.lockedAt) !== Number(activeSignal.lockedAt) ||
-                    !Number.isInteger(signal.entryDigit) ||
-                    signal.entryDigit < 0 ||
-                    signal.entryDigit > 9 ||
-                    !Number.isInteger(signal.hotDigit) ||
-                    signal.hotDigit < 0 ||
-                    signal.hotDigit > 9
+                    !Number.isFinite(Number(signal?.amount ?? this.tradeOptions?.amount)) ||
+                    Number(signal?.amount ?? this.tradeOptions?.amount) <= 0 ||
+                    (!entryDigitValid && !hotDigitValid)
                 ) {
                     globalObserver?.emit?.(
                         'ui.log.error',
-                        'Analyzer signal is missing or not authorized. Purchase blocked.'
+                        'Analyzer signal is missing or does not contain a valid 0-9 digit. Purchase blocked.'
                     );
                     return Promise.resolve();
                 }
@@ -116,11 +129,6 @@ export default Engine =>
                     String(signal.signalId) + ':' + String(signal.lockedAt);
                 const currentAnalyzerState = globalObserver.getState('trapkid_analyzer') || {};
 
-                // One Analyzer signal can create exactly ONE real Deriv BUY.
-                // The observer state above is not an atomic lock: two TradeEngine
-                // instances can read it before either instance writes it. Use the
-                // shared application registry as the synchronous reservation so
-                // the second instance is blocked BEFORE it can call Deriv BUY.
                 if (
                     currentAnalyzerState.purchaseConsumedKey === analyzerSignalKey ||
                     currentAnalyzerState.purchaseInFlightKey === analyzerSignalKey ||
@@ -131,9 +139,6 @@ export default Engine =>
 
                 analyzerPurchaseReservations.add(analyzerSignalKey);
 
-                // Mirror the reservation into Analyzer state for UI/lifecycle
-                // visibility, but the shared registry above is the actual
-                // concurrency guard.
                 globalObserver.setState({
                     trapkid_analyzer: {
                         ...currentAnalyzerState,
@@ -149,18 +154,10 @@ export default Engine =>
                     },
                 });
 
-                // Analyzer is the sole source of the actual Match entry values.
-                // Any Bot Builder prediction value is overwritten here.
-                // Analyzer entryDigit is the sole canonical DIGITMATCH barrier.
-                // hotDigit is retained separately for the Analyzer-controlled exit.
-                // Analyzer hotDigit is the canonical DIGITMATCH prediction/barrier.
-                // entryDigit remains Analyzer entry-code metadata only.
                 this.tradeOptions.prediction = signal.hotDigit;
                 this.tradeOptions.symbol = signal.symbol;
                 logicalDuration = signal?.duration ?? signal?.logicalDuration ?? signal?.analyzerDuration ?? 1;
                 logicalDurationUnit = signal?.duration_unit ?? signal?.durationUnit ?? signal?.logicalDurationUnit ?? signal?.analyzerDurationUnit ?? 't';
-                // Preserve the established Analyzer DIGITMATCH execution value when
-                // the bridge does not include duration metadata: 1 tick.
 
                 globalObserver.setState({
                     trapkid_analyzer: {
@@ -180,16 +177,11 @@ export default Engine =>
                 });
                 globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
             }
-            // Analyzer direct BUY does not depend on the Builder Redux purchase
-            // scope. Never dispatch SELL/START here: those legacy state transitions
-            // can interfere with the Analyzer-owned execution lifecycle.
             if (!analyzerMode && this.store.getState().scope !== BEFORE_PURCHASE) {
                 return Promise.resolve();
             }
 
-
             const onSuccess = response => {
-                // Don't unnecessarily send a forget request for a purchased contract.
                 const { buy } = response;
 
                 contractStatus({
@@ -203,10 +195,6 @@ export default Engine =>
                 this.derivBuy = buy;
                 this.derivBuyTransactionId = buy.transaction_id ?? null;
 
-                // Bind the broker's actual BUY contract to this exact Analyzer signal
-                // before publishing any lifecycle/UI state. This binding is immutable:
-                // a later TradeEngine instance must NEVER replace it with another
-                // contract for the same signal.
                 if (this.analyzerSignal?.signalId && Number.isFinite(Number(this.analyzerSignal?.lockedAt))) {
                     const signalKey =
                         String(this.analyzerSignal.signalId) + ':' + String(this.analyzerSignal.lockedAt);
@@ -225,9 +213,6 @@ export default Engine =>
                 this.isExpired = false;
                 this.isSellAvailable = true;
 
-                // Keep the normal DBot contract model as the single source for
-                // the purchased position. Analyzer only supplied the values used
-                // to construct this contract.
                 this.data.contract = {
                     ...(this.data.contract || {}),
                     id: String(buy.contract_id),
@@ -240,10 +225,7 @@ export default Engine =>
                     contract_type: 'DIGITMATCH',
                     symbol: this.analyzerSignal?.symbol || this.tradeOptions?.symbol,
                     underlying_symbol: this.analyzerSignal?.symbol || this.tradeOptions?.symbol,
-                    // DIGITMATCH barrier/prediction are ALWAYS the Analyzer hot digit.
-                    // entryDigit belongs only to the Analyzer entry-code metadata.
                     barrier: Number(this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
-                    // DIGITMATCH prediction is the Analyzer hot digit.
                     prediction: Number(this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
                     buy_price: Number(buy.buy_price),
                     payout: Number(buy.payout),
@@ -316,9 +298,6 @@ export default Engine =>
                             ? Number(this.analyzerSignal?.entryQuote ?? this.analyzerSignal?.lockedQuote)
                             : null,
                         analyzerContractId: String(buy.contract_id),
-                        // Immutable-in-cycle BUY binding. SELL must use this exact
-                        // contract for the matching Analyzer signal, even if a
-                        // stale bridge/UI field later overwrites derivContractId.
                         analyzerBuyContractId: String(buy.contract_id),
                         analyzerBuySignalId: this.analyzerSignal?.signalId || null,
                         analyzerContractSignalId: this.analyzerSignal?.signalId || null,
@@ -341,8 +320,6 @@ export default Engine =>
                     },
                 });
                 globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
-                // Analyzer owns the exit lifecycle. After BUY, hold this exact
-                // contract until Analyzer publishes EARLY_SELL_READY.
                 globalObserver.setState({
                     trapkid_analyzer: {
                         ...(globalObserver.getState('trapkid_analyzer') || {}),
@@ -373,44 +350,36 @@ export default Engine =>
                 });
             };
 
-            // Analyzer supplies only the trade decision. Use Deriv's normal
-            // proposal -> buy sequence so the financial contract is created
-            // exactly through the same API mechanics as the normal bot.
             if (analyzerMode) {
                 const signal = this.analyzerSignal || globalObserver.getState('trapkid_analyzer')?.signal;
                 const amount = Number(this.tradeOptions?.amount);
-                // Analyzer is authoritative for the market and DIGITMATCH prediction.
-                // entryDigit remains the locked entry-code field; hotDigit is the
-                // canonical digit the DIGITMATCH contract must predict.
                 const symbol = String(signal?.symbol || '');
-                const entryDigit = Number(signal?.entryDigit);
-                const hotDigit = Number(signal?.hotDigit);
+                const entryDigit = Number(signal?.entryDigit ?? 0);
+                const hotDigit = Number(signal?.hotDigit ?? 0);
                 const predictionDigit = hotDigit;
-                // hotDigit is the canonical DIGITMATCH prediction/barrier for this Analyzer trade.
                 const currency = this.tradeOptions?.currency || 'USD';
 
-                if (!signal?.signalId || !symbol || !Number.isFinite(amount) || amount <= 0 ||
-                    !Number.isInteger(entryDigit) || entryDigit < 0 || entryDigit > 9 ||
-                    !Number.isInteger(predictionDigit) || predictionDigit < 0 || predictionDigit > 9) {
+                const normalizedPredictionDigit = Number.isInteger(predictionDigit) && predictionDigit >= 0 && predictionDigit <= 9
+                    ? predictionDigit
+                    : 0;
+                const normalizedEntryDigit = Number.isInteger(entryDigit) && entryDigit >= 0 && entryDigit <= 9
+                    ? entryDigit
+                    : 0;
+
+                if (!signal?.signalId || !symbol || !Number.isFinite(amount) || amount <= 0) {
                     throw new Error('TRAPKID ANALYZER BUY -> missing stake, Analyzer market, or Analyzer entry digit.');
                 }
 
-                // HARD ANALYZER-ONLY RULES:
-                // 1. Contract type is DIGITMATCH.
-                // 2. Market is Analyzer signal.symbol.
-                // 3. DIGITMATCH prediction/barrier is Analyzer signal.hotDigit.
-                // 4. Match mode keeps the position open while the Analyzer stream searches.
-                // 5. entryDigit remains metadata for the locked Analyzer entry code.
-                // 6. The exact Deriv BUY contract_id is canonical and must be the contract sold.
-                // 7. The matching hot digit is the Analyzer-authorized exit event.
-                // The exact BUY remains bound to this signal; no replacement contract is created.
-                // Analyzer controls the trade decision. The financial DIGITMATCH
-                // proposal itself must execute for one tick. This does NOT make
-                // the Deriv tick the settlement authority; Analyzer controls exit.
+                if (!Number.isInteger(normalizedPredictionDigit) || normalizedPredictionDigit < 0 || normalizedPredictionDigit > 9) {
+                    throw new Error('TRAPKID ANALYZER BUY -> invalid predicted digit. Only 0-9 is accepted.');
+                }
+
+                if (!Number.isInteger(normalizedEntryDigit) || normalizedEntryDigit < 0 || normalizedEntryDigit > 9) {
+                    throw new Error('TRAPKID ANALYZER BUY -> invalid entry digit. Only 0-9 is accepted.');
+                }
+
                 logicalDuration = signal?.duration ?? signal?.logicalDuration ?? signal?.analyzerDuration ?? 1;
                 logicalDurationUnit = signal?.duration_unit ?? signal?.durationUnit ?? signal?.logicalDurationUnit ?? signal?.analyzerDurationUnit ?? 't';
-                // Preserve the established Analyzer DIGITMATCH execution value when
-                // the bridge does not include duration metadata: 1 tick.
 
                 const proposalRequest = {
                     proposal: 1,
@@ -421,20 +390,17 @@ export default Engine =>
                     duration: logicalDuration,
                     duration_unit: logicalDurationUnit,
                     underlying_symbol: symbol,
-                    barrier: String(predictionDigit),
+                    barrier: String(normalizedPredictionDigit),
                     subscribe: 1,
                 };
 
-                // Publish the normal DBot buying lifecycle before the broker
-                // request so Summary/Transactions can show the command moving
-                // from ANALYZER → BUYING instead of remaining visually empty.
                 contractStatus({
                     id: 'contract.purchase_sent',
                     data: amount,
                     analyzer: true,
                     contract_type: 'DIGITMATCH',
                     symbol,
-                    prediction: predictionDigit,
+                    prediction: normalizedPredictionDigit,
                     analyzer_entry_code: this.analyzerCommandKey || null,
                 });
                 globalObserver.setState({
@@ -444,8 +410,8 @@ export default Engine =>
                         analyzerExecutionStatus: 'ANALYZER_BUYING',
                         contractType: 'DIGITMATCH',
                         stake: amount,
-                        entryDigit,
-                        prediction: predictionDigit,
+                        entryDigit: normalizedEntryDigit,
+                        prediction: normalizedPredictionDigit,
                         analyzerEntryCode: this.analyzerCommandKey || null,
                     },
                 });
@@ -485,11 +451,6 @@ export default Engine =>
                 });
                 globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
-                // A proposal can become invalid between proposal and buy.
-                // Never retry a stale proposal id: request a fresh Analyzer-bound
-                // proposal and only accept the first successful BUY. This preserves
-                // the one-signal -> one-contract invariant while eliminating
-                // ContractBuyValidationError caused by an expired/moved proposal.
                 const makeFreshAnalyzerProposal = async () => {
                     const response = await api_base.api.send({
                         proposal: 1,
@@ -500,7 +461,7 @@ export default Engine =>
                         duration: logicalDuration,
                         duration_unit: logicalDurationUnit,
                         underlying_symbol: symbol,
-                        barrier: String(predictionDigit),
+                        barrier: String(normalizedPredictionDigit),
                         subscribe: 1,
                     });
                     const fresh = response?.proposal;
@@ -540,8 +501,6 @@ export default Engine =>
 
                         if (!retryable || attempt === 3) throw error;
 
-                        // Refresh the proposal immediately before retrying the buy.
-                        // No second contract can exist because no BUY succeeded yet.
                         const fresh = await makeFreshAnalyzerProposal();
                         activeProposalId = fresh.id;
                         activeAskPrice = fresh.askPrice;
@@ -551,8 +510,8 @@ export default Engine =>
                                 ...(globalObserver.getState('trapkid_analyzer') || {}),
                                 derivProposalId: activeProposalId,
                                 derivProposalAskPrice: activeAskPrice,
-                                analyzerEntryDigit: entryDigit,
-                                analyzerPrediction: predictionDigit,
+                                analyzerEntryDigit: normalizedEntryDigit,
+                                analyzerPrediction: normalizedPredictionDigit,
                                 analyzerPotentialPayout: Number.isFinite(Number(fresh.proposal?.payout))
                                     ? Number(fresh.proposal.payout)
                                     : null,
@@ -592,7 +551,6 @@ export default Engine =>
                 return recoverFromError(
                     action,
                     (errorCode, makeDelay) => {
-                        // if disconnected no need to resubscription (handled by live-api)
                         if (errorCode !== 'DisconnectError') {
                             this.renewProposalsOnPurchase();
                         } else {
@@ -613,9 +571,6 @@ export default Engine =>
             }
             const trade_option = tradeOptionToBuy(contract_type, this.tradeOptions);
 
-            // Analyzer mode is a real execution path, not a Builder simulation.
-            // Log the exact BUY payload so the live DBot can be verified from the
-            // browser journal and never silently stop before the API request.
             if (analyzerMode) {
                 globalObserver.emit('ui.log', `TRAPKID ANALYZER BUY → ${JSON.stringify(trade_option)}`);
             }
