@@ -250,6 +250,18 @@ export default class JournalStore {
         className?: string,
         extra: { current_currency?: string; currency?: string } = {}
     ) {
+        // Analyzer-only trading owns the signal lifecycle. Do not expose the
+        // retired financial-quote/settlement diagnostics in the user journal.
+        // Actual Deriv rejections are handled by the trade bridge/state instead.
+        if (typeof message === 'string') {
+            const retiredAnalyzerBridgeMessage =
+                message.includes('TRAPKID DERIV FINANCIAL QUOTE') ||
+                message.includes('TRAPKID DERIV FINANCIAL BUY') ||
+                message.includes('TRAPKID ANALYZER EXIT → Deriv did not return the early-sell proceeds') ||
+                message.includes('TRAPKID DERIV EARLY SELL → no sell response');
+            if (retiredAnalyzerBridgeMessage) return;
+        }
+
         const { client } = this.core;
         const { loginid, account_list } = client as RootStore['client'];
 
