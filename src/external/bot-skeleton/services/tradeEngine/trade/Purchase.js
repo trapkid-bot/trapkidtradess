@@ -36,7 +36,7 @@ export const analyzerPurchaseReservations = analyzerPurchaseReservationStore;
 // must stay open long enough for the Analyzer hot digit to appear. Analyzer
 // execution therefore uses a 60-second physical hold and closes it only on
 // EARLY_SELL_READY for the matching hot digit.
-const ANALYZER_PHYSICAL_HOLD_TICKS = 60;
+const ANALYZER_PHYSICAL_HOLD_TICKS = 1;
 const ANALYZER_LOGICAL_DURATION = 1;
 const ANALYZER_LOGICAL_DURATION_UNIT = 't';
 
@@ -266,7 +266,7 @@ export default Engine =>
 
                     analyzer_duration_unit: ANALYZER_LOGICAL_DURATION_UNIT,
                     deriv_physical_duration: ANALYZER_PHYSICAL_HOLD_TICKS,
-                    deriv_physical_duration_unit: 's',
+                    deriv_physical_duration_unit: 't',
                     analyzer_exit_status: 'WAITING_FOR_ANALYZER_EARLY_SELL',
                     analyzer_execution_status: 'WAITING_FOR_ANALYZER_EARLY_SELL',
                     analyzer_exit_code: null,
@@ -333,7 +333,7 @@ export default Engine =>
                         analyzerLogicalDuration: ANALYZER_LOGICAL_DURATION,
                         analyzerLogicalDurationUnit: ANALYZER_LOGICAL_DURATION_UNIT,
                         derivPhysicalDuration: ANALYZER_PHYSICAL_HOLD_TICKS,
-                        derivPhysicalDurationUnit: 's',
+                        derivPhysicalDurationUnit: 't',
                         payoutSource: 'DERIV_BUY',
                         derivBalanceAfterBuy: Number.isFinite(Number(buy.balance_after)) ? Number(buy.balance_after) : null,
                         signal: this.analyzerSignal || globalObserver.getState('trapkid_analyzer')?.signal,
@@ -486,7 +486,7 @@ export default Engine =>
                     contract_type: 'DIGITMATCH',
                     currency,
                     duration: ANALYZER_PHYSICAL_HOLD_TICKS,
-                    duration_unit: 's',
+                    duration_unit: 't',
                     underlying_symbol: symbol,
                     barrier: String(predictionDigit),
                 };
@@ -566,7 +566,7 @@ export default Engine =>
                         contract_type: 'DIGITMATCH',
                         currency,
                         duration: ANALYZER_PHYSICAL_HOLD_TICKS,
-                        duration_unit: 's',
+                        duration_unit: 't',
                         underlying_symbol: symbol,
                         barrier: String(predictionDigit),
                     });
@@ -748,7 +748,7 @@ export default Engine =>
             if (this.analyzerSettlementPromise) return this.analyzerSettlementPromise;
 
             this.analyzerSettlementPromise = (async () => {
-                const maxChecks = 900;
+                const maxChecks = 300;
                 const intervalMs = 100;
 
                 for (let attempt = 0; attempt < maxChecks; attempt += 1) {
