@@ -60,16 +60,25 @@ export default Engine =>
                 derivSettlement?.sold_for
             );
             const derivPayout = Number.isFinite(payoutValue) ? payoutValue : NaN;
-            const derivProfit = Number(derivSettlement?.profit);
-            if (!Number.isFinite(derivPayout) || !Number.isFinite(derivProfit)) {
+            // Deriv's early-sell response supplies the actual proceeds as
+            // sold_for. Realized P/L is simply those Deriv proceeds minus the
+            // actual Deriv buy price; no Analyzer-estimated payout is used.
+            const reportedDerivProfit = Number(derivSettlement?.profit);
+            const derivedDerivProfit =
+                Number.isFinite(reportedDerivProfit)
+                    ? reportedDerivProfit
+                    : Number.isFinite(derivPayout) && Number.isFinite(stake)
+                      ? derivPayout - stake
+                      : NaN;
+            if (!Number.isFinite(derivPayout) || !Number.isFinite(derivedDerivProfit)) {
                 globalObserver.emit(
                     'ui.log.error',
-                    'TRAPKID DERIV SETTLEMENT → incomplete payout/profit; transaction remains open'
+                    'TRAPKID DERIV EARLY SELL → sold_for or Deriv buy price missing; transaction remains open'
                 );
                 return Promise.resolve();
             }
             const payout = derivPayout;
-            const finalProfit = derivProfit;
+            const finalProfit = derivedDerivProfit;
             const derivSellTransactionId =
                 derivSettlement?.sell_transaction_id ??
                 derivSettlement?.transaction_ids?.sell ??
