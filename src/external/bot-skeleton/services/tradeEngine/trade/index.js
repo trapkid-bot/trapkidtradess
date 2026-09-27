@@ -84,7 +84,20 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // transient UI status happens to be rendered. This is important when
         // EARLY_SELL_READY arrives immediately after Analyze and before the
         // purchase lifecycle has finished changing the status to WATCHING.
-        const signal = this.analyzerSignal || analyzerState.signal;
+        const commandSignal = command?.signal && command?.signal?.signalId
+            ? command.signal
+            : null;
+        // Prefer the exact signal carried by the EARLY_SELL command when it
+        // identifies the currently active Analyzer signal. This prevents an
+        // older in-memory analyzerSignal from stealing a newer signal's exit.
+        const stateSignal = analyzerState?.signal;
+        const commandSignalId = String(command?.signalId || commandSignal?.signalId || '');
+        const signal =
+            commandSignal?.signalId && String(commandSignal.signalId) === commandSignalId
+                ? commandSignal
+                : stateSignal?.signalId && String(stateSignal.signalId) === commandSignalId
+                  ? stateSignal
+                  : this.analyzerSignal || stateSignal;
         const analyzerSignalKey = signal?.signalId && Number.isFinite(Number(signal?.lockedAt))
             ? String(signal.signalId) + ':' + String(signal.lockedAt)
             : '';
