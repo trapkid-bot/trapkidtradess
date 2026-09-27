@@ -35,8 +35,8 @@ export const analyzerPurchaseReservations = analyzerPurchaseReservationStore;
 // ANALYZER MATCH MODE: keep the purchased position open while the live
 // Analyzer stream searches for the exact hot digit. The same contract is
 // closed as soon as that digit appears.
-const ANALYZER_PHYSICAL_HOLD_TICKS = 10;
-const ANALYZER_LOGICAL_DURATION = 10;
+const ANALYZER_PHYSICAL_HOLD_SECONDS = 120;
+const ANALYZER_LOGICAL_DURATION = 1;
 const ANALYZER_LOGICAL_DURATION_UNIT = 't';
 
 export default Engine =>
@@ -161,8 +161,8 @@ export default Engine =>
                 this.tradeOptions.symbol = signal.symbol;
                 // Analyzer supplies the decision; the bot keeps its normal
                 // Analyzer Match mode keeps the position open while the live stream searches.
-                this.tradeOptions.duration = ANALYZER_PHYSICAL_HOLD_TICKS;
-                this.tradeOptions.duration_unit = 't';
+                this.tradeOptions.duration = ANALYZER_LOGICAL_DURATION;
+                this.tradeOptions.duration_unit = ANALYZER_LOGICAL_DURATION_UNIT;
 
                 globalObserver.setState({
                     trapkid_analyzer: {
@@ -264,8 +264,8 @@ export default Engine =>
                     analyzer_duration: ANALYZER_LOGICAL_DURATION,
 
                     analyzer_duration_unit: ANALYZER_LOGICAL_DURATION_UNIT,
-                    deriv_physical_duration: ANALYZER_PHYSICAL_HOLD_TICKS,
-                    deriv_physical_duration_unit: 't',
+                    deriv_physical_duration: ANALYZER_PHYSICAL_HOLD_SECONDS,
+                    deriv_physical_duration_unit: 's',
                     analyzer_exit_status: 'MATCH_OPEN',
                     analyzer_execution_status: 'MATCH_OPEN',
                     analyzer_exit_code: null,
@@ -331,8 +331,8 @@ export default Engine =>
                         payout: Number.isFinite(Number(buy.payout)) ? Number(buy.payout) : null,
                         analyzerLogicalDuration: ANALYZER_LOGICAL_DURATION,
                         analyzerLogicalDurationUnit: ANALYZER_LOGICAL_DURATION_UNIT,
-                        derivPhysicalDuration: ANALYZER_PHYSICAL_HOLD_TICKS,
-                        derivPhysicalDurationUnit: 't',
+                        derivPhysicalDuration: ANALYZER_PHYSICAL_HOLD_SECONDS,
+                        derivPhysicalDurationUnit: 's',
                         payoutSource: 'DERIV_BUY',
                         derivBalanceAfterBuy: Number.isFinite(Number(buy.balance_after)) ? Number(buy.balance_after) : null,
                         signal: this.analyzerSignal || globalObserver.getState('trapkid_analyzer')?.signal,
@@ -419,8 +419,8 @@ export default Engine =>
                     basis: 'stake',
                     contract_type: 'DIGITMATCH',
                     currency,
-                    duration: ANALYZER_PHYSICAL_HOLD_TICKS,
-                    duration_unit: ANALYZER_LOGICAL_DURATION_UNIT,
+                    duration: ANALYZER_PHYSICAL_HOLD_SECONDS,
+                    duration_unit: 's',
                     underlying_symbol: symbol,
                     barrier: String(predictionDigit),
                 };
@@ -499,8 +499,8 @@ export default Engine =>
                         basis: 'stake',
                         contract_type: 'DIGITMATCH',
                         currency,
-                        duration: ANALYZER_PHYSICAL_HOLD_TICKS,
-                        duration_unit: ANALYZER_LOGICAL_DURATION_UNIT,
+                        duration: ANALYZER_PHYSICAL_HOLD_SECONDS,
+                        duration_unit: 's',
                         underlying_symbol: symbol,
                         barrier: String(predictionDigit),
                     });
