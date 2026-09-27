@@ -205,10 +205,30 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // The pending exit is consumed immediately after contractId exists.
         if (this.isSold) return;
 
-        // The Deriv contract ID is the authoritative execution handle. A UI
-        // refresh may lose the local Analyzer tracking ID while the real
-        // Deriv contract is still open.
-        if (!this.contractId && !this.derivContractId) {
+        // The REAL Deriv contract_id is the financial execution handle.
+        // Recover it from shared Analyzer state/data if this engine instance
+        // lost its in-memory field during a UI/render lifecycle transition.
+        const stateDerivContractId = String(
+            analyzerState?.derivContractId ||
+            analyzerState?.deriv_contract_id ||
+            this.data?.contract?.deriv_contract_id ||
+            ''
+        );
+        if (!this.derivContractId && stateDerivContractId) {
+            this.derivContractId = stateDerivContractId;
+        }
+        if (!this.contractId) {
+            const stateLocalContractId = String(
+                analyzerState?.analyzerContractId ||
+                this.data?.contract?.contract_id ||
+                ''
+            );
+            if (stateLocalContractId) this.contractId = stateLocalContractId;
+        }
+
+        // If the BUY has genuinely not produced a Deriv contract yet, preserve
+        // this exact exit and consume it immediately when the BUY completes.
+        if (!this.derivContractId) {
             globalObserver.setState({
                 trapkid_analyzer: {
                     ...analyzerState,
