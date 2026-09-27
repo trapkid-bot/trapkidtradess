@@ -6,7 +6,6 @@ import { contractStatus, log } from '../utils/broadcast';
 import { doUntilDone, recoverFromError } from '../utils/helpers';
 import { DURING_PURCHASE } from './state/constants';
 import { sell } from './state/actions';
-import { analyzerContractBindings } from './Purchase';
 
 export default Engine =>
     class Sell extends Engine {
@@ -14,7 +13,10 @@ export default Engine =>
             return this.contractId && !this.isSold && this.isSellAvailable && !this.isExpired;
         }
 
-        // Analyzer-only settlement: bind SELL to the current BUY contract and never reuse a prior cycle ID.
+        // Analyzer-only local settlement.
+        // The Analyzer owns the lifecycle. Deriv is used only for the financial
+        // proposal/potential payout obtained during Purchase.js. No broker SELL
+        // request is made, so there is no Deriv-owned settlement event here.
         async sellAnalyzerEarlyExit() {
             const state = globalObserver.getState('trapkid_analyzer') || {};
             const signal = state?.signal?.signalId ? state.signal : this.analyzerSignal;
@@ -23,8 +25,8 @@ export default Engine =>
             if (
                 !signal?.signalId ||
                 String(state.commandKey || '') !== String(signal.signalId) + ':' + String(signal.lockedAt) ||
-                String(state.executionTrigger || '') !== 'EARLY_SELL_READY' &&
-                String(exit?.status || '') !== 'EARLY_SELL_READY'
+                (String(state.executionTrigger || '') !== 'EARLY_SELL_READY' &&
+                    String(exit?.status || '') !== 'EARLY_SELL_READY')
             ) {
                 return false;
             }
@@ -39,241 +41,103 @@ export default Engine =>
                 hotDigit < 0 ||
                 hotDigit > 9
             ) {
-                globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER SELL → signal/exit digit mismatch; sell blocked.');
+                globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER EXIT → signal/hot digit mismatch; settlement blocked.');
                 return false;
             }
 
-            // HARD ANALYZER CONTRACT OWNERSHIP:
-            // The only valid SELL handle is the contract_id returned by the
-            // successful BUY for THIS Analyzer signal. Do not fall back to
-            // generic engine contractId/derivContractId or generic bridge state.
-            // Those fields can belong to a previous TradeEngine instance/cycle.
-            const analyzerSellKey = String(signal.signalId) + ':' + String(signal.lockedAt);
+            const contractId = String(
+                state.analyzerContractId ||
+                state.analyzerBuyContractId ||
+                this.analyzerContractId ||
+                this.contractId ||
+                this.analyzerCommandKey ||
+                signal.signalId
+            );
+            if (!contractId || this.isSold) return false;
 
-            // HARD ANALYZER CONTRACT IDENTITY:
-            // Purchase.js records the actual Deriv BUY contract_id in the module
-            // binding for this exact signal. That broker ID is the ONLY SELL target.
-            // Never let a stale TradeEngine instance, generic derivContractId,
-            // analyzerContractId, or old derivBuy response override it.
-            const immutableBuyContractId = String(analyzerContractBindings.get(analyzerSellKey) || '');
-
-            const stateBuySignalId = String(state.analyzerBuySignalId || '');
-            const stateBuyContractId =
-                stateBuySignalId === String(signal.signalId)
-                    ? String(state.analyzerBuyContractId || '')
-                    : '';
-
-            if (!immutableBuyContractId) {
-                globalObserver.emit(
-                    'ui.log.error',
-                    'TRAPKID ANALYZER SELL BLOCKED → no immutable BUY contract binding for signal=' +
-                        String(signal.signalId)
-                );
-                return false;
-            }
-
-            // If shared state has a BUY binding, it must agree with the immutable
-            // broker binding. A mismatch is a stale-state bug, not permission to
-            // choose whichever ID happens to be available.
-            if (stateBuyContractId && stateBuyContractId !== immutableBuyContractId) {
-                globalObserver.emit(
-                    'ui.log.error',
-                    'TRAPKID ANALYZER SELL BLOCKED → stale BUY state binding rejected; immutable=' +
-                        immutableBuyContractId +
-                        ' state=' +
-                        stateBuyContractId
-                );
-                return false;
-            }
-
-            const contractId = immutableBuyContractId;
-
-            if (!contractId || this.isSold) {
-                globalObserver.emit(
-                    'ui.log.error',
-                    'TRAPKID ANALYZER SELL BLOCKED → no exact BUY contract is bound to signal=' +
-                        String(signal.signalId)
-                );
-                return false;
-            }
-
-            // Shared one-SELL lock: this is global Analyzer state, not an
-            // instance-local flag. Multiple TradeEngine observers must never
-            // send duplicate SELL requests for the same signal.
-            // Lock only while this exact SELL request is in flight. A failed
-            // request must not permanently poison the signal: the Analyzer watcher
-            // must remain able to retry the SAME contract while it is still open.
-            const sharedSellKey = String(state.analyzerSellAttemptKey || '');
-            const sharedSellInFlight = state.analyzerSellInFlight === true;
-            if (sharedSellKey === analyzerSellKey && sharedSellInFlight) {
-                return false;
-            }
+            const sharedExitKey = String(state.analyzerExitAttemptKey || '');
+            if (sharedExitKey === contractId && state.analyzerExitInFlight === true) return false;
             globalObserver.setState({
                 trapkid_analyzer: {
                     ...state,
-                    analyzerSellAttemptKey: analyzerSellKey,
-                    analyzerSellContractId: contractId,
-                    analyzerSellInFlight: true,
+                    analyzerExitAttemptKey: contractId,
+                    analyzerExitInFlight: true,
+                    status: 'EARLY_EXIT_EXECUTING',
+                    analyzerExecutionStatus: 'EARLY_EXIT_EXECUTING',
+                    executionTrigger: 'EARLY_SELL_READY',
+                    holdUntilAnalyzerExit: false,
+                    analyzerContractId: contractId,
+                    derivContractId: null,
+                    analyzerExitStatus: 'EARLY_SELL_READY',
                 },
             });
-            this.analyzerSellAttemptKey = analyzerSellKey;
 
-            // From this point onward the exact BUY contract_id is immutable.
-            this.contractId = contractId;
-            this.derivContractId = contractId;
-
-            // The immutable signal binding above is the sole BUY identity.
-            // Do not reference the old per-engine buyResponseContractId here.
-            globalObserver.emit(
-                'ui.log',
-                'TRAPKID ANALYZER → SAME DERIV CONTRACT → ' +
-                    contractId +
-                    ' → signal=' +
-                    String(signal.signalId) +
-                    ' → hotDigit=' +
-                    String(hotDigit)
+            const stake = Number(this.data?.contract?.buy_price ?? this.tradeOptions?.amount ?? 0);
+            const proposalPayout = Number(
+                state.analyzerPotentialPayout ??
+                state.payout ??
+                this.data?.contract?.deriv_potential_payout ??
+                this.data?.contract?.payout
             );
-
-            const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
-
-            const sellContractAndGetInfo = async () => {
-                // CRITICAL 1-TICK TIMING RULE:
-                // EARLY_SELL_READY is already an explicit Analyzer exit command.
-                // Do NOT poll proposal_open_contract first. That old 8 x 250ms
-                // visibility loop could consume the entire 1-tick lifetime and
-                // make a valid early SELL arrive after expiry.
-                // Send SELL immediately against the canonical BUY contract ID.
-                let sellResponse = null;
-                let lastSellError = null;
-
-                for (let attempt = 0; attempt < 3; attempt += 1) {
-                    try {
-                        globalObserver.emit(
-                            'ui.log',
-                            'TRAPKID DERIV EARLY SELL → SELL IMMEDIATE → contract=' + contractId
-                        );
-                        sellResponse = await api_base.api.send({
-                            sell: Number(contractId),
-                            price: 0,
-                        });
-                        break;
-                    } catch (error) {
-                        lastSellError = error;
-                        const code = error?.error?.code || error?.code || '';
-                        // A RateLimit is transient; retry quickly because a
-                        // 1-tick Analyzer contract has almost no remaining life.
-                        if (code !== 'RateLimit' || attempt === 2) throw error;
-                        await wait(100 * (attempt + 1));
-                    }
-                }
-
-                if (!sellResponse) {
-                    throw lastSellError || new Error('TRAPKID ANALYZER → SELL request returned no response.');
-                }
-
-                // Verification happens AFTER the SELL request so verification
-                // latency can never delay the actual exit command.
-                let contractResponse = null;
-                try {
-                    contractResponse = await api_base.api.send({
-                        proposal_open_contract: 1,
-                        contract_id: Number(contractId),
-                    });
-                } catch {
-                    // SELL response is authoritative for sold_for/transaction_id.
-                }
-
-                const sellPayload = sellResponse?.sell;
-                const responseContractId = String(sellPayload?.contract_id ?? '');
-                if (responseContractId && responseContractId !== contractId) {
-                    throw new Error(
-                        'TRAPKID DERIV EARLY SELL → Deriv returned a different contract ID. expected=' +
-                        contractId + ' received=' + responseContractId
-                    );
-                }
-
-                return { sellResponse, contractResponse };
-            };
-
-            let result;
-            try {
-                // Analyzer owns the exit event. Only an explicit
-                // EARLY_SELL_READY may reach the SELL request for this contract.
-                result = await sellContractAndGetInfo();
-            } catch (error) {
-                const errorCode = error?.error?.code || error?.code || '';
-                const errorMessage = error?.error?.message || error?.message || 'sell failed';
-                const failedState = globalObserver.getState('trapkid_analyzer') || {};
+            const exitPayout = Number(
+                exit?.payout ??
+                exit?.sellPrice ??
+                exit?.sell_price
+            );
+            // Deriv contributes only the financial proposal value. Analyzer
+            // determines WHEN the local contract settles and WHICH digit triggers it.
+            const payout = Number.isFinite(exitPayout) && exitPayout > 0
+                ? exitPayout
+                : proposalPayout;
+            if (!Number.isFinite(payout) || payout < 0) {
+                globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER SETTLEMENT → no valid financial payout quote.');
                 globalObserver.setState({
                     trapkid_analyzer: {
-                        ...failedState,
-                        status: 'ANALYZER_EARLY_SELL_PENDING',
-                        analyzerExecutionStatus: 'ANALYZER_EARLY_SELL_PENDING',
+                        ...(globalObserver.getState('trapkid_analyzer') || {}),
+                        analyzerExitInFlight: false,
+                        analyzerExitAttemptKey: null,
+                        status: 'EARLY_EXIT_EXECUTING',
+                        analyzerExecutionStatus: 'EARLY_EXIT_WAITING_FOR_PAYOUT',
                         executionTrigger: 'EARLY_SELL_READY',
-                        holdUntilAnalyzerExit: true,
-                        analyzerExitStatus: 'EARLY_SELL_READY',
-                        earlySellErrorCode: errorCode || null,
-                        earlySellError: errorMessage,
-                        analyzerContractId: contractId,
-                        derivContractId: contractId,
-                        analyzerSellInFlight: false,
-                        analyzerSellAttemptKey: null,
                     },
                 });
-                globalObserver.emit(
-                    'ui.log.error',
-                    'TRAPKID ANALYZER → Analyzer early sell pending for SAME CONTRACT=' + contractId +
-                    ' → ' + errorMessage
-                );
-                return false;
-            }
-            const sold = result?.sellResponse?.sell;
-            const poc = result?.contractResponse?.proposal_open_contract;
-            const soldFor = Number(sold?.sold_for ?? poc?.sell_price ?? poc?.bid_price);
-            const balanceAfter = Number(sold?.balance_after);
-            const sellTransactionId =
-                sold?.transaction_id ??
-                poc?.transaction_ids?.sell ??
-                null;
-            if (
-                String(sold?.contract_id ?? poc?.contract_id ?? contractId) !== contractId ||
-                !Number.isFinite(soldFor) ||
-                sellTransactionId == null
-            ) {
-                globalObserver.emit(
-                    'ui.log.error',
-                    'TRAPKID ANALYZER → settlement did not confirm the SAME CONTRACT=' + contractId
-                );
                 return false;
             }
 
-            const buyPrice = Number(this.data?.contract?.buy_price ?? this.tradeOptions?.amount);
-            const profit = Number.isFinite(buyPrice) ? soldFor - buyPrice : 0;
+            const exitCode = String(
+                exit?.exitCode ||
+                signal.signalId + ':' + String(exit?.epoch || Date.now())
+            );
             const currentContract = this.data?.contract || {};
+            const profit = payout - stake;
 
             this.data.contract = {
                 ...currentContract,
+                id: contractId,
                 contract_id: contractId,
-                deriv_contract_id: contractId,
+                deriv_contract_id: null,
                 transaction_ids: {
                     ...(currentContract.transaction_ids || {}),
-                    buy: currentContract.transaction_ids?.buy ?? this.derivBuyTransactionId ?? null,
-                    sell: sellTransactionId,
+                    buy: currentContract.transaction_ids?.buy || currentContract.analyzer_entry_code || signal.signalId,
+                    sell: exitCode,
                 },
-                sell_price: soldFor,
-                payout: soldFor,
-                bid_price: soldFor,
+                sell_price: payout,
+                payout,
+                bid_price: payout,
                 profit,
-                deriv_sell_price: soldFor,
-                deriv_sell_transaction_id: sellTransactionId,
-                deriv_balance_after_sell: Number.isFinite(balanceAfter) ? balanceAfter : null,
                 analyzer_exit_status: 'EARLY_SELL_READY',
                 analyzer_execution_status: 'ANALYZER_EARLY_SELL_CONFIRMED',
-                analyzer_exit_code: String(signal.signalId) + ':' + String(exit?.epoch || ''),
+                analyzer_exit_code: exitCode,
                 analyzer_exit_digit: hotDigit,
                 analyzer_exit_quote: Number.isFinite(Number(exit?.quote)) ? Number(exit.quote) : null,
                 analyzer_contract_id: contractId,
-                financial_status: 'DERIV_SELL_CONFIRMED',
+                deriv_contract_id: null,
+                deriv_potential_payout: payout,
+                deriv_sell_transaction_id: null,
+                deriv_sell_price: null,
+                deriv_balance_after_sell: null,
+                financial_status: 'ANALYZER_SIMULATED_SETTLEMENT',
+                payout_source: 'DERIV_PROPOSAL',
                 status: 'sold',
                 is_sold: true,
                 is_expired: false,
@@ -284,46 +148,44 @@ export default Engine =>
             this.isSold = true;
             this.isExpired = false;
             this.isSellAvailable = false;
+            this.contractId = '';
+            this.derivContractId = '';
+            this.derivBuy = null;
             this.updateTotals(this.data.contract);
-
-            globalObserver.emit('deriv.contract.sell', {
-                local_contract_id: String(signal.signalId),
-                contract_id: contractId,
-                transaction_id: sellTransactionId,
-                sell_transaction_id: sellTransactionId,
-                analyzer_entry_code: currentContract.analyzer_entry_code || currentContract.analyzer_command_key || null,
-                analyzer_exit_code: String(signal.signalId) + ':' + String(exit?.epoch || ''),
-                sold_for: soldFor,
-                balance_after: Number.isFinite(balanceAfter) ? balanceAfter : null,
-                currency: sold?.currency || this.tradeOptions?.currency || 'USD',
-            });
 
             contractStatus({
                 id: 'contract.sold',
                 data: contractId,
                 contract: this.data.contract,
             });
+            contract(this.data.contract);
 
             globalObserver.setState({
                 trapkid_analyzer: {
                     ...state,
                     status: 'ANALYZER_EARLY_SELL_CONFIRMED',
+                    analyzerExecutionStatus: 'ANALYZER_EARLY_SELL_CONFIRMED',
                     signal,
                     signalId: signal.signalId,
                     commandKey: String(signal.signalId) + ':' + String(signal.lockedAt),
                     executionTrigger: 'ANALYZER_EARLY_SELL_CONFIRMED',
                     holdUntilAnalyzerExit: false,
-                    settlementSource: 'EARLY_SELL_READY',
+                    settlementSource: 'ANALYZER',
                     analyzerContractId: contractId,
-                    derivContractId: contractId,
-                    derivSellTransactionId: sellTransactionId,
-                    derivSellPrice: soldFor,
-                    derivPayout: soldFor,
-                    payout: soldFor,
-                    financialStatus: 'DERIV_SELL_CONFIRMED',
-                    financial_status: 'DERIV_SELL_CONFIRMED',
+                    analyzerBuyContractId: contractId,
+                    derivContractId: null,
+                    derivSellTransactionId: null,
+                    derivSellPrice: null,
+                    payout,
+                    analyzerPotentialPayout: payout,
+                    payoutSource: 'DERIV_PROPOSAL',
+                    financialStatus: 'ANALYZER_SIMULATED_SETTLEMENT',
+                    financial_status: 'ANALYZER_SIMULATED_SETTLEMENT',
                     profit,
-                    derivBalanceAfterSell: Number.isFinite(balanceAfter) ? balanceAfter : null,
+                    analyzerExitStatus: 'EARLY_SELL_READY',
+                    analyzerExitDigit: hotDigit,
+                    analyzerExitAttemptKey: null,
+                    analyzerExitInFlight: false,
                     exit: {
                         ...(exit || {}),
                         status: 'EARLY_SELL_READY',
@@ -333,6 +195,12 @@ export default Engine =>
                 },
             });
             globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
+            globalObserver.emit(
+                'ui.log',
+                'TRAPKID ANALYZER LOCAL SETTLEMENT → ' + contractId +
+                ' → hotDigit=' + hotDigit +
+                ' → payout=' + payout
+            );
 
             if (this.afterPromise) {
                 this.afterPromise();
