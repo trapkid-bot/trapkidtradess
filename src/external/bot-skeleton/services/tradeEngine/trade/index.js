@@ -388,7 +388,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                 analyzerExecutionStatus: 'EARLY_EXIT_EXECUTING',
                 signal,
                 signalId: activeSignalId,
-                commandKey,
+                commandKey: String(signal.signalId) + ':' + String(signal.lockedAt),
                 symbol: signal.symbol,
                 prediction: Number(signal.hotDigit),
                 entryDigit: Number(signal.entryDigit),
