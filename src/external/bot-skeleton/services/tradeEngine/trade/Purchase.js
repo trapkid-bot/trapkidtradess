@@ -266,7 +266,7 @@ export default Engine =>
 
                     analyzer_duration_unit: ANALYZER_LOGICAL_DURATION_UNIT,
                     deriv_physical_duration: ANALYZER_PHYSICAL_HOLD_TICKS,
-                    deriv_physical_duration_unit: 't',
+                    deriv_physical_duration_unit: 's',
                     analyzer_exit_status: 'WAITING_FOR_ANALYZER_EARLY_SELL',
                     analyzer_execution_status: 'WAITING_FOR_ANALYZER_EARLY_SELL',
                     analyzer_exit_code: null,
@@ -333,7 +333,7 @@ export default Engine =>
                         analyzerLogicalDuration: ANALYZER_LOGICAL_DURATION,
                         analyzerLogicalDurationUnit: ANALYZER_LOGICAL_DURATION_UNIT,
                         derivPhysicalDuration: ANALYZER_PHYSICAL_HOLD_TICKS,
-                        derivPhysicalDurationUnit: 't',
+                        derivPhysicalDurationUnit: 's',
                         payoutSource: 'DERIV_BUY',
                         derivBalanceAfterBuy: Number.isFinite(Number(buy.balance_after)) ? Number(buy.balance_after) : null,
                         signal: this.analyzerSignal || globalObserver.getState('trapkid_analyzer')?.signal,
