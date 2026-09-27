@@ -232,12 +232,11 @@ export default Engine =>
             // duration for the Deriv contract. Do NOT invent a longer financial
             // duration here. The Analyzer controls the exit event; this request only
             // purchases the configured DIGITMATCH contract.
-            const configuredDuration = Number(this.tradeOptions?.duration);
-            const duration_unit = this.tradeOptions?.duration_unit || 't';
-            const duration =
-                Number.isFinite(configuredDuration) && configuredDuration > 0
-                    ? Math.floor(configuredDuration)
-                    : 1;
+            // Analyzer-only execution is fixed at exactly 1 tick.
+            // Do not allow Builder settings or Analyzer metadata to change the
+            // financial contract duration.
+            const duration = 1;
+            const duration_unit = 't';
             const currency = this.tradeOptions?.currency || 'USD';
             const hotDigit = Number(signal.hotDigit);
             if (!Number.isFinite(amount) || amount <= 0) return Promise.resolve(null);
@@ -349,6 +348,9 @@ export default Engine =>
                 this.derivContractId = String(buy.contract_id);
                 this.derivBuyTransactionId = buy.transaction_id ?? null;
                 this.derivBuy = buy;
+                // Bind the real Deriv execution handle to the exact Analyzer
+                // signal. The sell path may only close this same pair.
+                this.analyzerDerivSignalId = String(signal.signalId);
 
                 // Deriv is the financial authority for the tracked trade.
                 // Publish the exact BUY response; the transaction store renders it.
@@ -388,6 +390,19 @@ export default Engine =>
                         financial_status: 'DERIV_BUY_CONFIRMED',
                     };
                     contract(this.data.contract);
+                }
+
+                if (!Number.isFinite(actualBuyPrice) || actualBuyPrice <= 0) {
+                    globalObserver.emit('ui.log.error', 'TRAPKID DERIV BUY → invalid authoritative buy_price; contract not opened locally.');
+                    return null;
+                }
+                if (!Number.isFinite(balanceAfter)) {
+                    globalObserver.emit('ui.log.error', 'TRAPKID DERIV BUY → missing authoritative balance_after; contract not opened locally.');
+                    return null;
+                }
+                if (buy.transaction_id == null) {
+                    globalObserver.emit('ui.log.error', 'TRAPKID DERIV BUY → missing authoritative transaction_id; contract not opened locally.');
+                    return null;
                 }
 
                 if (Number.isFinite(balanceAfter)) this.updateDerivAccountBalance(balanceAfter);
