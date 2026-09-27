@@ -489,8 +489,8 @@ export default Engine =>
                         basis: 'stake',
                         contract_type: 'DIGITMATCH',
                         currency,
-                        duration: ANALYZER_PHYSICAL_HOLD_TICKS,
-                        duration_unit: 't',
+                        duration: this.tradeOptions?.duration,
+                        ...(this.tradeOptions?.duration_unit != null ? { duration_unit: this.tradeOptions.duration_unit } : {}),
                         underlying_symbol: symbol,
                         barrier: String(predictionDigit),
                     });
