@@ -45,11 +45,20 @@ export default Engine =>
             // The BUY response is the canonical owner of the real Deriv
             // contract ID. UI/bridge state can lag or still contain the previous
             // Analyzer cycle, so never choose a contract ID from stale UI state.
+            // The Analyzer cycle state is authoritative for the current signal.
+            // Prefer the contract ID recorded by the successful BUY for THIS signal;
+            // never reuse a contract ID left on an older Engine instance.
+            const stateContractSignalId = String(state.analyzerContractSignalId || '');
+            const stateAnalyzerContractId =
+                stateContractSignalId === String(signal.signalId)
+                    ? String(state.analyzerContractId || state.derivContractId || state.deriv_contract_id || '')
+                    : '';
             const buyResponseContractId = String(this.derivBuy?.contract_id || '');
             const engineDerivContractId = String(this.derivContractId || '');
             const engineContractId = String(this.contractId || '');
             const stateDerivContractId = String(state.derivContractId || state.deriv_contract_id || '');
             const contractId =
+                stateAnalyzerContractId ||
                 buyResponseContractId ||
                 engineDerivContractId ||
                 engineContractId ||
