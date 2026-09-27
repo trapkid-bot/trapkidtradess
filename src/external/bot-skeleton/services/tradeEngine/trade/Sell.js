@@ -197,76 +197,35 @@ export default Engine =>
 
             let result;
             try {
-                // Analyzer Match settlement is allowed to confirm the same
-                // contract even when a 1-tick DIGITMATCH has already reached
-                // its broker expiry. In that case SELL is no longer a valid
-                // operation; the broker's final contract record is the
-                // settlement record for the exact BUY contract.
+                // Analyzer owns the Match settlement event. Only an explicit
+                // MATCH_FOUND may reach the SELL request for this contract.
                 result = await sellContractAndGetInfo();
             } catch (error) {
-                let contractResponse = null;
-                try {
-                    contractResponse = await api_base.api.send({
-                        proposal_open_contract: 1,
-                        contract_id: Number(contractId),
-                    });
-                } catch {
-                    // Preserve the original broker error if the contract record
-                    // cannot be read.
-                }
-
-                const poc = contractResponse?.proposal_open_contract;
-                const finalContractId = String(poc?.contract_id ?? '');
-                const finalTickRaw = poc?.exit_tick_display ?? poc?.exit_tick;
-                const finalTickDigits = String(finalTickRaw ?? '').replace(/[^0-9]/g, '');
-                const finalDigit = finalTickDigits ? Number(finalTickDigits.slice(-1)) : NaN;
-                const brokerClosed =
-                    finalContractId === contractId &&
-                    (poc?.is_sold === 1 || poc?.is_sold === true ||
-                     poc?.is_expired === 1 || poc?.is_expired === true);
-
-                // A one-tick contract may already be broker-settled by the time
-                // the Analyzer MATCH_FOUND reaches the SELL bridge. If its exact
-                // final tick is the Analyzer hot digit, confirm that SAME contract
-                // as MATCH_SETTLED instead of reporting a false SELL failure.
-                if (brokerClosed && Number.isInteger(finalDigit) && finalDigit === hotDigit) {
-                    globalObserver.emit(
-                        'ui.log',
-                        'TRAPKID MATCH → SAME CONTRACT ALREADY SETTLED → contract=' +
-                            contractId + ' → hotDigit=' + hotDigit
-                    );
-                    result = {
-                        brokerSettled: true,
-                        contractResponse,
-                    };
-                } else {
-                    const errorCode = error?.error?.code || error?.code || '';
-                    const errorMessage = error?.error?.message || error?.message || 'sell failed';
-                    const failedState = globalObserver.getState('trapkid_analyzer') || {};
-                    globalObserver.setState({
-                        trapkid_analyzer: {
-                            ...failedState,
-                            status: 'MATCH_SETTLEMENT_PENDING',
-                            analyzerExecutionStatus: 'MATCH_SETTLEMENT_PENDING',
-                            executionTrigger: 'MATCH_FOUND',
-                            holdUntilAnalyzerExit: true,
-                            analyzerExitStatus: 'MATCH_FOUND',
-                            earlySellErrorCode: errorCode || null,
-                            earlySellError: errorMessage,
-                            analyzerContractId: contractId,
-                            derivContractId: contractId,
-                            analyzerSellInFlight: false,
-                            analyzerSellAttemptKey: null,
-                        },
-                    });
-                    globalObserver.emit(
-                        'ui.log.error',
-                        'TRAPKID MATCH → settlement pending for SAME CONTRACT=' + contractId +
-                        ' → ' + errorMessage
-                    );
-                    globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
-                    return false;
-                }
+                const errorCode = error?.error?.code || error?.code || '';
+                const errorMessage = error?.error?.message || error?.message || 'sell failed';
+                const failedState = globalObserver.getState('trapkid_analyzer') || {};
+                globalObserver.setState({
+                    trapkid_analyzer: {
+                        ...failedState,
+                        status: 'MATCH_SETTLEMENT_PENDING',
+                        analyzerExecutionStatus: 'MATCH_SETTLEMENT_PENDING',
+                        executionTrigger: 'MATCH_FOUND',
+                        holdUntilAnalyzerExit: true,
+                        analyzerExitStatus: 'MATCH_FOUND',
+                        earlySellErrorCode: errorCode || null,
+                        earlySellError: errorMessage,
+                        analyzerContractId: contractId,
+                        derivContractId: contractId,
+                        analyzerSellInFlight: false,
+                        analyzerSellAttemptKey: null,
+                    },
+                });
+                globalObserver.emit(
+                    'ui.log.error',
+                    'TRAPKID MATCH → Analyzer settlement pending for SAME CONTRACT=' + contractId +
+                    ' → ' + errorMessage
+                );
+                return false;
             }
 
             if (result?.notSellable) {
@@ -287,7 +246,7 @@ export default Engine =>
 
             const sold = result?.sellResponse?.sell;
             const poc = result?.contractResponse?.proposal_open_contract;
-            const brokerSettled = result?.brokerSettled === true;
+            const brokerSettled = false;
             const soldFor = Number(sold?.sold_for ?? poc?.sell_price ?? poc?.payout ?? poc?.bid_price);
             const balanceAfter = Number(sold?.balance_after);
             const sellTransactionId =
