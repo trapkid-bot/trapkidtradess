@@ -150,6 +150,8 @@ const TrapKidAnalyzerDock = () => {
                         mergedAnalyzerState.derivBuyPrice = null;
                         mergedAnalyzerState.derivBuy = null;
                         mergedAnalyzerState.analyzerContractId = null;
+                        mergedAnalyzerState.analyzerContractSignalId = null;
+                        mergedAnalyzerState.analyzer_contract_signal_id = null;
                         mergedAnalyzerState.analyzerPotentialPayout = null;
                         mergedAnalyzerState.derivPayout = null;
                         mergedAnalyzerState.payout = null;
