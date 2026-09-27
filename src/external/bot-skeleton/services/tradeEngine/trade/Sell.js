@@ -16,7 +16,7 @@ export default Engine =>
             const analyzerSignal = this.analyzerSignal || analyzerState.signal;
 
             if (source !== 'ANALYZER_EARLY_SELL') {
-                return Promise.resolve();
+                return false;
             }
 
             // This method is reached only from the Analyzer command path.
@@ -24,13 +24,13 @@ export default Engine =>
             // sell request. The exact Analyzer signal is the authorization and
             // the Deriv contract_id below is the only financial execution handle.
             if (!analyzerSignal?.signalId) {
-                return Promise.resolve();
+                return false;
             }
 
             // EARLY_SELL_READY must be able to close the already-purchased
             // Deriv contract even if a UI refresh cleared the local tracking ID.
-            if (!this.derivContractId && !this.contractId) return Promise.resolve();
-            if (this.isSold) return Promise.resolve();
+            if (!this.derivContractId && !this.contractId) return false;
+            if (this.isSold) return true;
 
             const exit = this.getAnalyzerExit?.();
             const exitStatus = String(exit?.status || analyzerState?.exit?.status || '');
@@ -84,7 +84,7 @@ export default Engine =>
                     'ui.log.error',
                     'TRAPKID ANALYZER COMMAND → REAL DERIV SELL DID NOT RETURN PROCEEDS; SAME contract remains open/terminal and was not locally closed'
                 );
-                return Promise.resolve();
+                return false;
             }
 
             const actualBuyPrice = Number(derivSettlement?.buy_price ?? this.derivBuy?.buy_price);
@@ -109,7 +109,7 @@ export default Engine =>
                     'ui.log.error',
                     'TRAPKID DERIV EARLY SELL → sold_for or Deriv buy price missing; transaction remains open'
                 );
-                return Promise.resolve();
+                return false;
             }
             const payout = derivPayout;
             const finalProfit = derivedDerivProfit;
@@ -251,6 +251,6 @@ export default Engine =>
             }
 
             this.store.dispatch(sell());
-            return Promise.resolve();
+            return true;
         }
     };
