@@ -223,10 +223,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                 contractTypes: ['DIGITMATCH'],
                 symbol: this.analyzerSignal.symbol,
                 prediction: hotDigit,
-                // MATCH MODE: use a valid DIGITMATCH duration. MATCH_FOUND is the
-                // Analyzer hot-digit exit event for this same contract.
-                duration: 1,
-                duration_unit: 't',
+                // Analyzer owns Match timing. Do not inject a one-tick duration here.
             };
             this.is_proposal_subscription_required = false;
             globalObserver.emit('ui.log', 'TRAPKID ANALYZER COMMAND → BUY AUTHORIZED → ' + activeKey + ' → digit=' + hotDigit);
