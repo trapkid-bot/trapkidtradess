@@ -66,35 +66,20 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                 })();
 
             const exit = state?.exit;
-            const analyzerReady =
-                exit?.status === 'EARLY_SELL_READY' &&
-                Number(exit?.digit) === hotDigit &&
-                (!exit?.signalId || String(exit.signalId) === signalId);
-
             const matchFound = tickDigit === hotDigit;
 
-            if (!analyzerReady && !matchFound) return;
+            if (!matchFound) return;
             if (this.analyzerExitHandling || this.analyzerDerivSellPromise) return;
 
-            const matchExit = matchFound
-                ? {
-                    signalId,
-                    digit: hotDigit,
-                    hotDigit,
-                    quote: Number(tick?.quote),
-                    epoch: Number(tick?.epoch || Date.now()),
-                    status: 'MATCH_FOUND',
-                    exitCode: commandKey,
-                }
-                : {
-                    signalId,
-                    digit: hotDigit,
-                    hotDigit,
-                    quote: Number(exit?.quote),
-                    epoch: Number(exit?.epoch || Date.now()),
-                    status: 'EARLY_SELL_READY',
-                    exitCode: exit?.exitCode || commandKey,
-                };
+            const matchExit = {
+                signalId,
+                digit: hotDigit,
+                hotDigit,
+                quote: Number(tick?.quote),
+                epoch: Number(tick?.epoch || Date.now()),
+                status: 'MATCH_FOUND',
+                exitCode: commandKey,
+            };
 
             globalObserver.setState({
                 trapkid_analyzer: {
@@ -130,9 +115,8 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         globalObserver.register('trapkid.analyzer.command', this.analyzerCommandObserver);
         globalObserver.register('trapkid.analyzer.updated', this.analyzerStateExitObserver);
         this.store = createStore(rootReducer, applyMiddleware(thunk));
-        // Keep Analyze running while the Analyzer-owned local contract is open.
-        // The cycle resolves only after Analyzer emits EARLY_SELL_READY and the
-        // local Analyzer settlement completes.
+        // Keep Analyze running while the Analyzer-owned Match contract is open.
+        // The cycle resolves only after MATCH_FOUND settles this same contract.
         this.analyzerCyclePromise = Promise.resolve();
         this.resolveAnalyzerCycle = null;
     }
@@ -239,9 +223,9 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                 contractTypes: ['DIGITMATCH'],
                 symbol: this.analyzerSignal.symbol,
                 prediction: hotDigit,
-                // MATCH MODE: keep the same purchased position open while the Analyzer
-                // stream waits for the exact hot digit. MATCH_FOUND closes it.
-                duration: 100000,
+                // MATCH MODE: use a valid DIGITMATCH duration. MATCH_FOUND is the
+                // Analyzer hot-digit exit event for this same contract.
+                duration: 10,
                 duration_unit: 't',
             };
             this.is_proposal_subscription_required = false;
@@ -268,7 +252,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // The explicit EXIT event and the shared state bridge can deliver the
         // same lifecycle signal. Only one handler may process it at a time.
         if (this.analyzerExitHandling || this.isSold) return false;
-        // Analyzer exit is authoritative by signal identity, not by whichever
+        // Analyzer match exit is authoritative by signal identity, not by whichever
         // transient UI status happens to be rendered. This is important when
         // EARLY_SELL_READY arrives immediately after Analyze and before the
         // purchase lifecycle has finished changing the status to WATCHING.
@@ -345,7 +329,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // EARLY_SELL_READY command from the Analyzer.
         const bridgeExit = command?.exit || analyzerState?.exit;
         const exit =
-            ['EARLY_SELL_READY', 'MATCH_FOUND'].includes(String(bridgeExit?.status || ''))
+            String(bridgeExit?.status || '') === 'MATCH_FOUND'
                 ? {
                     signalId: String(bridgeExit.signalId || commandSignalId || activeSignalId),
                     digit: Number(bridgeExit.digit ?? signal.hotDigit),
@@ -366,7 +350,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         ) {
             globalObserver.emit(
                 'ui.log.error',
-                'TRAPKID ANALYZER COMMAND → EARLY_SELL_READY REJECTED: signal/digit mismatch'
+                'TRAPKID ANALYZER MATCH → MATCH_FOUND REJECTED: signal/digit mismatch'
             );
             return;
         }
@@ -397,7 +381,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         if (!contractId) {
             globalObserver.emit(
                 'ui.log',
-                'TRAPKID ANALYZER → EARLY_SELL_READY observed before BUY contract binding; exit saved as pending.'
+                'TRAPKID ANALYZER → MATCH_FOUND observed before BUY contract binding; match saved as pending.'
             );
             globalObserver.setState({
                 trapkid_analyzer: {
