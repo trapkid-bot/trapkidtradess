@@ -264,6 +264,12 @@ export default Engine =>
                         derivContractId: String(buy.contract_id),
                         derivTransactionId: buy.transaction_id ?? null,
                         derivBuyPrice: Number.isFinite(Number(buy.buy_price)) ? Number(buy.buy_price) : null,
+                        analyzerEntryCode: this.analyzerCommandKey || null,
+                        analyzerEntryDigit: Number(this.analyzerSignal?.entryDigit ?? this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
+                        analyzerEntryQuote: Number.isFinite(Number(this.analyzerSignal?.entryQuote ?? this.analyzerSignal?.lockedQuote))
+                            ? Number(this.analyzerSignal?.entryQuote ?? this.analyzerSignal?.lockedQuote)
+                            : null,
+                        analyzerContractId: String(buy.contract_id),
                         analyzerPotentialPayout: Number.isFinite(Number(buy.payout)) ? Number(buy.payout) : null,
                         payout: Number.isFinite(Number(buy.payout)) ? Number(buy.payout) : null,
                         analyzerLogicalDuration: ANALYZER_LOGICAL_DURATION,
