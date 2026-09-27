@@ -105,8 +105,17 @@ const SummaryCard = observer(({ contract_info, is_contract_loading, is_bot_runni
                     }}
                 >
                     <strong style={{ display: 'block', fontSize: 12 }}>TRAPKID ANALYZER — CONTRACT ACTIVE</strong>
-                    <span style={{ fontSize: 11 }}>
-                        Holding the SAME Deriv contract • 1 tick logic • waiting for EARLY_SELL_READY
+                    <span style={{ display: 'block', fontSize: 11 }}>
+                        Entry code: {(contract_info as any)?.analyzer_entry_code || (contract_info as any)?.analyzer_command_key || '—'}
+                    </span>
+                    <span style={{ display: 'block', fontSize: 11 }}>
+                        Prediction / Hot digit: {(contract_info as any)?.analyzer_hot_digit ?? (contract_info as any)?.prediction ?? '—'}
+                    </span>
+                    <span style={{ display: 'block', fontSize: 11 }}>
+                        Exit: {(contract_info as any)?.analyzer_exit_status || 'WAITING_FOR_ANALYZER_EARLY_SELL'}
+                        {(contract_info as any)?.analyzer_exit_status === 'EARLY_SELL_READY'
+                            ? ' • Hot digit ' + String((contract_info as any)?.analyzer_exit_digit ?? (contract_info as any)?.analyzer_hot_digit ?? '—')
+                            : ' • watching for Analyzer hot digit'}
                     </span>
                 </div>
             )}
