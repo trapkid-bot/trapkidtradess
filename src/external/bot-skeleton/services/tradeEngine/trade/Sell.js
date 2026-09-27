@@ -73,12 +73,6 @@ export default Engine =>
                         buyResponseContractId
                 );
             }
-                globalObserver.emit(
-                    'ui.log.error',
-                    'TRAPKID ANALYZER SELL → Deriv contract ownership mismatch; SAME contract sell blocked.'
-                );
-                return false;
-            }
 
             globalObserver.emit(
                 'ui.log',
