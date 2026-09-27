@@ -239,7 +239,9 @@ export default Engine =>
                     contract_type: 'DIGITMATCH',
                     symbol: this.analyzerSignal?.symbol || this.tradeOptions?.symbol,
                     underlying_symbol: this.analyzerSignal?.symbol || this.tradeOptions?.symbol,
-                    barrier: Number(this.analyzerSignal?.entryDigit ?? this.tradeOptions?.prediction),
+                    // DIGITMATCH barrier/prediction are ALWAYS the Analyzer hot digit.
+                    // entryDigit belongs only to the Analyzer entry-code metadata.
+                    barrier: Number(this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
                     // DIGITMATCH prediction is the Analyzer hot digit.
                     prediction: Number(this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
                     buy_price: Number(buy.buy_price),
