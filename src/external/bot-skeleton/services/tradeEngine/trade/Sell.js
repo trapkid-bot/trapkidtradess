@@ -156,7 +156,7 @@ export default Engine =>
                 analyzerState?.exit?.exitCode ||
                 analyzerSignal?.exitCode ||
                 null;
-            const exitDigit = Number(exit?.digit ?? analyzerState?.exit?.digit);
+            const settledExitDigit = Number(exit?.digit ?? analyzerState?.exit?.digit);
             const settledAtMs = Number(exit?.epoch) > 0 ? Number(exit.epoch) * 1000 : Date.now();
 
             this.data.contract = {
@@ -181,7 +181,7 @@ export default Engine =>
                     analyzerSignal?.entry_quote ??
                     analyzerSignal?.quote,
                 analyzer_exit_quote: Number.isFinite(analyzerExitQuoteValue) ? analyzerExitQuoteValue : null,
-                analyzer_exit_digit: Number.isInteger(exitDigit) ? exitDigit : null,
+                analyzer_exit_digit: Number.isInteger(settledExitDigit) ? settledExitDigit : null,
                 analyzer_exit_status: 'EARLY_SELL_READY',
                 sell_price: payout,
                 bid_price: Number.isFinite(derivSettlement?.bid_price)
