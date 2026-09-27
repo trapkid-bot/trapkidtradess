@@ -38,7 +38,16 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             const signal = this.analyzerSignal || state?.signal;
             if (!signal?.signalId || !Number.isFinite(Number(signal.lockedAt))) return;
             const commandKey = String(signal.signalId) + ':' + String(signal.lockedAt);
-            if (String(state.commandKey || '') !== commandKey) return;
+            // Analyzer command keys can carry the command-generation timestamp,
+            // which is not always identical to the signal's lockedAt timestamp.
+            // The signalId is the authoritative trade identity here; normalize
+            // the state to the canonical signalId:lockedAt key before executing.
+            const stateCommandKey = String(state.commandKey || '');
+            const commandBelongsToSignal =
+                stateCommandKey === commandKey ||
+                (stateCommandKey.startsWith(String(signal.signalId) + ':') &&
+                    stateCommandKey.split(':')[0] === String(signal.signalId));
+            if (!commandBelongsToSignal) return;
             if (Number(state.exit.digit) !== Number(signal.hotDigit)) return;
             if (this.isSold || this.analyzerDerivSellPromise) return;
             // If the exit arrives while the real Deriv BUY is still in flight,
@@ -104,7 +113,24 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         if (!signal || !eventIdentifiesSignal) return;
 
         const boundCommandKey = String(analyzerState.commandKey || '');
-        const signalIsBoundToThisTrade = boundCommandKey === activeSignalKey;
+        const commandKeyBelongsToSignal =
+            boundCommandKey === activeSignalKey ||
+            (boundCommandKey.startsWith(activeSignalId + ':') &&
+                boundCommandKey.split(':')[0] === activeSignalId);
+        const signalIsBoundToThisTrade = commandKeyBelongsToSignal;
+
+        // Normalize Analyzer command metadata before the real SELL. Some
+        // Analyzer builds use the command emission timestamp after the signal
+        // was locked; that must not prevent the same signal from closing its
+        // already-open Deriv contract.
+        if (commandKeyBelongsToSignal && boundCommandKey !== activeSignalKey) {
+            globalObserver.setState({
+                trapkid_analyzer: {
+                    ...analyzerState,
+                    commandKey: activeSignalKey,
+                },
+            });
+        }
 
         const lockExpiry = Number(signal?.expiresAt);
         // Once this exact Analyzer signal is bound to the running trade,
