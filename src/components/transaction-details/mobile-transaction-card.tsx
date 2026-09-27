@@ -103,6 +103,40 @@ export default function MobileTransactionCards({ transaction }: { transaction: T
                             title='Analyzer Entry Code'
                             label={(transaction as any)?.analyzer_entry_code || (transaction as any)?.analyzer_command_key || '—'}
                         />
+                        <CardColumn title='Entry Digit' label={(transaction as any)?.analyzer_entry_digit ?? '—'} />
+                    </div>
+                    <div className={`${PARENT_CLASS}__card__row`}>
+                        <CardColumn title='Entry Quote' label={(transaction as any)?.analyzer_entry_quote ?? '—'} />
+                        <CardColumn title='Locked Quote' label={(transaction as any)?.analyzer_locked_quote ?? '—'} />
+                    </div>
+                    <div className={`${PARENT_CLASS}__card__row`}>
+                        <CardColumn
+                            title='Deriv Contract ID'
+                            label={(transaction as any)?.analyzer_contract_id || (transaction as any)?.deriv_contract_id || (transaction as any)?.contract_id || '—'}
+                        />
+                        <CardColumn title='Hot Digit' label={(transaction as any)?.analyzer_hot_digit ?? (transaction as any)?.prediction ?? '—'} />
+                    </div>
+                    <div className={`${PARENT_CLASS}__card__row`}>
+                        <CardColumn title='Exit Code' label={(transaction as any)?.analyzer_exit_code || 'WAITING'} />
+                        <CardColumn title='Exit Digit' label={(transaction as any)?.analyzer_exit_digit ?? '—'} />
+                    </div>
+                    <div className={`${PARENT_CLASS}__card__row`}>
+                        <CardColumn
+                            title='Lifecycle'
+                            label={
+                                (transaction as any)?.analyzer_execution_status ||
+                                ((transaction as any)?.is_sold ? 'ANALYZER_SETTLED' : 'HOLDING_FOR_ANALYZER_EARLY_SELL')
+                            }
+                        />
+                        <CardColumn title='Analyzer Exit' label={(transaction as any)?.analyzer_exit_status || 'WAITING_FOR_ANALYZER_EARLY_SELL'} />
+                    </div>
+                </>
+            )}
+            <div className={`${PARENT_CLASS}__card__row`}>
+                        <CardColumn
+                            title='Analyzer Entry Code'
+                            label={(transaction as any)?.analyzer_entry_code || (transaction as any)?.analyzer_command_key || '—'}
+                        />
                     </div>
                     <div className={`${PARENT_CLASS}__card__row`}>
                         <CardColumn
