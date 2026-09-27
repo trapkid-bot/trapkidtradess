@@ -189,7 +189,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                     lockedDigit: this.analyzerSignal.lockedDigit,
                     hotDigit,
                     entrySource: 'ANALYZER_ONLY',
-                    exitSource: 'ANALYZER_EARLY_SELL_ONLY',
+                    exitSource: 'ANALYZER_EXIT_SIGNAL_ONLY',
                     holdUntilAnalyzerExit: true,
                     executionArmed: true,
                     executionTrigger: 'ANALYZER_ENTRY_COMMAND',
@@ -223,6 +223,11 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // signal/observation only; it MUST NOT send a Deriv SELL request.
         // The exact purchased contract is left with Deriv until it settles.
         const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
+        // Once this exact BUY has settled, a late Analyzer EARLY_SELL_READY
+        // notification is informational only and must never reopen the cycle.
+        if (String(analyzerState.status || '') === 'ANALYZER_SETTLED' || this.derivSettlement) {
+            return false;
+        }
         // The explicit EXIT event and the shared state bridge can deliver the
         // same lifecycle signal. Only one handler may process it at a time.
         if (this.analyzerExitHandling || this.isSold) return false;
