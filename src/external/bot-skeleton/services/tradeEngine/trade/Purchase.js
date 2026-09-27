@@ -169,10 +169,10 @@ export default Engine =>
                         signal,
                         signalId: signal.signalId,
                         commandKey: String(signal.signalId) + ':' + String(signal.lockedAt),
-                        prediction: signal.entryDigit,
+                        prediction: signal.hotDigit,
                         lockedDigit: signal.lockedDigit,
                         hotDigit: signal.hotDigit,
-                        entryPrediction: signal.entryDigit,
+                        entryPrediction: signal.hotDigit,
                         entrySource: 'ANALYZER_ONLY',
                         exitSource: 'ANALYZER_EARLY_SELL_ONLY',
                     },
@@ -368,7 +368,7 @@ export default Engine =>
                             signalId: this.analyzerSignal?.signalId,
                             commandKey: purchasedSignalKey,
                             symbol: this.analyzerSignal?.symbol,
-                            prediction: Number(this.analyzerSignal?.entryDigit),
+                            prediction: Number(this.analyzerSignal?.hotDigit),
                             entryDigit: Number(this.analyzerSignal?.entryDigit),
                             hotDigit: Number(this.analyzerSignal?.hotDigit),
                             entrySource: 'ANALYZER_ONLY',
@@ -427,7 +427,7 @@ export default Engine =>
                 const entryDigit = Number(signal?.entryDigit);
                 const hotDigit = Number(signal?.hotDigit);
                 const predictionDigit = hotDigit;
-                // hotDigit is intentionally read for validation/exit state only; it is NEVER the purchase barrier.
+                // hotDigit is the canonical DIGITMATCH prediction/barrier for this Analyzer trade.
                 const currency = this.tradeOptions?.currency || 'USD';
 
                 if (!signal?.signalId || !symbol || !Number.isFinite(amount) || amount <= 0 ||
