@@ -100,13 +100,12 @@ export default Engine =>
             // Shared one-SELL lock: this is global Analyzer state, not an
             // instance-local flag. Multiple TradeEngine observers must never
             // send duplicate SELL requests for the same signal.
+            // Lock only while this exact SELL request is in flight. A failed
+            // request must not permanently poison the signal: the Analyzer watcher
+            // must remain able to retry the SAME contract while it is still open.
             const sharedSellKey = String(state.analyzerSellAttemptKey || '');
-            if (sharedSellKey === analyzerSellKey) {
-                globalObserver.emit(
-                    'ui.log',
-                    'TRAPKID ANALYZER SELL → duplicate EARLY_SELL_READY ignored → signal=' +
-                        String(signal.signalId)
-                );
+            const sharedSellInFlight = state.analyzerSellInFlight === true;
+            if (sharedSellKey === analyzerSellKey && sharedSellInFlight) {
                 return false;
             }
             globalObserver.setState({
@@ -114,6 +113,7 @@ export default Engine =>
                     ...state,
                     analyzerSellAttemptKey: analyzerSellKey,
                     analyzerSellContractId: contractId,
+                    analyzerSellInFlight: true,
                 },
             });
             this.analyzerSellAttemptKey = analyzerSellKey;
@@ -216,6 +216,10 @@ export default Engine =>
                         earlySellError: errorMessage,
                         analyzerContractId: contractId,
                         derivContractId: contractId,
+                        // Release only the in-flight lock. Keep the immutable
+                        // BUY binding so the next retry can target the SAME contract.
+                        analyzerSellInFlight: false,
+                        analyzerSellAttemptKey: null,
                     },
                 });
                 globalObserver.emit(
