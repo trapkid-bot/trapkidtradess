@@ -348,24 +348,30 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         if (this.isSold) return;
 
         // The REAL Deriv contract_id is the financial execution handle.
-        // Recover it from shared Analyzer state/data if this engine instance
-        // lost its in-memory field during a UI/render lifecycle transition.
-        const stateDerivContractId = String(
-            analyzerState?.derivContractId ||
-            analyzerState?.deriv_contract_id ||
-            this.data?.contract?.deriv_contract_id ||
-            ''
-        );
-        if (!this.derivContractId && stateDerivContractId) {
-            this.derivContractId = stateDerivContractId;
+        // If the current engine still has the BUY response, it is always the
+        // canonical source. Only fall back to Analyzer state that is explicitly
+        // bound to THIS signal; never revive a generic/stale derivContractId.
+        const currentBuyContractId = String(this.derivBuy?.contract_id || '');
+        const stateBuySignalId = String(analyzerState?.analyzerBuySignalId || '');
+        const stateBuyContractId =
+            stateBuySignalId === activeSignalId
+                ? String(analyzerState?.analyzerBuyContractId || '')
+                : '';
+        const stateAnalyzerSignalId = String(analyzerState?.analyzerContractSignalId || '');
+        const stateAnalyzerContractId =
+            stateAnalyzerSignalId === activeSignalId
+                ? String(analyzerState?.analyzerContractId || '')
+                : '';
+        const exactBoundContractId =
+            currentBuyContractId ||
+            stateBuyContractId ||
+            stateAnalyzerContractId;
+
+        if (!this.derivContractId && exactBoundContractId) {
+            this.derivContractId = exactBoundContractId;
         }
-        if (!this.contractId) {
-            const stateLocalContractId = String(
-                analyzerState?.analyzerContractId ||
-                this.data?.contract?.contract_id ||
-                ''
-            );
-            if (stateLocalContractId) this.contractId = stateLocalContractId;
+        if (!this.contractId && exactBoundContractId) {
+            this.contractId = exactBoundContractId;
         }
 
         // If the BUY has genuinely not produced a Deriv contract yet, preserve
