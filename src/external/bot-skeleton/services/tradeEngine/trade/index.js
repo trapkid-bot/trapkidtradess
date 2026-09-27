@@ -30,9 +30,6 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         this.is_proposal_requested_for_accumulators = false;
         this.analyzerExecutionStarted = false;
         this.pendingAnalyzerCommand = null;
-        // One TradeEngine instance owns one Analyzer signal lifecycle.
-        this.analyzerExecutionOwnerToken =
-            'TK-ENGINE-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10);
         this.analyzerExitObserver = this.onAnalyzerEarlyExit;
         this.analyzerCommandObserver = this.onAnalyzerCommand;
         // Prevent duplicate EXIT handlers from racing each other or recursively
@@ -165,23 +162,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         }
 
         const currentState = globalObserver.getState('trapkid_analyzer') || {};
-        const existingOwnerKey = String(currentState.executionOwnerKey || '');
-        const existingOwnerToken = String(currentState.executionOwnerToken || '');
-        const existingStatus = String(currentState.status || '');
-        const ownerIsFinished = ['IDLE', 'WAITING_FOR_ANALYZER', 'ANALYZER_SETTLED'].includes(existingStatus);
-
-        // Never let a new/duplicate TradeEngine instance replace an active signal owner.
-        if (existingOwnerKey && existingOwnerKey !== activeKey && !ownerIsFinished) {
-            globalObserver.emit(
-                'ui.log',
-                'TRAPKID ANALYZER COMMAND BLOCKED → previous Analyzer signal is still owned/active.'
-            );
-            return;
-        }
-        if (existingOwnerKey === activeKey && existingOwnerToken && existingOwnerToken !== this.analyzerExecutionOwnerToken) {
-            return;
-        }
-        if (currentState.purchaseConsumedKey === activeKey || currentState.purchaseInFlightKey === activeKey) return;
+        if (currentState.purchaseConsumedKey === activeKey || currentState.purchaseInFlightKey === activeKey || this.contractId) return;
 
         this.analyzerSignal = {
             ...signal,
@@ -191,16 +172,6 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             prediction: hotDigit,
         };
         this.analyzerCommandKey = activeKey;
-
-        // Claim the entire lifecycle before any asynchronous BUY work begins.
-        globalObserver.setState({
-            trapkid_analyzer: {
-                ...currentState,
-                executionOwnerKey: activeKey,
-                executionOwnerToken: this.analyzerExecutionOwnerToken,
-                executionOwnerSignalId: String(signal.signalId),
-            },
-        });
 
         try {
             await this.prepareAnalyzerPrediction();
@@ -253,15 +224,6 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // 3) EARLY_SELL_READY is the ONLY event allowed to SELL it.
         // Never turn EARLY_SELL_READY into another BUY.
         const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
-        const activeOwnerToken = String(analyzerState.executionOwnerToken || '');
-        const activeLifecycleStatus = String(analyzerState.status || '');
-        if (
-            activeOwnerToken &&
-            activeOwnerToken !== this.analyzerExecutionOwnerToken &&
-            !['IDLE', 'WAITING_FOR_ANALYZER', 'ANALYZER_SETTLED'].includes(activeLifecycleStatus)
-        ) {
-            return false;
-        }
         // The explicit EXIT event and the shared state bridge can deliver the
         // same lifecycle signal. Only one handler may process it at a time.
         if (this.analyzerExitHandling || this.isSold) return false;
