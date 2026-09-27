@@ -35,8 +35,8 @@ export const analyzerPurchaseReservations = analyzerPurchaseReservationStore;
 // ANALYZER MATCH MODE: keep the purchased position open while the live
 // Analyzer stream searches for the exact hot digit. The same contract is
 // closed as soon as that digit appears.
-const ANALYZER_PHYSICAL_HOLD_SECONDS = 120;
-const ANALYZER_LOGICAL_DURATION = 1;
+const ANALYZER_PHYSICAL_HOLD_TICKS = 10;
+const ANALYZER_LOGICAL_DURATION = 10;
 const ANALYZER_LOGICAL_DURATION_UNIT = 't';
 
 export default Engine =>
@@ -264,8 +264,8 @@ export default Engine =>
                     analyzer_duration: ANALYZER_LOGICAL_DURATION,
 
                     analyzer_duration_unit: ANALYZER_LOGICAL_DURATION_UNIT,
-                    deriv_physical_duration: ANALYZER_PHYSICAL_HOLD_SECONDS,
-                    deriv_physical_duration_unit: 's',
+                    deriv_physical_duration: ANALYZER_PHYSICAL_HOLD_TICKS,
+                    deriv_physical_duration_unit: 't',
                     analyzer_exit_status: 'MATCH_OPEN',
                     analyzer_execution_status: 'MATCH_OPEN',
                     analyzer_exit_code: null,
@@ -411,7 +411,7 @@ export default Engine =>
                 // The exact BUY remains bound to this signal; no replacement contract is created.
                 const logicalDuration = ANALYZER_LOGICAL_DURATION;
                 const logicalDurationUnit = ANALYZER_LOGICAL_DURATION_UNIT;
-                const physicalHoldDuration = ANALYZER_PHYSICAL_HOLD_SECONDS;
+                const physicalHoldDuration = ANALYZER_PHYSICAL_HOLD_TICKS;
 
                 const proposalRequest = {
                     proposal: 1,
@@ -419,8 +419,8 @@ export default Engine =>
                     basis: 'stake',
                     contract_type: 'DIGITMATCH',
                     currency,
-                    duration: ANALYZER_PHYSICAL_HOLD_SECONDS,
-                    duration_unit: 's',
+                    duration: ANALYZER_PHYSICAL_HOLD_TICKS,
+                    duration_unit: 't',
                     underlying_symbol: symbol,
                     barrier: String(predictionDigit),
                 };
@@ -499,8 +499,8 @@ export default Engine =>
                         basis: 'stake',
                         contract_type: 'DIGITMATCH',
                         currency,
-                        duration: ANALYZER_PHYSICAL_HOLD_SECONDS,
-                        duration_unit: 's',
+                        duration: ANALYZER_PHYSICAL_HOLD_TICKS,
+                        duration_unit: 't',
                         underlying_symbol: symbol,
                         barrier: String(predictionDigit),
                     });
