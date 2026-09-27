@@ -8,7 +8,7 @@ import { TContractInfo } from '../components/summary/summary-card.types';
 import { transaction_elements } from '../constants/transactions';
 import { getStoredItemsByKey, getStoredItemsByUser, setStoredItemsByKey } from '../utils/session-storage';
 import RootStore from './root-store';
-import { observer as globalObserver } from '@/utils/observer';
+import { observer as globalObserver } from '../external/bot-skeleton/utils/observer';
 
 type TTransaction = {
     type: string;
