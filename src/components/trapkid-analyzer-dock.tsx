@@ -1,7 +1,9 @@
 import React from 'react';
 import { observer as globalObserver } from '@/external/bot-skeleton/utils/observer';
 
-const ANALYZER_API = (process.env.ANALYZER_URL || process.env.NEXT_PUBLIC_ANALYZER_API_URL || 'https://copper-philosophy-smart-competition.trycloudflare.com').trim();
+// Public Analyzer endpoint used by the Render site. Keep this direct so the browser connects to the Analyzer itself.
+const ANALYZER_API = 'https://copper-philosophy-smart-competition.trycloudflare.com';
+const ANALYZER_STATUS_URL = ANALYZER_API + '/api/status';
 const LINK_VERSION = 'ANALYZER-DBOT-BRIDGE-01';
 
 const TrapKidAnalyzerDock = () => {
@@ -34,7 +36,7 @@ const TrapKidAnalyzerDock = () => {
             if (cancelled || polling) return;
             polling = true;
             try {
-                const res = await fetch(analyzerApi + '/api/status?client=global-link&t=' + Date.now(), {
+                const res = await fetch(ANALYZER_STATUS_URL + '?client=global-link&t=' + Date.now(), {
                     cache: 'no-store',
                     headers: { Accept: 'application/json' },
                 });
@@ -310,7 +312,7 @@ const TrapKidAnalyzerDock = () => {
 
                     <div className='tk-analyzer-global-url'>
                         <b>LINK {LINK_VERSION}</b><br />
-                        {analyzerApi}/api/status
+                        {ANALYZER_STATUS_URL}
                     </div>
 
                     <div className='tk-analyzer-global-grid'>
