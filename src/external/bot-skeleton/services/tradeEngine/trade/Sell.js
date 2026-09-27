@@ -84,7 +84,9 @@ export default Engine =>
                 this.derivBuyTransactionId ??
                 null;
 
-            const exitQuoteValue = Number(exit?.quote ?? analyzerState?.exit?.quote);
+            const analyzerExitQuoteValue = Number(exit?.quote ?? analyzerState?.exit?.quote);
+            const derivExitSpot = Number(derivSettlement?.exit_spot);
+            const derivExitSpotTime = Number(derivSettlement?.exit_spot_time);
             const contractId = String(
                 this.analyzerContractId ||
                 this.tradeOptions?.analyzerContractId ||
@@ -125,15 +127,13 @@ export default Engine =>
                     analyzerSignal?.entryQuote ??
                     analyzerSignal?.entry_quote ??
                     analyzerSignal?.quote,
-                analyzer_exit_quote: Number.isFinite(exitQuoteValue) ? exitQuoteValue : null,
+                analyzer_exit_quote: Number.isFinite(analyzerExitQuoteValue) ? analyzerExitQuoteValue : null,
                 analyzer_exit_digit: Number.isInteger(exitDigit) ? exitDigit : null,
                 analyzer_exit_status: 'EARLY_SELL_READY',
                 sell_price: payout,
-                bid_price: Number.isFinite(derivPayout)
-                    ? derivPayout
-                    : Number.isFinite(exitQuoteValue)
-                      ? exitQuoteValue
-                      : payout,
+                bid_price: Number.isFinite(derivSettlement?.bid_price)
+                    ? Number(derivSettlement.bid_price)
+                    : payout,
                 payout,
                 profit: finalProfit,
                 deriv_contract_id: this.derivContractId || contract.deriv_contract_id || null,
@@ -144,9 +144,15 @@ export default Engine =>
                     ? Number(derivSettlement.balance_after)
                     : null,
                 financial_status: 'DERIV_SETTLEMENT_CONFIRMED',
-                exit_spot: Number.isFinite(exitQuoteValue) ? exitQuoteValue : null,
-                exit_tick: Number.isInteger(exitDigit) ? exitDigit : null,
-                exit_tick_time: Math.floor(settledAtMs / 1000),
+                exit_spot: Number.isFinite(derivExitSpot) ? derivExitSpot : null,
+                exit_tick: Number.isFinite(derivExitSpot)
+                    ? Math.abs(Math.trunc(derivExitSpot * 100)) % 10
+                    : Number.isInteger(exitDigit)
+                      ? exitDigit
+                      : null,
+                exit_tick_time: Number.isFinite(derivExitSpotTime)
+                    ? Math.floor(derivExitSpotTime)
+                    : Math.floor(settledAtMs / 1000),
                 status: 'sold',
                 is_sold: true,
                 is_expired: false,
@@ -182,6 +188,7 @@ export default Engine =>
                     analyzerExitCode: this.data.contract.analyzer_exit_code,
                     analyzerEntryQuote: this.data.contract.analyzer_entry_quote,
                     analyzerExitQuote: this.data.contract.analyzer_exit_quote,
+                    derivExitSpot: this.data.contract.exit_spot,
                     payout,
                     profit: finalProfit,
                     derivPayout: Number.isFinite(derivPayout) ? derivPayout : null,
