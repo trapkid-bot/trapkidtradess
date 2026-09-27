@@ -229,14 +229,19 @@ export default Engine =>
             if (this.analyzerDerivBuyPromise) return this.analyzerDerivBuyPromise;
 
             this.analyzerDerivBuyPromise = (async () => {
-                const proposalResponse = await this.fetchAnalyzerPayoutQuote(signal);
-                const proposal = proposalResponse?.proposal;
-                if (!proposal) {
-                    // Do not pollute the Analyzer journal with a generic financial
-                    // quote error. The Analyzer controls the signal; this bridge
-                    // simply waits for a usable Deriv response.
-                    return null;
+                let proposalResponse = null;
+                // The Analyzer signal is already locked. A transient Deriv websocket
+                // response must not turn that authorized signal into a fake local
+                // contract. Retry the actual Deriv proposal briefly before giving up.
+                for (let attempt = 0; attempt < 3 && !proposalResponse?.proposal; attempt += 1) {
+                    proposalResponse = await this.fetchAnalyzerPayoutQuote(signal);
+                    if (!proposalResponse?.proposal && attempt < 2) {
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                    }
                 }
+
+                const proposal = proposalResponse?.proposal;
+                if (!proposal) return null;
 
                 const potentialPayout = Number(proposal.payout);
                 const askPrice = Number(proposal.ask_price);
@@ -374,14 +379,23 @@ export default Engine =>
                 const derivContractId = this.derivContractId || buy?.contract_id;
                 if (!derivContractId) return null;
 
-                const response = await this.requestAnalyzerDeriv(
-                    {
-                        sell: Number(derivContractId),
-                        price: 0,
-                    },
-                    'sell',
-                    7000
-                );
+                let response = null;
+                // Analyzer EARLY_SELL_READY is the single exit command. Retry only
+                // the same Deriv sell request for transient websocket/auth races;
+                // never substitute expiry settlement or another exit rule.
+                for (let attempt = 0; attempt < 3 && !response?.sell && !response?.error; attempt += 1) {
+                    response = await this.requestAnalyzerDeriv(
+                        {
+                            sell: Number(derivContractId),
+                            price: 0,
+                        },
+                        'sell',
+                        7000
+                    );
+                    if (!response?.sell && !response?.error && attempt < 2) {
+                        await new Promise(resolve => setTimeout(resolve, 500));
+                    }
+                }
 
                 if (response?.error) {
                     const errorMessage =
