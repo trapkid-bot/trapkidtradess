@@ -16,6 +16,22 @@ export default Engine =>
         // Analyzer-only settlement: bind SELL to the current BUY contract and never reuse a prior cycle ID.
         async sellAnalyzerEarlyExit() {
             const state = globalObserver.getState('trapkid_analyzer') || {};
+            const signalForOwnership = state?.signal || this.analyzerSignal;
+            const signalKeyForOwnership =
+                signalForOwnership?.signalId && Number.isFinite(Number(signalForOwnership?.lockedAt))
+                    ? String(signalForOwnership.signalId) + ':' + String(signalForOwnership.lockedAt)
+                    : '';
+            if (
+                signalKeyForOwnership &&
+                String(state.executionOwnerToken || '') &&
+                String(state.executionOwnerToken) !== String(this.analyzerExecutionOwnerToken)
+            ) {
+                globalObserver.emit(
+                    'ui.log',
+                    'TRAPKID ANALYZER SELL BLOCKED → non-owner engine ignored.'
+                );
+                return false;
+            }
             const signal = state?.signal?.signalId ? state.signal : this.analyzerSignal;
             const exit = state?.exit;
 
@@ -349,6 +365,13 @@ export default Engine =>
         sellAtMarket(source = 'BLOCKLY') {
             if (source === 'ANALYZER_EARLY_SELL') {
                 return this.sellAnalyzerEarlyExit();
+            }
+            if (this.analyzerOnly) {
+                globalObserver.emit(
+                    'ui.log.error',
+                    'TRAPKID ANALYZER SELL BLOCKED → legacy Builder/DBot sell path is disabled.'
+                );
+                return Promise.resolve(false);
             }
             globalObserver.emit('bot.sell');
 
