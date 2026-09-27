@@ -164,6 +164,12 @@ class APIBase {
         }
 
         if (!this.api || this.api?.connection.readyState !== 1 || force_create_connection) {
+            // A newly created socket must never inherit the authorization flag from
+            // the previous account/socket. Financial BUY/SELL requests wait for
+            // this exact connection to complete authorization.
+            this.is_authorized = false;
+            setIsAuthorized(false);
+
             if (this.api?.connection) {
                 ApiHelpers.disposeInstance();
                 setConnectionStatus(CONNECTION_STATUS.CLOSED);
