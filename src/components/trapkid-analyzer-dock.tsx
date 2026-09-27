@@ -103,6 +103,7 @@ const TrapKidAnalyzerDock = () => {
                             'EARLY_EXIT_COMMAND_RECEIVED',
                             'WAITING_FOR_ANALYZER_EXIT_DIGIT',
                             'EARLY_EXIT_EXECUTING',
+                            'ANALYZER_SETTLED',
                         ].includes(String(currentAnalyzerState.status || ''));
 
                     // Keep the global observer intentionally small. The Analyzer
