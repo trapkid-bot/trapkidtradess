@@ -157,11 +157,10 @@ export default Engine =>
                 // entryDigit remains Analyzer entry-code metadata only.
                 this.tradeOptions.prediction = signal.hotDigit;
                 this.tradeOptions.symbol = signal.symbol;
-                logicalDuration = signal?.duration ?? signal?.logicalDuration ?? signal?.analyzerDuration ?? null;
-                logicalDurationUnit = signal?.duration_unit ?? signal?.durationUnit ?? signal?.logicalDurationUnit ?? signal?.analyzerDurationUnit ?? null;
-                // Analyzer supplies the decision. Do not inject any DBot duration.
-                // If the Analyzer explicitly supplies duration metadata, preserve it;
-                // otherwise no local/default duration is introduced.
+                logicalDuration = signal?.duration ?? signal?.logicalDuration ?? signal?.analyzerDuration ?? 1;
+                logicalDurationUnit = signal?.duration_unit ?? signal?.durationUnit ?? signal?.logicalDurationUnit ?? signal?.analyzerDurationUnit ?? 't';
+                // Preserve the established Analyzer DIGITMATCH execution value when
+                // the bridge does not include duration metadata: 1 tick.
 
                 globalObserver.setState({
                     trapkid_analyzer: {
@@ -408,11 +407,10 @@ export default Engine =>
                 // Analyzer controls the trade decision. The financial DIGITMATCH
                 // proposal itself must execute for one tick. This does NOT make
                 // the Deriv tick the settlement authority; Analyzer controls exit.
-                logicalDuration = signal?.duration ?? signal?.logicalDuration ?? signal?.analyzerDuration ?? null;
-                logicalDurationUnit = signal?.duration_unit ?? signal?.durationUnit ?? signal?.logicalDurationUnit ?? signal?.analyzerDurationUnit ?? null;
-                if (!Number.isFinite(Number(logicalDuration)) || !logicalDurationUnit) {
-                    throw new Error('TRAPKID ANALYZER BUY -> Analyzer did not provide contract duration.');
-                }
+                logicalDuration = signal?.duration ?? signal?.logicalDuration ?? signal?.analyzerDuration ?? 1;
+                logicalDurationUnit = signal?.duration_unit ?? signal?.durationUnit ?? signal?.logicalDurationUnit ?? signal?.analyzerDurationUnit ?? 't';
+                // Preserve the established Analyzer DIGITMATCH execution value when
+                // the bridge does not include duration metadata: 1 tick.
 
                 const proposalRequest = {
                     proposal: 1,
