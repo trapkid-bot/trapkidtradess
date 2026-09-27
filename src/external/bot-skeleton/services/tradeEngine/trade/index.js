@@ -38,18 +38,36 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // SELL so duplicate Analyzer bridge events cannot retry the same contract.
         this.analyzerStateExitObserver = state => {
             // Analyzer is authoritative for settlement. Never infer an exit
-            // from a local tick digit or create EARLY_SELL_READY/WAITING_FOR_EARLY_SELL states.
+            // from a local tick digit. The bridge may publish the READY status
+            // before/without copying the full exit object, so accept either
+            // authoritative Analyzer marker and fill only the transport fields
+            // from that same Analyzer signal.
+            const signal = state?.signal;
             const exit = state?.exit;
-            if (String(exit?.status || '') !== 'EARLY_SELL_READY') return;
-            if (this.analyzerExitHandling || this.isSold) return;
+            const exitReady =
+                String(exit?.status || '') === 'EARLY_SELL_READY' ||
+                String(state?.analyzerExitStatus || '') === 'EARLY_SELL_READY' ||
+                String(state?.executionTrigger || '') === 'EARLY_SELL_READY';
+
+            if (!exitReady || this.analyzerExitHandling || this.isSold || !signal?.signalId) return;
+
+            const normalizedExit = {
+                ...(exit || {}),
+                status: 'EARLY_SELL_READY',
+                signalId: String(exit?.signalId || signal.signalId),
+                digit: Number(exit?.digit ?? signal.hotDigit),
+                hotDigit: Number(signal.hotDigit),
+                quote: Number(exit?.quote ?? signal.exitQuote ?? signal.entryQuote ?? signal.lockedQuote),
+                epoch: Number(exit?.epoch || Date.now()),
+            };
 
             void this.onAnalyzerEarlyExit({
                 source: 'TRAPKID_ANALYZER_STATE',
                 command: 'ANALYZER_EARLY_EXIT',
                 commandKey: state?.commandKey || null,
-                signalId: state?.signalId || state?.signal?.signalId || null,
-                signal: state?.signal || null,
-                exit,
+                signalId: state?.signalId || signal.signalId,
+                signal,
+                exit: normalizedExit,
                 receivedAt: Date.now(),
             });
         };
