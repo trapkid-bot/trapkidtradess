@@ -192,17 +192,34 @@ const ContractCardBody = ({
                         style={{ marginTop: 8 }}
                         data-testid='tk-analyzer-contract-details'
                     >
-                        <ContractCardItem header='ENTRY CODE'>
+                        <ContractCardItem header='ANALYZER ENTRY CODE'>
                             <span style={{ fontSize: 11, wordBreak: 'break-all' }}>
                                 {(contract_info as any)?.analyzer_entry_code || '—'}
                             </span>
                         </ContractCardItem>
+                        <ContractCardItem header='ENTRY DIGIT'>
+                            <span>{(contract_info as any)?.analyzer_entry_digit ?? (contract_info as any)?.analyzer_hot_digit ?? '—'}</span>
+                        </ContractCardItem>
                         <ContractCardItem header='ENTRY QUOTE'>
                             <span>{(contract_info as any)?.analyzer_entry_quote ?? '—'}</span>
                         </ContractCardItem>
+                        <ContractCardItem header='LOCKED QUOTE'>
+                            <span>{(contract_info as any)?.analyzer_locked_quote ?? '—'}</span>
+                        </ContractCardItem>
+                        <ContractCardItem header='DERIV CONTRACT'>
+                            <span style={{ fontSize: 11, wordBreak: 'break-all' }}>
+                                {(contract_info as any)?.analyzer_contract_id || (contract_info as any)?.deriv_contract_id || (contract_info as any)?.contract_id || '—'}
+                            </span>
+                        </ContractCardItem>
+                        <ContractCardItem header='LIFECYCLE'>
+                            <span>
+                                {(contract_info as any)?.analyzer_execution_status ||
+                                    ((contract_info as any)?.is_sold ? 'ANALYZER_SETTLED' : 'HOLDING_FOR_ANALYZER_EARLY_SELL')}
+                            </span>
+                        </ContractCardItem>
                         <ContractCardItem header='EXIT CODE'>
                             <span style={{ fontSize: 11, wordBreak: 'break-all' }}>
-                                {(contract_info as any)?.analyzer_exit_code || 'WAITING'}
+                                {(contract_info as any)?.analyzer_exit_code || 'WAITING FOR EARLY_SELL_READY'}
                             </span>
                         </ContractCardItem>
                         <ContractCardItem header='EXIT QUOTE'>
