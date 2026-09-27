@@ -5,7 +5,10 @@ import { observer as globalObserver } from '../../../utils/observer';
 export default Engine =>
     class Sell extends Engine {
         isSellAtMarketAvailable() {
-            return Boolean(this.contractId && !this.isSold);
+            // Analyzer-only trades are backed by the real Deriv contract ID.
+            // The local Analyzer contract ID is only a tracking key and must
+            // never be required for the actual Deriv sell.
+            return Boolean((this.derivContractId || this.contractId) && !this.isSold);
         }
 
         async sellAtMarket(source = 'BLOCKLY') {
@@ -25,7 +28,10 @@ export default Engine =>
                 return Promise.resolve();
             }
 
-            if (!this.isSellAtMarketAvailable()) return Promise.resolve();
+            // EARLY_SELL_READY must be able to close the already-purchased
+            // Deriv contract even if a UI refresh cleared the local tracking ID.
+            if (!this.derivContractId && !this.contractId) return Promise.resolve();
+            if (this.isSold) return Promise.resolve();
 
             const exit = this.getAnalyzerExit?.();
             const contract = this.data?.contract || {};
