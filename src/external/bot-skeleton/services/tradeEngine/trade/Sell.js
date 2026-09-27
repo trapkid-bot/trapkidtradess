@@ -6,6 +6,7 @@ import { contractStatus, log } from '../utils/broadcast';
 import { doUntilDone, recoverFromError } from '../utils/helpers';
 import { DURING_PURCHASE } from './state/constants';
 import { sell } from './state/actions';
+import { analyzerContractBindings } from './Purchase';
 
 export default Engine =>
     class Sell extends Engine {
@@ -48,25 +49,44 @@ export default Engine =>
             // generic engine contractId/derivContractId or generic bridge state.
             // Those fields can belong to a previous TradeEngine instance/cycle.
             const analyzerSellKey = String(signal.signalId) + ':' + String(signal.lockedAt);
+
+            // HARD ANALYZER CONTRACT IDENTITY:
+            // Purchase.js records the actual Deriv BUY contract_id in the module
+            // binding for this exact signal. That broker ID is the ONLY SELL target.
+            // Never let a stale TradeEngine instance, generic derivContractId,
+            // analyzerContractId, or old derivBuy response override it.
+            const immutableBuyContractId = String(analyzerContractBindings.get(analyzerSellKey) || '');
+
             const stateBuySignalId = String(state.analyzerBuySignalId || '');
             const stateBuyContractId =
                 stateBuySignalId === String(signal.signalId)
                     ? String(state.analyzerBuyContractId || '')
                     : '';
-            const engineOwnsSignal = String(this.analyzerPurchaseKey || '') === analyzerSellKey;
-            const buyResponseContractId = engineOwnsSignal
-                ? String(this.derivBuy?.contract_id || '')
-                : '';
-            const stateContractSignalId = String(state.analyzerContractSignalId || '');
-            const stateAnalyzerContractId =
-                stateContractSignalId === String(signal.signalId)
-                    ? String(state.analyzerContractId || '')
-                    : '';
 
-            // Prefer the BUY response from the engine that actually purchased
-            // this signal. If this EXIT handler is running on another observer
-            // instance, use only the signal-bound BUY binding written by Purchase.
-            const contractId = buyResponseContractId || stateBuyContractId || stateAnalyzerContractId;
+            if (!immutableBuyContractId) {
+                globalObserver.emit(
+                    'ui.log.error',
+                    'TRAPKID ANALYZER SELL BLOCKED → no immutable BUY contract binding for signal=' +
+                        String(signal.signalId)
+                );
+                return false;
+            }
+
+            // If shared state has a BUY binding, it must agree with the immutable
+            // broker binding. A mismatch is a stale-state bug, not permission to
+            // choose whichever ID happens to be available.
+            if (stateBuyContractId && stateBuyContractId !== immutableBuyContractId) {
+                globalObserver.emit(
+                    'ui.log.error',
+                    'TRAPKID ANALYZER SELL BLOCKED → stale BUY state binding rejected; immutable=' +
+                        immutableBuyContractId +
+                        ' state=' +
+                        stateBuyContractId
+                );
+                return false;
+            }
+
+            const contractId = immutableBuyContractId;
 
             if (!contractId || this.isSold) {
                 globalObserver.emit(
