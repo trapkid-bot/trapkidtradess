@@ -42,50 +42,46 @@ export default Engine =>
                 return false;
             }
 
-            // The BUY response is the canonical owner of the real Deriv
-            // contract ID. UI/bridge state can lag or still contain the previous
-            // Analyzer cycle, so never choose a contract ID from stale UI state.
-            // The Analyzer cycle state is authoritative for the current signal.
-            // Prefer the contract ID recorded by the successful BUY for THIS signal;
-            // never reuse a contract ID left on an older Engine instance.
-            // Canonical ownership order:
-            // 1) the current BUY response held by this engine,
-            // 2) the BUY binding persisted specifically for this Analyzer signal,
-            // 3) only then legacy engine/state IDs.
-            // Never let a stale derivContractId/UI field win over the actual BUY.
+            // HARD ANALYZER CONTRACT OWNERSHIP:
+            // The only valid SELL handle is the contract_id returned by the
+            // successful BUY for THIS Analyzer signal. Do not fall back to
+            // generic engine contractId/derivContractId or generic bridge state.
+            // Those fields can belong to a previous TradeEngine instance/cycle.
+            const analyzerSellKey = String(signal.signalId) + ':' + String(signal.lockedAt);
             const stateBuySignalId = String(state.analyzerBuySignalId || '');
             const stateBuyContractId =
                 stateBuySignalId === String(signal.signalId)
                     ? String(state.analyzerBuyContractId || '')
                     : '';
-            const buyResponseContractId = String(this.derivBuy?.contract_id || '');
-            const engineDerivContractId = String(this.derivContractId || '');
-            const engineContractId = String(this.contractId || '');
+            const engineOwnsSignal = String(this.analyzerPurchaseKey || '') === analyzerSellKey;
+            const buyResponseContractId = engineOwnsSignal
+                ? String(this.derivBuy?.contract_id || '')
+                : '';
             const stateContractSignalId = String(state.analyzerContractSignalId || '');
             const stateAnalyzerContractId =
                 stateContractSignalId === String(signal.signalId)
                     ? String(state.analyzerContractId || '')
                     : '';
-            const stateDerivContractId = String(state.derivContractId || state.deriv_contract_id || '');
-            const contractId =
-                buyResponseContractId ||
-                stateBuyContractId ||
-                stateAnalyzerContractId ||
-                engineDerivContractId ||
-                engineContractId ||
-                stateDerivContractId;
 
-            if (!contractId || this.isSold) return false;
+            // Prefer the BUY response from the engine that actually purchased
+            // this signal. If this EXIT handler is running on another observer
+            // instance, use only the signal-bound BUY binding written by Purchase.
+            const contractId = buyResponseContractId || stateBuyContractId || stateAnalyzerContractId;
 
-            // HARD ONE-SELL LOCK:
-            // EARLY_SELL_READY can arrive through both the explicit Analyzer
-            // event and the shared-state bridge. Once this exact signal reaches
-            // the real SELL boundary, only the first invocation may touch Deriv.
-            // Keep the key even when Deriv rejects the SELL (for example because
-            // a literal 1-tick contract has already expired). Duplicate bridge
-            // events must never issue another SELL request for the same contract.
-            const analyzerSellKey = String(signal.signalId) + ':' + String(signal.lockedAt);
-            if (this.analyzerSellAttemptKey === analyzerSellKey) {
+            if (!contractId || this.isSold) {
+                globalObserver.emit(
+                    'ui.log.error',
+                    'TRAPKID ANALYZER SELL BLOCKED → no exact BUY contract is bound to signal=' +
+                        String(signal.signalId)
+                );
+                return false;
+            }
+
+            // Shared one-SELL lock: this is global Analyzer state, not an
+            // instance-local flag. Multiple TradeEngine observers must never
+            // send duplicate SELL requests for the same signal.
+            const sharedSellKey = String(state.analyzerSellAttemptKey || '');
+            if (sharedSellKey === analyzerSellKey) {
                 globalObserver.emit(
                     'ui.log',
                     'TRAPKID ANALYZER SELL → duplicate EARLY_SELL_READY ignored → signal=' +
@@ -93,25 +89,28 @@ export default Engine =>
                 );
                 return false;
             }
+            globalObserver.setState({
+                trapkid_analyzer: {
+                    ...state,
+                    analyzerSellAttemptKey: analyzerSellKey,
+                    analyzerSellContractId: contractId,
+                },
+            });
             this.analyzerSellAttemptKey = analyzerSellKey;
 
-            // Keep the in-memory engine bound to the exact ID returned by this BUY.
+            // From this point onward the exact BUY contract_id is immutable.
             this.contractId = contractId;
             this.derivContractId = contractId;
 
-            if (buyResponseContractId && engineDerivContractId && buyResponseContractId !== engineDerivContractId) {
+            if (buyResponseContractId && stateBuyContractId && buyResponseContractId !== stateBuyContractId) {
                 globalObserver.emit(
                     'ui.log.error',
-                    'TRAPKID ANALYZER SELL → current BUY contract ID mismatch detected; using Deriv BUY response ID ' +
-                        buyResponseContractId
+                    'TRAPKID ANALYZER SELL BLOCKED → BUY binding mismatch; engine=' +
+                        buyResponseContractId +
+                        ' state=' +
+                        stateBuyContractId
                 );
-            }
-            if (stateDerivContractId && buyResponseContractId && stateDerivContractId !== buyResponseContractId) {
-                globalObserver.emit(
-                    'ui.log',
-                    'TRAPKID ANALYZER SELL → stale bridge contract ID ignored; current BUY ID=' +
-                        buyResponseContractId
-                );
+                return false;
             }
 
             globalObserver.emit(
