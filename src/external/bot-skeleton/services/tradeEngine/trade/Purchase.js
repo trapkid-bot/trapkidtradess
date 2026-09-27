@@ -168,8 +168,18 @@ export default Engine =>
             if (!signal?.symbol) return Promise.resolve(null);
 
             const amount = Number(this.tradeOptions?.amount);
-            const duration = Number(this.tradeOptions?.duration);
-            const duration_unit = this.tradeOptions?.duration_unit || 't';
+            // Analyzer controls the actual exit timing. The Deriv-side financial
+            // contract must therefore remain open long enough to receive that
+            // EARLY_SELL_READY command; a 1-tick Deriv contract can expire before
+            // Analyzer is ready to close it.
+            const configuredDuration = Number(this.tradeOptions?.duration);
+            const configuredUnit = this.tradeOptions?.duration_unit || 't';
+            const ANALYZER_FINANCIAL_HOLD_TICKS = 120;
+            const duration_unit = 't';
+            const duration =
+                configuredUnit === 't' && Number.isFinite(configuredDuration)
+                    ? Math.max(ANALYZER_FINANCIAL_HOLD_TICKS, Math.floor(configuredDuration))
+                    : ANALYZER_FINANCIAL_HOLD_TICKS;
             const currency = this.tradeOptions?.currency || 'USD';
             const hotDigit = Number(signal.hotDigit);
             if (!Number.isFinite(amount) || amount <= 0) return Promise.resolve(null);
@@ -324,13 +334,6 @@ export default Engine =>
                         (Number.isFinite(actualPayout) ? actualPayout : potentialPayout)
                 );
 
-                if (this.data?.contract?.is_sold) {
-                    // Analyzer may close its local lifecycle before the Deriv buy response
-                    // arrives. Keep the financial contract tied to Deriv expiry; never issue
-                    // an early Deriv sell from this race path.
-                    void this.settleAnalyzerDerivContract();
-                }
-
                 return buy;
             })();
 
@@ -356,10 +359,31 @@ export default Engine =>
                     7000
                 );
 
+                if (response?.error) {
+                    const errorMessage =
+                        response.error.message ||
+                        response.error.code ||
+                        'Deriv rejected the early sell';
+                    globalObserver.emit(
+                        'ui.log.error',
+                        'TRAPKID DERIV EARLY SELL → ' + errorMessage
+                    );
+                    return null;
+                }
+
                 if (response?.sell) {
                     const soldFor = Number(response.sell.sold_for);
                     const balanceAfter = Number(response.sell.balance_after);
                     const transactionId = response.sell.transaction_id ?? null;
+                    const buyPrice = Number(
+                        this.derivBuy?.buy_price ??
+                        this.data?.contract?.deriv_buy_price ??
+                        this.data?.contract?.buy_price
+                    );
+                    const realizedProfit =
+                        Number.isFinite(soldFor) && Number.isFinite(buyPrice)
+                            ? soldFor - buyPrice
+                            : null;
 
                     globalObserver.emit('deriv.contract.sell', {
                         local_contract_id: this.data?.contract?.contract_id ?? null,
@@ -438,8 +462,14 @@ export default Engine =>
                         ...response.sell,
                         contract_id: String(derivContractId),
                         sold_for: Number.isFinite(soldFor) ? soldFor : null,
+                        payout: Number.isFinite(soldFor) ? soldFor : null,
+                        buy_price: Number.isFinite(buyPrice) ? buyPrice : null,
+                        profit: Number.isFinite(realizedProfit) ? realizedProfit : null,
                         balance_after: Number.isFinite(balanceAfter) ? balanceAfter : null,
                         transaction_id: transactionId,
+                        sell_transaction_id: transactionId,
+                        buy_transaction_id: this.derivBuyTransactionId ?? null,
+                        financial_status: 'DERIV_SELL_CONFIRMED',
                     };
                 }
 
