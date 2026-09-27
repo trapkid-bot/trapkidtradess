@@ -45,7 +45,12 @@ export default Engine =>
                 return false;
             }
 
-            const exit = this.getAnalyzerExit?.();
+            // Read the live Analyzer exit first. Only fall back to the
+            // engine helper when the shared state does not carry the ready exit.
+            const exit =
+                analyzerState?.exit?.status === 'EARLY_SELL_READY'
+                    ? analyzerState.exit
+                    : this.getAnalyzerExit?.();
             const exitStatus = String(exit?.status || analyzerState?.exit?.status || '');
             const exitDigit = Number(exit?.digit ?? analyzerState?.exit?.digit);
             // Defensive validation at the financial boundary too: the SELL is
