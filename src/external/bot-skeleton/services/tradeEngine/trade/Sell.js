@@ -23,8 +23,8 @@ export default Engine =>
             if (
                 !signal?.signalId ||
                 String(state.commandKey || '') !== String(signal.signalId) + ':' + String(signal.lockedAt) ||
-                state.executionTrigger !== 'EARLY_SELL_READY' &&
-                exit?.status !== 'EARLY_SELL_READY'
+                !['EARLY_SELL_READY', 'MATCH_FOUND'].includes(String(state.executionTrigger || '')) &&
+                !['EARLY_SELL_READY', 'MATCH_FOUND'].includes(String(exit?.status || ''))
             ) {
                 return false;
             }
@@ -209,9 +209,9 @@ export default Engine =>
                         ...failedState,
                         status: 'EARLY_SELL_FAILED',
                         analyzerExecutionStatus: 'EARLY_SELL_FAILED',
-                        executionTrigger: 'EARLY_SELL_READY',
+                        executionTrigger: String(state.executionTrigger || 'MATCH_FOUND'),
                         holdUntilAnalyzerExit: true,
-                        analyzerExitStatus: 'EARLY_SELL_READY',
+                        analyzerExitStatus: String(state.executionTrigger || exit?.status || 'MATCH_FOUND'),
                         earlySellErrorCode: errorCode || null,
                         earlySellError: errorMessage,
                         analyzerContractId: contractId,
@@ -285,8 +285,8 @@ export default Engine =>
                 deriv_sell_price: soldFor,
                 deriv_sell_transaction_id: sellTransactionId,
                 deriv_balance_after_sell: Number.isFinite(balanceAfter) ? balanceAfter : null,
-                analyzer_exit_status: 'EARLY_SELL_READY',
-                analyzer_execution_status: 'ANALYZER_SETTLED',
+                analyzer_exit_status: 'MATCH_FOUND',
+                analyzer_execution_status: 'MATCH_SETTLED',
                 analyzer_exit_code: String(signal.signalId) + ':' + String(exit?.epoch || ''),
                 analyzer_exit_digit: hotDigit,
                 analyzer_exit_quote: Number.isFinite(Number(exit?.quote)) ? Number(exit.quote) : null,
@@ -325,13 +325,13 @@ export default Engine =>
             globalObserver.setState({
                 trapkid_analyzer: {
                     ...state,
-                    status: 'ANALYZER_SETTLED',
+                    status: 'MATCH_SETTLED',
                     signal,
                     signalId: signal.signalId,
                     commandKey: String(signal.signalId) + ':' + String(signal.lockedAt),
-                    executionTrigger: 'ANALYZER_SETTLED',
+                    executionTrigger: 'MATCH_SETTLED',
                     holdUntilAnalyzerExit: false,
-                    settlementSource: 'ANALYZER_EARLY_SELL',
+                    settlementSource: 'MATCH_FOUND',
                     analyzerContractId: contractId,
                     derivContractId: contractId,
                     derivSellTransactionId: sellTransactionId,
@@ -344,7 +344,7 @@ export default Engine =>
                     derivBalanceAfterSell: Number.isFinite(balanceAfter) ? balanceAfter : null,
                     exit: {
                         ...(exit || {}),
-                        status: 'EARLY_SELL_READY',
+                        status: 'MATCH_FOUND',
                         signalId: String(signal.signalId),
                         digit: hotDigit,
                     },
