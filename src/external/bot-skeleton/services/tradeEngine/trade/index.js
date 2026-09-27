@@ -39,7 +39,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // SELL so duplicate Analyzer bridge events cannot retry the same contract.
         this.analyzerStateExitObserver = state => {
             // Analyzer is authoritative for settlement. Never infer an exit
-            // from a local tick digit or create MATCH_FOUND/MATCH_OPEN states.
+            // from a local tick digit or create EARLY_SELL_READY/WAITING_FOR_EARLY_SELL states.
             const exit = state?.exit;
             if (String(exit?.status || '') !== 'EARLY_SELL_READY') return;
             if (this.analyzerExitHandling || this.isSold) return;
@@ -56,7 +56,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         };
         this.store = createStore(rootReducer, applyMiddleware(thunk));
         // Keep Analyze running while the Analyzer-owned Match contract is open.
-        // The cycle resolves only after MATCH_FOUND settles this same contract.
+        // The cycle resolves only after EARLY_SELL_READY settles this same contract.
         this.analyzerCyclePromise = Promise.resolve();
         this.resolveAnalyzerCycle = null;
     }
@@ -169,7 +169,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             globalObserver.emit('ui.log', 'TRAPKID ANALYZER COMMAND → BUY AUTHORIZED → ' + activeKey + ' → digit=' + hotDigit);
             await this.purchase('DIGITMATCH');
 
-            // Keep Analyze active until MATCH_FOUND has sold and financially confirmed
+            // Keep Analyze active until EARLY_SELL_READY has sold and financially confirmed
             // the SAME contract. EARLY_SELL_READY is not the match trigger.
             return this.analyzerCyclePromise;
         } catch (error) {
@@ -183,7 +183,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // command for the already-open contract.
         const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
         // STRICT MATCH FLOW: EARLY_SELL_READY is informational only. It must
-        // never enter the sell path. Only the Analyzer live-stream MATCH_FOUND
+        // never enter the sell path. Only the Analyzer live-stream EARLY_SELL_READY
         // event is allowed to settle the already-purchased contract.
         const analyzerExit = command?.exit || analyzerState?.exit;
         const exitStatus = String(analyzerExit?.status || '');
@@ -192,7 +192,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         }
         // Once this exact BUY has settled, later match ticks are informational only
         // and must never reopen the cycle.
-        if (String(analyzerState.status || '') === 'ANALYZER_SETTLED' || this.derivSettlement) {
+        if (String(analyzerState.status || '') === 'ANALYZER_EARLY_SELL_CONFIRMED' || this.derivSettlement) {
             return false;
         }
         // The explicit EXIT event and the shared state bridge can deliver the
@@ -301,7 +301,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         ) {
             globalObserver.emit(
                 'ui.log.error',
-                'TRAPKID ANALYZER MATCH → MATCH_FOUND REJECTED: signal/digit mismatch'
+                'TRAPKID ANALYZER MATCH → EARLY_SELL_READY REJECTED: signal/digit mismatch'
             );
             return;
         }
@@ -332,7 +332,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         if (!contractId) {
             globalObserver.emit(
                 'ui.log',
-                'TRAPKID ANALYZER → MATCH_FOUND observed before BUY contract binding; match saved as pending.'
+                'TRAPKID ANALYZER → EARLY_SELL_READY observed before BUY contract binding; match saved as pending.'
             );
             globalObserver.setState({
                 trapkid_analyzer: {
@@ -342,9 +342,9 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                     commandKey,
                     exit,
                     pendingEarlyExit: exit,
-                    analyzerExitStatus: String(exit.status || 'MATCH_FOUND'),
+                    analyzerExitStatus: String(exit.status || 'EARLY_SELL_READY'),
                     analyzerExitDigit: Number(signal.hotDigit),
-                    executionTrigger: 'MATCH_FOUND',
+                    executionTrigger: 'EARLY_SELL_READY',
                     holdUntilAnalyzerExit: false,
                 },
             });
@@ -374,7 +374,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                 analyzerContractId: contractId,
                 derivContractId: contractId,
                 pendingEarlyExit: null,
-                analyzerExitStatus: 'MATCH_FOUND',
+                analyzerExitStatus: 'EARLY_SELL_READY',
                 analyzerExitDigit: Number(signal.hotDigit),
             },
         });
@@ -388,7 +388,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             if (!sold) {
                 globalObserver.emit(
                     'ui.log.error',
-                    'TRAPKID ANALYZER → MATCH_FOUND was not confirmed on the SAME CONTRACT=' + contractId
+                    'TRAPKID ANALYZER → EARLY_SELL_READY was not confirmed on the SAME CONTRACT=' + contractId
                 );
             }
             return sold;
@@ -478,7 +478,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                     if (event?.id === 'contract.sold') finish(false);
                 };
                 const onAnalyzerUpdate = state => {
-                    if (state?.status === 'ANALYZER_SETTLED' || state?.executionTrigger === 'ANALYZER_SETTLED') {
+                    if (state?.status === 'ANALYZER_EARLY_SELL_CONFIRMED' || state?.executionTrigger === 'ANALYZER_EARLY_SELL_CONFIRMED') {
                         finish(false);
                     }
                 };
