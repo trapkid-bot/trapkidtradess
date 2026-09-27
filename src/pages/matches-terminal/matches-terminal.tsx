@@ -35,7 +35,7 @@ const ANALYZER_EXECUTION_VERSION = 'ANALYZER-COMMAND-BUS-V5';
 const ANALYZER_LOGICAL_DURATION = 1;
 const ANALYZER_LOGICAL_DURATION_UNIT = 't';
 // The real Deriv contract stays sellable while Analyzer controls the lifecycle.
-const ANALYZER_PHYSICAL_HOLD_SECONDS = 120;
+const ANALYZER_PHYSICAL_HOLD_SECONDS = 24 * 60 * 60;
 
 const lastDigit = (quote: number, pipSize = 2) => {
     const fixed = Number(quote).toFixed(Math.max(0, pipSize));
@@ -417,10 +417,18 @@ const MatchesTerminal = () => {
                 throw new Error('Analyzer command was not authorized. DBot remains idle.');
             }
             const entrySymbol = String(signal?.symbol || '');
-            const entryPrediction = Number(signal?.prediction ?? signal?.lockedDigit);
-            const liveAnalyzerSymbol = String(analyzerDetails?.symbol || '');
-            const liveAnalyzerSignalId = String(analyzerDetails?.signal?.signalId || '');
-            const liveAnalyzerPrediction = Number(analyzerDetails?.signal?.prediction ?? analyzerDetails?.signal?.lockedDigit);
+            const entryPrediction = Number(signal?.hotDigit ?? signal?.prediction ?? signal?.lockedDigit);
+            const bridgeState = globalObserver.getState('trapkid_analyzer') || {};
+            const liveAnalyzerSymbol = String(bridgeState?.symbol || analyzerDetails?.symbol || '');
+            const liveAnalyzerSignalId = String(bridgeState?.signal?.signalId || analyzerDetails?.signal?.signalId || '');
+            const liveAnalyzerPrediction = Number(
+                bridgeState?.signal?.hotDigit ??
+                bridgeState?.signal?.prediction ??
+                bridgeState?.signal?.lockedDigit ??
+                analyzerDetails?.signal?.hotDigit ??
+                analyzerDetails?.signal?.prediction ??
+                analyzerDetails?.signal?.lockedDigit
+            );
             const logicalHoldTicks = ANALYZER_LOGICAL_DURATION;
             const entryStake = Number(stake);
 
