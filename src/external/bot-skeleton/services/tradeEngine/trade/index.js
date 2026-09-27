@@ -394,6 +394,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         );
         this.analyzerExitHandling = true;
         return false;
+    }
 
     init(...args) {
         const [, options] = expectInitArg(args);
