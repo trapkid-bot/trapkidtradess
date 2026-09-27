@@ -569,6 +569,23 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             'TRAPKID ANALYZER → BOT ARMED. BUY IS BLOCKED UNTIL EXECUTE_ANALYZER_SIGNAL COMMAND.'
         );
 
+        // The Analyze command is carried through runAnalyzer() so it cannot
+        // be lost while the lightweight TradeEngine is being constructed.
+        const startupCommand = tradeOptions?.analyzerCommand;
+        if (startupCommand?.command === 'EXECUTE_ANALYZER_SIGNAL') {
+            globalObserver.emit(
+                'ui.log',
+                'TRAPKID ANALYZER → DURABLE ANALYZE COMMAND FOUND → EXECUTING NOW'
+            );
+            return this.onAnalyzerCommand({
+                ...startupCommand,
+                source: startupCommand.source || 'TRAPKID_ANALYZER_HTTP',
+                commandKey: String(startupCommand.commandKey || ''),
+                entryReady: true,
+                status: 'READY',
+            });
+        }
+
         // The command handler is the only place that authorizes and starts
         // the Analyzer DIGITMATCH purchase. Keep this lifecycle promise open
         // until the matching Analyzer EARLY_SELL_READY closes the same contract.
