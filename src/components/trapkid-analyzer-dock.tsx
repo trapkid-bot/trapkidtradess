@@ -137,13 +137,16 @@ const TrapKidAnalyzerDock = () => {
                         exit: (isNewSignal || initialSignalIsFresh)
                             ? null
                             : data?.exit || currentAnalyzerState.exit || null,
-                        status: remoteExitReady
-                            ? 'EARLY_SELL_READY'
-                            : preservedCommandStatus
-                              ? currentAnalyzerState.status
-                              : signalKey
-                                ? 'CONNECTED'
-                                : 'CONNECTED_WAITING',
+                        status:
+                            String(currentAnalyzerState.status || '') === 'ANALYZER_SETTLED'
+                                ? 'ANALYZER_SETTLED'
+                                : remoteExitReady
+                                  ? 'EARLY_SELL_READY'
+                                  : preservedCommandStatus
+                                    ? currentAnalyzerState.status
+                                    : signalKey
+                                      ? 'CONNECTED'
+                                      : 'CONNECTED_WAITING',
                         ...(commandBoundToSignal ? { commandKey: signalKey } : {}),
                         lastSeen: now,
                     };
