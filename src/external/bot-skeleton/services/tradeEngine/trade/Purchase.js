@@ -225,18 +225,16 @@ export default Engine =>
             if (!signal?.symbol) return Promise.resolve(null);
 
             const amount = Number(this.tradeOptions?.amount);
-            // Analyzer controls the actual exit timing. The Deriv-side financial
-            // contract must therefore remain open long enough to receive that
-            // EARLY_SELL_READY command; a 1-tick Deriv contract can expire before
-            // Analyzer is ready to close it.
+            // Analyzer-only mode must use the bot's normal configured execution
+            // duration for the Deriv contract. Do NOT invent a longer financial
+            // duration here. The Analyzer controls the exit event; this request only
+            // purchases the configured DIGITMATCH contract.
             const configuredDuration = Number(this.tradeOptions?.duration);
-            const configuredUnit = this.tradeOptions?.duration_unit || 't';
-            const ANALYZER_FINANCIAL_HOLD_TICKS = 120;
-            const duration_unit = 't';
+            const duration_unit = this.tradeOptions?.duration_unit || 't';
             const duration =
-                configuredUnit === 't' && Number.isFinite(configuredDuration)
-                    ? Math.max(ANALYZER_FINANCIAL_HOLD_TICKS, Math.floor(configuredDuration))
-                    : ANALYZER_FINANCIAL_HOLD_TICKS;
+                Number.isFinite(configuredDuration) && configuredDuration > 0
+                    ? Math.floor(configuredDuration)
+                    : 1;
             const currency = this.tradeOptions?.currency || 'USD';
             const hotDigit = Number(signal.hotDigit);
             if (!Number.isFinite(amount) || amount <= 0) return Promise.resolve(null);
