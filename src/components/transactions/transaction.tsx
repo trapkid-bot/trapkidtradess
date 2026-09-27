@@ -146,9 +146,9 @@ const PopoverContent = ({ contract }: TPopoverContent) => (
                         {(contract as any)?.analyzer_entry_quote ?? (contract as any)?.analyzer_locked_quote ?? '—'}
                     </div>
                 </PopoverItem>
-                <PopoverItem title='Analyzer Match lifecycle'>
+                <PopoverItem title='Analyzer Analyzer lifecycle'>
                     <div className='transactions__popover-value'>
-                        {(contract as any)?.analyzer_execution_status || 'MATCH_OPEN'}
+                        {(contract as any)?.analyzer_execution_status || 'EARLY_SELL_READY'}
                     </div>
                 </PopoverItem>
                 <PopoverItem title='Deriv contract ID'>
