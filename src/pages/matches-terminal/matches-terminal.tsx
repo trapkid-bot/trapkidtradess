@@ -32,11 +32,8 @@ type Trade = {
 const ANALYZER_API = (process.env.NEXT_PUBLIC_ANALYZER_API_URL || 'https://copper-philosophy-smart-competition.trycloudflare.com').trim();
 const ANALYZER_WS = (process.env.NEXT_PUBLIC_ANALYZER_WS_URL || ANALYZER_API.replace(/^http/i, 'ws')).trim();
 const ANALYZER_EXECUTION_VERSION = 'ANALYZER-COMMAND-BUS-V5';
-const ANALYZER_LOGICAL_DURATION = 1;
-const ANALYZER_LOGICAL_DURATION_UNIT = 't';
-// The real Deriv contract stays sellable while Analyzer controls the lifecycle.
-// Matches UI mirrors the broker-safe DIGITMATCH ceiling used by TradeEngine.
-const ANALYZER_PHYSICAL_HOLD_TICKS = 10;
+const ANALYZER_EXECUTION_DURATION = 1;
+const ANALYZER_EXECUTION_DURATION_UNIT = 't';
 
 const lastDigit = (quote: number, pipSize = 2) => {
     const fixed = Number(quote).toFixed(Math.max(0, pipSize));
@@ -411,7 +408,7 @@ const MatchesTerminal = () => {
                 buyPrice: Number.isFinite(Number(buyPrice)) ? Number(buyPrice) : 0,
                 bidPrice: Number.isFinite(Number(state.derivBuyPrice)) ? Number(state.derivBuyPrice) : 0,
                 openedAt: Number(state.analyzerBoundAt || Date.now()),
-                holdTicks: ANALYZER_LOGICAL_DURATION,
+                holdTicks: ANALYZER_EXECUTION_DURATION,
                 entryDigit: Number.isInteger(Number(signal.entryDigit)) ? Number(signal.entryDigit) : prediction,
                 hotDigit: Number.isInteger(Number(signal.hotDigit)) ? Number(signal.hotDigit) : prediction,
                 lockedDigit: Number.isInteger(Number(signal.lockedDigit)) ? Number(signal.lockedDigit) : prediction,
@@ -423,7 +420,7 @@ const MatchesTerminal = () => {
             setPrediction(nextTrade.prediction);
             setStatus(
                 state.status === 'RUNNING'
-                    ? 'ANALYZER BUY CONFIRMED • SAME DERIV CONTRACT HELD • waiting for EARLY_SELL_READY'
+                    ? 'ANALYZER BUY CONFIRMED • 1-TICK EXECUTION • MATCH OPEN • waiting for hot digit'
                     : 'ANALYZER COMMAND RECEIVED • TradeEngine executing ' + nextTrade.signalId
             );
         };
@@ -551,9 +548,9 @@ const MatchesTerminal = () => {
                     </div>
 
                     <div className='tk-panel-section'>
-                        <label>Contract duration</label>
-                        <div className='tk-live-fixed'>1 tick <span>Analyzer lifecycle hold</span></div>
-                        <small className='tk-note'>Logical Match duration is fixed at 1 tick. The real Deriv position remains sellable until Analyzer sends EARLY_SELL_READY.</small>
+                        <label>Execution</label>
+                        <div className='tk-live-fixed'>1 tick <span>Analyzer signal execution</span></div>
+                        <small className='tk-note'>The financial DIGITMATCH proposal executes for 1 tick. Match lifecycle remains OPEN until the Analyzer live stream produces MATCH_FOUND for the hot digit.</small>
                     </div>
 
                     <div className='tk-panel-section'>
@@ -566,11 +563,13 @@ const MatchesTerminal = () => {
                         <div><span>Execution gate</span><strong>{analyzerAuthorizedSignalRef.current ? 'AUTHORIZED • ' + analyzerAuthorizedSignalRef.current : trade ? 'COMMAND ACTIVE' : 'LOCKED • ANALYZE MARKET'}</strong></div>
                         <div><span>Live stream</span><strong>{analyzerDetails?.lastTick?.epoch ? 'LIVE TICK' : 'WAITING'}</strong></div>
                         <div><span>Analyzer feed</span><strong>{analyzerDetails?.connected ? 'CONNECTED' : 'DISCONNECTED'}</strong></div>
-                        <div><span>Analyzer exit</span><strong>{analyzerDetails?.exit?.status || 'WAITING'}</strong></div>
-                        <div><span>Analyzer exit digit</span><strong>{analyzerDetails?.exit?.digit ?? '—'}</strong></div>
+                        <div><span>Match lifecycle</span><strong>{analyzerDetails?.status === 'MATCH_FOUND' || analyzerDetails?.analyzerExitStatus === 'MATCH_FOUND' ? 'MATCH_FOUND' : trade ? 'MATCH_OPEN' : 'WAITING'}</strong></div>
+                        <div><span>Match digit</span><strong>{analyzerDetails?.signal?.hotDigit ?? '—'}</strong></div>
+                        <div><span>Analyzer exit event</span><strong>{analyzerDetails?.analyzerExitStatus || 'WAITING_FOR_MATCH_FOUND'}</strong></div>
                         <div><span>Analyzer market</span><strong>{analyzerDetails?.symbol || '—'}</strong></div>
                         <div><span>Analyzer signal</span><strong>{analyzerDetails?.signal?.signalId || 'WAITING'}</strong></div>
                         <div><span>Entry digit</span><strong>{analyzerDetails?.signal?.entryDigit ?? '—'}</strong></div>
+                        <div><span>Locked entry quote</span><strong>{analyzerDetails?.signal?.entryQuote ?? analyzerDetails?.signal?.lockedQuote ?? '—'}</strong></div>
                         <div><span>Hot digit</span><strong>{analyzerDetails?.signal?.hotDigit ?? analyzerDetails?.analysis?.hotDigit ?? '—'}</strong></div>
                         <div><span>Broker proposal payout</span><strong>{payout ? formatMoney(payout, currency) : '—'}</strong></div>
                         <div><span>Execution transport</span><strong>{contractAvailable ? 'Broker transport only' : 'Unavailable'}</strong></div>
@@ -584,9 +583,9 @@ const MatchesTerminal = () => {
                     {trade ? (
                         <div className='tk-active'>
                             <div className='active-title'><span className='pulse' /> ANALYZER COMMAND ACTIVE</div>
-                            <div className='active-main'>{trade.symbol} • DIGITMATCH <b>{trade.lockedDigit}</b> • 1 TICK LOGIC</div>
-                            <div className='active-meta'>Entry digit: {trade.entryDigit ?? '—'} • Hot digit: {trade.hotDigit ?? '—'} • Signal: {trade.signalId}</div>
-                            <div className='active-meta'>Analyzer exit: {analyzerDetails?.exit?.status || 'WAITING'} • Exit digit: {analyzerDetails?.exit?.digit ?? '—'}</div>
+                            <div className='active-main'>{trade.symbol} • DIGITMATCH <b>{trade.hotDigit ?? trade.lockedDigit}</b> • 1 TICK EXECUTION</div>
+                            <div className='active-meta'>Entry digit: {trade.entryDigit ?? '—'} • Locked entry quote: {analyzerDetails?.signal?.entryQuote ?? analyzerDetails?.signal?.lockedQuote ?? '—'}</div>
+                            <div className='active-meta'>MATCH OPEN • waiting for hot digit {trade.hotDigit ?? '—'} • Signal: {trade.signalId}</div>
                         </div>
                     ) : (
                         <button className='tk-buy' disabled>
@@ -615,7 +614,7 @@ const MatchesTerminal = () => {
             </div>
 
             <div className='tk-disclaimer'>
-                <b>ANALYZER-COMMAND DBOT:</b> RUN is permanently disabled. The DBot remains idle until TrapKid Analyzer produces a NEW signal after Analyze Market. The signal is the only command allowed to start execution and supplies the market, entry digit, hot digit, signal ID and prediction/locked digit. <b>Exit:</b> the DBot waits exclusively for that same Analyzer signal to report <code>EARLY_SELL_READY</code> and uses the Analyzer-provided exit digit/quote. No local strategy, default prediction, default market, or independent entry/exit condition can start a trade.
+                <b>ANALYZER-COMMAND DBOT:</b> Analyze Market produces the execution signal. The DBot opens a DIGITMATCH proposal for 1 tick using the Analyzer market and hot digit, while the Analyzer live stream remains authoritative for the Match lifecycle. <b>Match exit:</b> only the same signal's hot digit appearing on the Analyzer stream creates <code>MATCH_FOUND</code>. <code>EARLY_SELL_READY</code> is informational and is never the Match trigger. The locked entry quote is retained as Analyzer transaction metadata.
             </div>
         </div>
     );
