@@ -35,7 +35,8 @@ const ANALYZER_EXECUTION_VERSION = 'ANALYZER-COMMAND-BUS-V5';
 const ANALYZER_LOGICAL_DURATION = 1;
 const ANALYZER_LOGICAL_DURATION_UNIT = 't';
 // The real Deriv contract stays sellable while Analyzer controls the lifecycle.
-const ANALYZER_PHYSICAL_HOLD_SECONDS = 24 * 60 * 60;
+// Matches UI mirrors the broker-safe DIGITMATCH ceiling used by TradeEngine.
+const ANALYZER_PHYSICAL_HOLD_TICKS = 10;
 
 const lastDigit = (quote: number, pipSize = 2) => {
     const fixed = Number(quote).toFixed(Math.max(0, pipSize));
