@@ -395,44 +395,52 @@ export default Engine =>
                 });
             };
 
-            // Analyzer supplies only the trade decision. Use Deriv's normal
-            // proposal -> buy sequence so the financial contract is created
-            // exactly through the same API mechanics as the normal bot.
+            // Analyzer-only financial quote + local contract mode.
+            // Deriv is queried for proposal/potential payout only. No BUY request is
+            // sent, so no broker-owned contract can expire or settle independently.
             if (analyzerMode) {
                 const signal = this.analyzerSignal || globalObserver.getState('trapkid_analyzer')?.signal;
                 const amount = Number(this.tradeOptions?.amount);
-                // Analyzer is authoritative for the market and DIGITMATCH prediction.
-                // entryDigit remains the locked entry-code field; hotDigit is the
-                // canonical digit the DIGITMATCH contract must predict.
                 const symbol = String(signal?.symbol || '');
                 const entryDigit = Number(signal?.entryDigit);
                 const hotDigit = Number(signal?.hotDigit);
                 const predictionDigit = hotDigit;
-                // hotDigit is the canonical DIGITMATCH prediction/barrier for this Analyzer trade.
                 const currency = this.tradeOptions?.currency || 'USD';
 
                 if (!signal?.signalId || !symbol || !Number.isFinite(amount) || amount <= 0 ||
                     !Number.isInteger(entryDigit) || entryDigit < 0 || entryDigit > 9 ||
                     !Number.isInteger(predictionDigit) || predictionDigit < 0 || predictionDigit > 9) {
-                    throw new Error('TRAPKID ANALYZER BUY -> missing stake, Analyzer market, or Analyzer entry digit.');
+                    throw new Error('TRAPKID ANALYZER BUY -> missing stake, Analyzer market, or Analyzer digit data.');
                 }
 
-                // HARD ANALYZER-ONLY RULES:
-                // 1. Contract type is DIGITMATCH.
-                // 2. Market is Analyzer signal.symbol.
-                // 3. DIGITMATCH prediction/barrier is Analyzer signal.hotDigit.
-                // 4. Match mode keeps the position open while the Analyzer stream searches.
-                // 5. entryDigit remains metadata for the locked Analyzer entry code.
-                // 6. The exact Deriv BUY contract_id is canonical and must be the contract sold.
-                // 7. The matching hot digit is the Analyzer-authorized exit event.
-                // The exact BUY remains bound to this signal; no replacement contract is created.
-                // Analyzer controls the trade decision. The financial DIGITMATCH
-                // proposal itself must execute for one tick. This does NOT make
-                // the Deriv tick the settlement authority; Analyzer controls exit.
                 logicalDuration = signal?.duration ?? signal?.logicalDuration ?? signal?.analyzerDuration ?? 1;
                 logicalDurationUnit = signal?.duration_unit ?? signal?.durationUnit ?? signal?.logicalDurationUnit ?? signal?.analyzerDurationUnit ?? 't';
-                // Preserve the established Analyzer DIGITMATCH execution value when
-                // the bridge does not include duration metadata: 1 tick.
+
+                contractStatus({
+                    id: 'contract.purchase_sent',
+                    data: amount,
+                    analyzer: true,
+                    contract_type: 'DIGITMATCH',
+                    symbol,
+                    prediction: predictionDigit,
+                    analyzer_entry_code: this.analyzerCommandKey || null,
+                });
+
+                globalObserver.setState({
+                    trapkid_analyzer: {
+                        ...(globalObserver.getState('trapkid_analyzer') || {}),
+                        status: 'ANALYZER_EXECUTION',
+                        analyzerExecutionStatus: 'ANALYZER_FINANCIAL_QUOTE',
+                        contractType: 'DIGITMATCH',
+                        stake: amount,
+                        entryDigit,
+                        prediction: predictionDigit,
+                        hotDigit,
+                        analyzerEntryCode: this.analyzerCommandKey || null,
+                        payoutSource: 'DERIV_PROPOSAL',
+                    },
+                });
+                globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
                 const proposalRequest = {
                     proposal: 1,
@@ -447,32 +455,6 @@ export default Engine =>
                     subscribe: 1,
                 };
 
-                // Publish the normal DBot buying lifecycle before the broker
-                // request so Summary/Transactions can show the command moving
-                // from ANALYZER → BUYING instead of remaining visually empty.
-                contractStatus({
-                    id: 'contract.purchase_sent',
-                    data: amount,
-                    analyzer: true,
-                    contract_type: 'DIGITMATCH',
-                    symbol,
-                    prediction: predictionDigit,
-                    analyzer_entry_code: this.analyzerCommandKey || null,
-                });
-                globalObserver.setState({
-                    trapkid_analyzer: {
-                        ...(globalObserver.getState('trapkid_analyzer') || {}),
-                        status: 'ANALYZER_EXECUTION',
-                        analyzerExecutionStatus: 'ANALYZER_BUYING',
-                        contractType: 'DIGITMATCH',
-                        stake: amount,
-                        entryDigit,
-                        prediction: predictionDigit,
-                        analyzerEntryCode: this.analyzerCommandKey || null,
-                    },
-                });
-                globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
-
                 let proposalResponse;
                 try {
                     proposalResponse = await doUntilDone(
@@ -481,7 +463,7 @@ export default Engine =>
                     );
                 } catch (error) {
                     const code = error?.error?.code || error?.code || error?.message || 'unknown';
-                    globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER PROPOSAL ERROR -> ' + code);
+                    globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER FINANCIAL QUOTE ERROR -> ' + code);
                     throw error;
                 }
 
@@ -489,112 +471,176 @@ export default Engine =>
                 const proposalId = proposal?.id;
                 const askPrice = Number(proposal?.ask_price);
                 const potentialPayout = Number(proposal?.payout);
-                if (!proposalId || !Number.isFinite(askPrice) || askPrice <= 0) {
-                    throw new Error('TRAPKID ANALYZER PROPOSAL -> Deriv returned no valid proposal.');
+                if (!proposalId || !Number.isFinite(askPrice) || askPrice <= 0 || !Number.isFinite(potentialPayout)) {
+                    throw new Error('TRAPKID ANALYZER FINANCIAL QUOTE -> Deriv returned no valid payout quote.');
                 }
+
+                // Local Analyzer contract identity. This is NOT a Deriv contract_id.
+                const analyzerContractId = String(
+                    signal?.contractId ||
+                    signal?.contract_id ||
+                    signal?.analyzerContractId ||
+                    this.analyzerCommandKey ||
+                    signal.signalId
+                );
+                const entryCode = String(
+                    signal?.entryCode ||
+                    signal?.entry_code ||
+                    this.analyzerCommandKey ||
+                    signal.signalId
+                );
+                const entryQuote = Number(signal?.entryQuote ?? signal?.entry_quote ?? signal?.lockedQuote ?? signal?.quote);
+
+                this.isSold = false;
+                this.isExpired = false;
+                this.isSellAvailable = true;
+                this.contractId = analyzerContractId;
+                this.analyzerContractId = analyzerContractId;
+                this.derivContractId = '';
+                this.derivBuy = null;
+                this.derivBuyTransactionId = null;
+
+                this.data.contract = {
+                    id: analyzerContractId,
+                    contract_id: analyzerContractId,
+                    transaction_ids: { buy: entryCode, sell: null },
+                    contract_type: 'DIGITMATCH',
+                    symbol,
+                    underlying_symbol: symbol,
+                    barrier: predictionDigit,
+                    prediction: predictionDigit,
+                    buy_price: amount,
+                    sell_price: 0,
+                    bid_price: 0,
+                    payout: potentialPayout,
+                    currency,
+                    analyzer_source: 'ANALYZER_ONLY',
+                    analyzer_signal_id: String(signal.signalId),
+                    analyzer_command_key: this.analyzerCommandKey,
+                    analyzer_entry_code: entryCode,
+                    analyzer_entry_digit: entryDigit,
+                    analyzer_entry_quote: Number.isFinite(entryQuote) ? entryQuote : null,
+                    analyzer_locked_quote: Number(signal?.lockedQuote ?? signal?.entryQuote ?? signal?.quote),
+                    analyzer_hot_digit: hotDigit,
+                    analyzer_prediction: predictionDigit,
+                    duration: logicalDuration,
+                    duration_unit: logicalDurationUnit,
+                    analyzer_duration: logicalDuration,
+                    analyzer_duration_unit: logicalDurationUnit,
+                    analyzer_exit_status: 'WAITING_FOR_EARLY_SELL_READY',
+                    analyzer_execution_status: 'WAITING_FOR_EARLY_SELL_READY',
+                    analyzer_exit_code: null,
+                    analyzer_contract_id: analyzerContractId,
+                    deriv_proposal_id: String(proposalId),
+                    deriv_proposal_ask_price: askPrice,
+                    deriv_potential_payout: potentialPayout,
+                    financial_status: 'DERIV_PROPOSAL_CONFIRMED',
+                    status: 'open',
+                    is_sold: false,
+                    is_expired: false,
+                    is_settleable: false,
+                    is_valid_to_sell: true,
+                };
 
                 globalObserver.setState({
                     trapkid_analyzer: {
                         ...(globalObserver.getState('trapkid_analyzer') || {}),
+                        status: 'WAITING_FOR_EARLY_SELL_READY',
+                        analyzerExecutionStatus: 'WAITING_FOR_EARLY_SELL_READY',
+                        executionTrigger: 'ANALYZER_ENTRY_COMMAND',
+                        holdUntilAnalyzerExit: true,
+                        analyzerExitStatus: 'WAITING_FOR_EARLY_SELL_READY',
+                        signal,
+                        signalId: String(signal.signalId),
+                        commandKey: this.analyzerCommandKey,
+                        entryDigit,
+                        prediction: predictionDigit,
+                        hotDigit,
+                        analyzerContractId,
+                        analyzerBuyContractId: analyzerContractId,
+                        analyzerBuySignalId: String(signal.signalId),
+                        analyzerContractSignalId: String(signal.signalId),
+                        derivContractId: null,
+                        derivTransactionId: null,
+                        derivBuyPrice: null,
                         derivProposalId: String(proposalId),
                         derivProposalAskPrice: askPrice,
-                        analyzerPotentialPayout: Number.isFinite(potentialPayout) ? potentialPayout : null,
-                        payout: Number.isFinite(potentialPayout) ? potentialPayout : null,
+                        analyzerPotentialPayout: potentialPayout,
+                        payout: potentialPayout,
                         payoutSource: 'DERIV_PROPOSAL',
-                        analyzerLogicalDuration: logicalDuration,
-                        analyzerLogicalDurationUnit: logicalDurationUnit,
+                        analyzerEntryCode: entryCode,
+                        analyzerEntryQuote: Number.isFinite(entryQuote) ? entryQuote : null,
+                        lockedQuote: signal?.lockedQuote,
+                        entrySource: 'ANALYZER_ONLY',
+                        exitSource: 'ANALYZER_EARLY_SELL_READY',
+                        purchaseInFlightKey: null,
+                        purchaseConsumedKey: this.analyzerCommandKey,
                     },
                 });
                 globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
-                // A proposal can become invalid between proposal and buy.
-                // Never retry a stale proposal id: request a fresh Analyzer-bound
-                // proposal and only accept the first successful BUY. This preserves
-                // the one-signal -> one-contract invariant while eliminating
-                // ContractBuyValidationError caused by an expired/moved proposal.
-                const makeFreshAnalyzerProposal = async () => {
-                    const response = await api_base.api.send({
-                        proposal: 1,
-                        amount,
-                        basis: 'stake',
-                        contract_type: 'DIGITMATCH',
+                contract(this.data.contract);
+                contractStatus({
+                    id: 'contract.purchase_received',
+                    data: entryCode,
+                    buy: {
+                        contract_id: analyzerContractId,
+                        transaction_id: entryCode,
+                        buy_price: amount,
+                        payout: potentialPayout,
                         currency,
-                        duration: logicalDuration,
-                        duration_unit: logicalDurationUnit,
-                        underlying_symbol: symbol,
-                        barrier: String(predictionDigit),
-                        subscribe: 1,
+                        analyzer_local: true,
+                        deriv_proposal_id: String(proposalId),
+                        deriv_proposal_ask_price: askPrice,
+                    },
+                });
+
+                globalObserver.emit('ui.log',
+                    'TRAPKID ANALYZER LOCAL CONTRACT OPEN → ' + analyzerContractId +
+                    ' → DERIV PROPOSAL PAYOUT=' + potentialPayout
+                );
+
+                const postPurchaseState = globalObserver.getState('trapkid_analyzer') || {};
+                const readyExit = postPurchaseState.pendingEarlyExit?.status === 'EARLY_SELL_READY'
+                    ? postPurchaseState.pendingEarlyExit
+                    : postPurchaseState.exit;
+                if (readyExit?.status === 'EARLY_SELL_READY' && !this.isSold) {
+                    queueMicrotask(() => {
+                        void this.onAnalyzerEarlyExit?.({
+                            source: 'TRAPKID_ANALYZER_POST_PURCHASE',
+                            command: 'ANALYZER_EARLY_EXIT',
+                            commandKey: postPurchaseState.commandKey || this.analyzerCommandKey,
+                            signalId: postPurchaseState.signalId || this.analyzerSignal?.signalId,
+                            signal: postPurchaseState.signal || this.analyzerSignal,
+                            exit: readyExit,
+                            receivedAt: Date.now(),
+                        });
                     });
-                    const fresh = response?.proposal;
-                    const freshId = fresh?.id;
-                    const freshAskPrice = Number(fresh?.ask_price);
-                    if (!freshId || !Number.isFinite(freshAskPrice) || freshAskPrice <= 0) {
-                        throw new Error('TRAPKID ANALYZER BUY -> Deriv returned no fresh valid proposal.');
-                    }
-                    return { id: String(freshId), askPrice: freshAskPrice, proposal: fresh };
-                };
-
-                let buyResponse;
-                let activeProposalId = String(proposalId);
-                let activeAskPrice = askPrice;
-                let lastBuyError;
-
-                for (let attempt = 0; attempt < 4; attempt += 1) {
-                    try {
-                        buyResponse = await api_base.api.send({
-                            buy: activeProposalId,
-                            price: activeAskPrice,
-                        });
-                        if (buyResponse?.buy?.contract_id) break;
-                        throw new Error('TRAPKID ANALYZER BUY -> Deriv returned no contract_id.');
-                    } catch (error) {
-                        lastBuyError = error;
-                        const code = String(error?.error?.code || error?.code || error?.message || 'unknown');
-                        globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER BUY ERROR -> ' + code);
-
-                        const retryable = [
-                            'PriceMoved',
-                            'InvalidContractProposal',
-                            'ContractBuyValidationError',
-                            'ContractBuyValidation',
-                            'RateLimit',
-                        ].some(name => code.includes(name));
-
-                        if (!retryable || attempt === 3) throw error;
-
-                        // Refresh the proposal immediately before retrying the buy.
-                        // No second contract can exist because no BUY succeeded yet.
-                        const fresh = await makeFreshAnalyzerProposal();
-                        activeProposalId = fresh.id;
-                        activeAskPrice = fresh.askPrice;
-
-                        globalObserver.setState({
-                            trapkid_analyzer: {
-                                ...(globalObserver.getState('trapkid_analyzer') || {}),
-                                derivProposalId: activeProposalId,
-                                derivProposalAskPrice: activeAskPrice,
-                                analyzerEntryDigit: entryDigit,
-                                analyzerPrediction: predictionDigit,
-                                analyzerPotentialPayout: Number.isFinite(Number(fresh.proposal?.payout))
-                                    ? Number(fresh.proposal.payout)
-                                    : null,
-                                payout: Number.isFinite(Number(fresh.proposal?.payout))
-                                    ? Number(fresh.proposal.payout)
-                                    : null,
-                                payoutSource: 'DERIV_PROPOSAL_REFRESH',
-                            },
-                        });
-                        globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
-                    }
                 }
 
-                if (!buyResponse?.buy?.contract_id) {
-                    throw lastBuyError || new Error('TRAPKID ANALYZER BUY -> no Deriv contract returned.');
-                }
+                this.analyzerPurchaseKey = this.analyzerCommandKey;
+                delayIndex = 0;
+                info({
+                    accountID: this.accountInfo.loginid,
+                    totalRuns: this.updateAndReturnTotalRuns(),
+                    transaction_ids: { buy: entryCode },
+                    contract_type: 'DIGITMATCH',
+                    buy_price: amount,
+                });
 
-                return onSuccess(buyResponse);
+                return Promise.resolve({
+                    buy: {
+                        contract_id: analyzerContractId,
+                        transaction_id: entryCode,
+                        buy_price: amount,
+                        payout: potentialPayout,
+                        currency,
+                        analyzer_local: true,
+                        deriv_proposal_id: String(proposalId),
+                        deriv_proposal_ask_price: askPrice,
+                    },
+                });
             }
-
             if (this.is_proposal_subscription_required) {
                 const { id, askPrice } = this.selectProposal(contract_type);
 
