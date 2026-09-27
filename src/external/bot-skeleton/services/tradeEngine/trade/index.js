@@ -103,16 +103,14 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             ? signalId + ':' + String(lockedAt)
             : String(command?.commandKey || '');
 
-        const explicitReady =
-            command?.entryReady === true ||
-            String(command?.status || '').toUpperCase() === 'READY' ||
-            signal?.entryReady === true ||
-            String(signal?.status || '').toUpperCase() === 'READY' ||
-            state?.entryReady === true ||
-            String(state?.analyzerStatus || '').toUpperCase() === 'READY';
-
-        if (!explicitReady) {
-            globalObserver.emit('ui.log', 'TRAPKID ANALYZER ENTRY BLOCKED → signal is not READY.');
+        // The command itself is the authorization. Analyzer creates the
+        // command when the user performs Analyze; no second READY action exists.
+        if (
+            command?.entryReady !== true &&
+            String(command?.status || '').toUpperCase() !== 'READY' &&
+            !command?.commandKey
+        ) {
+            globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER ENTRY BLOCKED → malformed execution command.');
             return;
         }
 
@@ -136,16 +134,13 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         const activeKey = String(signal.signalId) + ':' + String(signal.lockedAt);
         if (String(commandKey || activeKey) !== activeKey) return;
 
-        if (!this.analyzerExecutionStarted) {
-            this.pendingAnalyzerCommand = {
-                ...command,
-                commandKey: activeKey,
-                signal: { ...signal, signalId: String(signal.signalId), lockedAt, hotDigit, prediction: hotDigit },
-                entryReady: true,
-                status: 'READY',
-            };
-            globalObserver.emit('ui.log', 'TRAPKID ANALYZER COMMAND QUEUED → waiting for DBot Run → ' + activeKey);
-            return;
+        // The Analyzer command is itself the execution trigger.
+        // Do not queue it behind the old DBot Run gate.
+        this.analyzerExecutionStarted = true;
+        if (!this.analyzerCyclePromise || this.analyzerCyclePromise === Promise.resolve()) {
+            this.analyzerCyclePromise = new Promise(resolve => {
+                this.resolveAnalyzerCycle = resolve;
+            });
         }
 
         const currentState = globalObserver.getState('trapkid_analyzer') || {};
@@ -194,14 +189,14 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                 duration_unit: 't',
             };
             this.is_proposal_subscription_required = false;
-            globalObserver.emit('ui.log', 'TRAPKID ANALYZER READY COMMAND → BUY AUTHORIZED → ' + activeKey + ' → digit=' + hotDigit);
+            globalObserver.emit('ui.log', 'TRAPKID ANALYZER COMMAND → BUY AUTHORIZED → ' + activeKey + ' → digit=' + hotDigit);
             await this.purchase('DIGITMATCH');
 
             // Keep Analyze active until the matching Analyzer EARLY_SELL_READY
             // event has sold and financially confirmed the SAME Deriv contract.
             return this.analyzerCyclePromise;
         } catch (error) {
-            globalObserver.emit('ui.log.error', error?.message || 'Analyzer ready-command purchase failed.');
+            globalObserver.emit('ui.log.error', error?.message || 'Analyzer command purchase failed.');
         }
     };
     onAnalyzerEarlyExit = async command => {
