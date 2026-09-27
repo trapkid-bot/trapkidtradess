@@ -13,7 +13,10 @@ export default Engine =>
 
         async sellAtMarket(source = 'BLOCKLY') {
             const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
-            const analyzerSignal = this.analyzerSignal || analyzerState.signal;
+            const analyzerSignal =
+                analyzerState?.signal?.signalId
+                    ? analyzerState.signal
+                    : this.analyzerSignal;
 
             if (source !== 'ANALYZER_EARLY_SELL') {
                 return false;
@@ -31,6 +34,16 @@ export default Engine =>
             // Deriv contract even if a UI refresh cleared the local tracking ID.
             if (!this.derivContractId && !this.contractId) return false;
             if (this.isSold) return true;
+            if (
+                this.analyzerDerivSignalId &&
+                String(this.analyzerDerivSignalId) !== String(analyzerSignal.signalId)
+            ) {
+                globalObserver.emit(
+                    'ui.log.error',
+                    'TRAPKID ANALYZER COMMAND → DERIV CONTRACT/SIGNAL OWNERSHIP MISMATCH; SELL BLOCKED'
+                );
+                return false;
+            }
 
             const exit = this.getAnalyzerExit?.();
             const exitStatus = String(exit?.status || analyzerState?.exit?.status || '');
@@ -46,7 +59,7 @@ export default Engine =>
                     'ui.log.error',
                     'TRAPKID ANALYZER COMMAND → EARLY_SELL_READY REJECTED: exit digit/status mismatch'
                 );
-                return Promise.resolve();
+                return false;
             }
             const contract = this.data?.contract || {};
             const fallbackStake = Number(contract.buy_price ?? this.tradeOptions?.amount ?? 0);
