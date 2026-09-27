@@ -19,10 +19,23 @@ export default Engine =>
                 return Promise.resolve();
             }
 
+            const expectedSignalKey = analyzerSignal?.signalId
+                ? String(analyzerSignal.signalId) + ':' + String(analyzerSignal.lockedAt)
+                : '';
+            const stateCommandKey = String(analyzerState.commandKey || '');
+            const commandBelongsToSignal =
+                !!analyzerSignal?.signalId &&
+                (
+                    stateCommandKey === expectedSignalKey ||
+                    (
+                        stateCommandKey.startsWith(String(analyzerSignal.signalId) + ':') &&
+                        stateCommandKey.split(':')[0] === String(analyzerSignal.signalId)
+                    )
+                );
+
             if (
                 !analyzerSignal?.signalId ||
-                String(analyzerState.commandKey || '') !==
-                    String(analyzerSignal.signalId) + ':' + String(analyzerSignal.lockedAt) ||
+                !commandBelongsToSignal ||
                 String(analyzerState.executionTrigger || '') !== 'EARLY_SELL_READY'
             ) {
                 return Promise.resolve();
