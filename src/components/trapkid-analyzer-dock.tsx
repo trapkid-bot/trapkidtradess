@@ -60,6 +60,13 @@ const TrapKidAnalyzerDock = () => {
                         lockedAt >= mountedAtRef.current - 10000;
 
                     const analyzerStatus = String(data?.status || signal?.status || '').toUpperCase();
+                    const remoteExit = data?.exit;
+                    const remoteExitHotDigit = Number(signal?.hotDigit ?? signal?.prediction ?? signal?.lockedDigit);
+                    const remoteExitReady =
+                        remoteExit?.status === 'EARLY_SELL_READY' &&
+                        Number.isInteger(remoteExitHotDigit) &&
+                        Number(remoteExit?.digit) === remoteExitHotDigit &&
+                        (!remoteExit?.signalId || String(remoteExit.signalId) === signalKey.split(':')[0]);
                     const explicitReady =
                         data?.entryReady === true ||
                         signal?.entryReady === true ||
@@ -104,6 +111,7 @@ const TrapKidAnalyzerDock = () => {
                             'WAITING_FOR_ANALYZER_EXIT_DIGIT',
                             'EARLY_EXIT_EXECUTING',
                             'ANALYZER_SETTLED',
+                            'EARLY_SELL_READY',
                         ].includes(String(currentAnalyzerState.status || ''));
 
                     // Keep the global observer intentionally small. The Analyzer
@@ -129,11 +137,13 @@ const TrapKidAnalyzerDock = () => {
                         exit: (isNewSignal || initialSignalIsFresh)
                             ? null
                             : data?.exit || currentAnalyzerState.exit || null,
-                        status: preservedCommandStatus
-                            ? currentAnalyzerState.status
-                            : signalKey
-                              ? 'CONNECTED'
-                              : 'CONNECTED_WAITING',
+                        status: remoteExitReady
+                            ? 'EARLY_SELL_READY'
+                            : preservedCommandStatus
+                              ? currentAnalyzerState.status
+                              : signalKey
+                                ? 'CONNECTED'
+                                : 'CONNECTED_WAITING',
                         ...(commandBoundToSignal ? { commandKey: signalKey } : {}),
                         lastSeen: now,
                     };
