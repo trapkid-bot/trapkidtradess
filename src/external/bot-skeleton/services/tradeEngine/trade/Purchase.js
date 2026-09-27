@@ -210,7 +210,7 @@ export default Engine =>
                     analyzer_duration: ANALYZER_LOGICAL_DURATION,
 
                     analyzer_duration_unit: ANALYZER_LOGICAL_DURATION_UNIT,
-                    deriv_physical_duration: ANALYZER_HOLD_SECONDS,
+                    deriv_physical_duration: ANALYZER_PHYSICAL_HOLD_TICKS,
                     deriv_physical_duration_unit: 't',
                     analyzer_exit_status: 'WAITING_FOR_ANALYZER_EXIT',
                     deriv_transaction_id: buy.transaction_id ?? null,
