@@ -152,16 +152,24 @@ export default class TransactionsStore {
             };
             merged.deriv_transaction_id = ledger.buy_transaction_id || ledger.transaction_id;
         }
-        if (ledger.sell_transaction_id) {
+        if (ledger.transaction_ids?.buy || ledger.buy_transaction_id) {
             merged.transaction_ids = {
                 ...(merged.transaction_ids || {}),
-                sell: ledger.sell_transaction_id,
+                buy: ledger.transaction_ids?.buy || ledger.buy_transaction_id,
             };
-            merged.deriv_sell_transaction_id = ledger.sell_transaction_id;
+            merged.deriv_transaction_id = ledger.transaction_ids?.buy || ledger.buy_transaction_id;
+        }
+        if (ledger.transaction_ids?.sell || ledger.sell_transaction_id) {
+            merged.transaction_ids = {
+                ...(merged.transaction_ids || {}),
+                sell: ledger.transaction_ids?.sell || ledger.sell_transaction_id,
+            };
+            merged.deriv_sell_transaction_id = ledger.transaction_ids?.sell || ledger.sell_transaction_id;
         }
         if (Number.isFinite(Number(ledger.sold_for))) {
             merged.sell_price = Number(ledger.sold_for);
             merged.bid_price = Number(ledger.sold_for);
+            merged.payout = Number(ledger.sold_for);
         }
         if (ledger.financial_status) merged.financial_status = ledger.financial_status;
         return merged;
@@ -174,6 +182,7 @@ export default class TransactionsStore {
             ...(this.deriv_ledger[key] || {}),
             ...event,
             buy_transaction_id: event.buy_transaction_id || event.transaction_id || this.deriv_ledger[key]?.buy_transaction_id,
+            balance_after: event.balance_after ?? this.deriv_ledger[key]?.balance_after,
             financial_status: 'DERIV_BUY_CONFIRMED',
         };
         this.deriv_ledger[key] = ledger;
