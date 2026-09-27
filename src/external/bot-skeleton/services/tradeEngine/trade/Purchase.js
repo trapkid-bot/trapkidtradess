@@ -288,6 +288,7 @@ export default Engine =>
                             hotDigit: Number(this.analyzerSignal?.hotDigit),
                             entrySource: 'ANALYZER_ONLY',
                             exitSource: 'ANALYZER_EARLY_SELL_ONLY',
+                            exit: { ...pendingExit, status: 'EARLY_SELL_READY' },
                             executionTrigger: 'EARLY_SELL_READY',
                             holdUntilAnalyzerExit: false,
                             executionArmed: true,
