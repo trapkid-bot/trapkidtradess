@@ -419,6 +419,7 @@ export default Engine =>
                     duration_unit: logicalDurationUnit,
                     underlying_symbol: symbol,
                     barrier: String(predictionDigit),
+                    subscribe: 1,
                 };
 
                 // Publish the normal DBot buying lifecycle before the broker
@@ -497,6 +498,7 @@ export default Engine =>
                         duration_unit: logicalDurationUnit,
                         underlying_symbol: symbol,
                         barrier: String(predictionDigit),
+                        subscribe: 1,
                     });
                     const fresh = response?.proposal;
                     const freshId = fresh?.id;
