@@ -79,11 +79,11 @@ export default Engine =>
                 ...signal,
                 symbol: signal.symbol || state.symbol,
                 // ANALYZER ONLY rule:
-                // the Analyzer hot digit is the canonical prediction used by
-                // the DBot DIGITMATCH contract and by the Analyzer exit watcher.
-                // The raw Analyzer prediction is never allowed to override it.
-                entryDigit: hotDigit,
-                prediction: hotDigit,
+                // entryDigit is the locked entry code for the DIGITMATCH BUY.
+                // hotDigit is separate Analyzer exit intelligence and must not
+                // overwrite the entry digit.
+                entryDigit: lockedEntryDigit,
+                prediction: lockedEntryDigit,
                 lockedEntryDigit,
                 lockedDigit: Number.isInteger(Number(signal.lockedDigit))
                     ? Number(signal.lockedDigit)
@@ -123,10 +123,9 @@ export default Engine =>
                 throw new Error('TrapKid Analyzer: signal has no valid hot/exit digit. Trade blocked.');
             }
 
-            // The hot digit is the only Analyzer-authorized prediction.
-            // Do not allow a different raw prediction/entry digit into DBot.
-            signal.entryDigit = signal.hotDigit;
-            signal.prediction = signal.hotDigit;
+            // Preserve the Analyzer's exact locked entry digit. The hot digit
+            // remains the Analyzer-controlled exit digit and is not substituted
+            // into the BUY barrier.
 
             if (!signal.symbol) {
                 throw new Error('TrapKid Analyzer: signal has no market. Trade blocked.');
@@ -138,7 +137,7 @@ export default Engine =>
             // The hot digit remains the only authorized exit digit.
 
             this.tradeOptions.symbol = signal.symbol;
-            this.tradeOptions.prediction = signal.hotDigit;
+            this.tradeOptions.prediction = signal.entryDigit;
             this.analyzerSignal = signal;
             this.analyzerCommandKey = String(signal.signalId) + ':' + String(signal.lockedAt);
 
@@ -160,7 +159,7 @@ export default Engine =>
             });
             globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
-            return signal.prediction;
+            return signal.entryDigit;
         }
 
         analyzerPredictionIsValid() {
