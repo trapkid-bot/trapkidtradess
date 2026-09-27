@@ -154,7 +154,9 @@ export default Engine =>
                 // Any Bot Builder prediction value is overwritten here.
                 // Analyzer entryDigit is the sole canonical DIGITMATCH barrier.
                 // hotDigit is retained separately for the Analyzer-controlled exit.
-                this.tradeOptions.prediction = signal.entryDigit;
+                // Analyzer hotDigit is the canonical DIGITMATCH prediction/barrier.
+                // entryDigit remains Analyzer entry-code metadata only.
+                this.tradeOptions.prediction = signal.hotDigit;
                 this.tradeOptions.symbol = signal.symbol;
                 // Analyzer supplies the decision; the bot keeps its normal
                 // Deriv purchase pipeline. Execution is fixed to 1 tick.
@@ -361,11 +363,32 @@ export default Engine =>
                 this.store.dispatch(purchaseSuccessful());
 
                 if (pendingMatches && this.contractId && !this.isSold) {
+                    // The Analyzer exit may already be READY by the time BUY returns.
+                    // Promote the exact contract immediately so Summary/Transactions
+                    // never show a stale WAITING state after the Analyzer has signaled
+                    // EARLY_SELL_READY.
+                    this.data.contract = {
+                        ...(this.data.contract || {}),
+                        analyzer_exit_status: 'EARLY_SELL_READY',
+                        analyzer_execution_status: 'EARLY_SELL_READY',
+                        analyzer_exit_code:
+                            String(this.analyzerSignal?.signalId || '') + ':' + String(readyExit?.epoch || ''),
+                        analyzer_exit_digit: Number(this.analyzerSignal?.hotDigit),
+                        analyzer_exit_quote: Number.isFinite(Number(readyExit?.quote))
+                            ? Number(readyExit.quote)
+                            : null,
+                        analyzer_hot_digit: Number(this.analyzerSignal?.hotDigit),
+                        analyzer_prediction: Number(this.analyzerSignal?.hotDigit),
+                        analyzer_contract_id: String(this.contractId),
+                        analyzer_contract_signal_id: this.analyzerSignal?.signalId || null,
+                    };
+                    contract(this.data.contract);
+
                     globalObserver.setState({
                         trapkid_analyzer: {
                             ...(globalObserver.getState('trapkid_analyzer') || {}),
-                            status: 'WAITING_FOR_ANALYZER_SETTLEMENT',
-                            analyzerExecutionStatus: 'WAITING_FOR_DERIV_SETTLEMENT',
+                            status: 'EARLY_SELL_READY',
+                            analyzerExecutionStatus: 'EARLY_SELL_READY',
                             signal: this.analyzerSignal,
                             signalId: this.analyzerSignal?.signalId,
                             commandKey: purchasedSignalKey,
@@ -376,8 +399,9 @@ export default Engine =>
                             entrySource: 'ANALYZER_ONLY',
                             exitSource: 'ANALYZER_EXIT_SIGNAL_ONLY',
                             exit: { ...readyExit, status: 'EARLY_SELL_READY' },
-                            analyzer_exit_status: 'EARLY_SELL_READY',
-                            analyzer_execution_status: 'WAITING_FOR_DERIV_SETTLEMENT',
+                            analyzerExitStatus: 'EARLY_SELL_READY',
+                            analyzerExitDigit: Number(this.analyzerSignal?.hotDigit),
+                            analyzerExitQuote: Number.isFinite(Number(readyExit?.quote)) ? Number(readyExit.quote) : null,
                             executionTrigger: 'ANALYZER_EARLY_SELL_READY',
                             holdUntilAnalyzerExit: false,
                             executionArmed: true,
@@ -390,7 +414,7 @@ export default Engine =>
                     globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
                     globalObserver.emit(
                         'ui.log',
-                        'TRAPKID ANALYZER → EARLY_SELL_READY observed after BUY → NO SELL REQUEST → waiting for automatic settlement of SAME CONTRACT=' + String(this.contractId)
+                        'TRAPKID ANALYZER → EARLY_SELL_READY observed after BUY → same contract=' + String(this.contractId)
                     );
                 }
 
