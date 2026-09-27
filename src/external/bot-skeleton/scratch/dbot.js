@@ -322,6 +322,18 @@ class DBot {
             analyzerEntryCode: signal.entryCode ?? signal.entry_code,
             analyzerEntryQuote: signal.entryQuote ?? signal.entry_quote ?? signal.quote,
             analyzerLockedQuote: signal.lockedQuote ?? signal.locked_quote ?? signal.quote,
+            // The Analyze click is a one-shot command. Carry the exact command
+            // through TradeEngine startup so it cannot be lost between RunPanel
+            // acceptance and creation of the lightweight Analyzer engine.
+            analyzerCommand: {
+                source: command?.source || 'TRAPKID_ANALYZER_HTTP',
+                command: 'EXECUTE_ANALYZER_SIGNAL',
+                commandKey: String(command?.commandKey || signal.signalId),
+                signal,
+                entryReady: true,
+                status: 'READY',
+                receivedAt: Number(command?.receivedAt || Date.now()),
+            },
         };
 
         this.symbol = String(signal.symbol);
