@@ -40,8 +40,10 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             const commandKey = String(signal.signalId) + ':' + String(signal.lockedAt);
             if (String(state.commandKey || '') !== commandKey) return;
             if (Number(state.exit.digit) !== Number(signal.hotDigit)) return;
-            if (!this.contractId && !this.derivContractId) return;
             if (this.isSold || this.analyzerDerivSellPromise) return;
+            // If the exit arrives while the real Deriv BUY is still in flight,
+            // let the normal handler persist it as pendingEarlyExit. It will be
+            // consumed immediately after the same Deriv contract is confirmed.
             void this.onAnalyzerEarlyExit({
                 source: 'TRAPKID_ANALYZER_STATE',
                 command: 'ANALYZER_EARLY_EXIT',
