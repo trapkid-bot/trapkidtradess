@@ -28,7 +28,10 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         };
         this.subscription_id_for_accumulators = null;
         this.is_proposal_requested_for_accumulators = false;
+        this.analyzerExecutionStarted = false;
+        this.pendingAnalyzerCommand = null;
         this.analyzerExitObserver = this.onAnalyzerEarlyExit;
+        this.analyzerCommandObserver = this.onAnalyzerCommand;
         this.analyzerStateExitObserver = state => {
             // Some Analyzer bridge versions publish EARLY_SELL_READY as state
             // before (or instead of) emitting trapkid.analyzer.exit. Treat the
@@ -73,6 +76,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             });
         };
         globalObserver.register('trapkid.analyzer.exit', this.analyzerExitObserver);
+        globalObserver.register('trapkid.analyzer.command', this.analyzerCommandObserver);
         globalObserver.register('trapkid.analyzer.updated', this.analyzerStateExitObserver);
         this.store = createStore(rootReducer, applyMiddleware(thunk));
         // Keep Analyze running while the Analyzer-owned local contract is open.
@@ -82,6 +86,120 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         this.resolveAnalyzerCycle = null;
     }
 
+    onAnalyzerCommand = async command => {
+        // STRICT ENTRY BOUNDARY: a visible/locked signal is informational only.
+        // A real Deriv BUY may happen only after an explicit Analyzer READY command.
+        if (String(command?.command || '') !== 'EXECUTE_ANALYZER_SIGNAL') return;
+
+        const state = globalObserver.getState('trapkid_analyzer') || {};
+        const signal = command?.signal?.signalId
+            ? command.signal
+            : state?.signal?.signalId
+              ? state.signal
+              : null;
+        const signalId = String(command?.signalId || signal?.signalId || '');
+        const lockedAt = Number(signal?.lockedAt);
+        const commandKey = signalId && Number.isFinite(lockedAt)
+            ? signalId + ':' + String(lockedAt)
+            : String(command?.commandKey || '');
+
+        const explicitReady =
+            command?.entryReady === true ||
+            String(command?.status || '').toUpperCase() === 'READY' ||
+            signal?.entryReady === true ||
+            String(signal?.status || '').toUpperCase() === 'READY' ||
+            state?.entryReady === true ||
+            String(state?.analyzerStatus || '').toUpperCase() === 'READY';
+
+        if (!explicitReady) {
+            globalObserver.emit('ui.log', 'TRAPKID ANALYZER ENTRY BLOCKED → signal is not READY.');
+            return;
+        }
+
+        if (!signal?.signalId || !signal?.symbol || !Number.isFinite(lockedAt)) {
+            globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER ENTRY BLOCKED → missing exact signal identity.');
+            return;
+        }
+
+        const hotDigit = Number(signal.hotDigit);
+        if (!Number.isInteger(hotDigit) || hotDigit < 0 || hotDigit > 9) {
+            globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER ENTRY BLOCKED → invalid Analyzer hot digit.');
+            return;
+        }
+
+        const expiresAt = Number(signal.expiresAt);
+        if (Number.isFinite(expiresAt) && Date.now() >= expiresAt) {
+            globalObserver.emit('ui.log', 'TRAPKID ANALYZER ENTRY BLOCKED → READY command is expired.');
+            return;
+        }
+
+        const activeKey = String(signal.signalId) + ':' + String(signal.lockedAt);
+        if (String(commandKey || activeKey) !== activeKey) return;
+
+        if (!this.analyzerExecutionStarted) {
+            this.pendingAnalyzerCommand = {
+                ...command,
+                commandKey: activeKey,
+                signal: { ...signal, signalId: String(signal.signalId), lockedAt, hotDigit, prediction: hotDigit },
+                entryReady: true,
+                status: 'READY',
+            };
+            globalObserver.emit('ui.log', 'TRAPKID ANALYZER COMMAND QUEUED → waiting for DBot Run → ' + activeKey);
+            return;
+        }
+
+        const currentState = globalObserver.getState('trapkid_analyzer') || {};
+        if (currentState.purchaseConsumedKey === activeKey || currentState.purchaseInFlightKey === activeKey || this.contractId) return;
+
+        this.analyzerSignal = {
+            ...signal,
+            signalId: String(signal.signalId),
+            lockedAt,
+            hotDigit,
+            prediction: hotDigit,
+        };
+        this.analyzerCommandKey = activeKey;
+
+        try {
+            await this.prepareAnalyzerPrediction();
+            globalObserver.setState({
+                trapkid_analyzer: {
+                    ...(globalObserver.getState('trapkid_analyzer') || {}),
+                    status: 'ANALYZER_PURCHASE_AUTHORIZED',
+                    analyzerStatus: 'READY',
+                    entryReady: true,
+                    signal: this.analyzerSignal,
+                    signalId: this.analyzerSignal.signalId,
+                    commandKey: activeKey,
+                    symbol: this.analyzerSignal.symbol,
+                    entryPrediction: hotDigit,
+                    lockedDigit: this.analyzerSignal.lockedDigit,
+                    hotDigit,
+                    entrySource: 'ANALYZER_ONLY',
+                    exitSource: 'ANALYZER_EARLY_SELL_ONLY',
+                    holdUntilAnalyzerExit: true,
+                    executionArmed: true,
+                    executionTrigger: 'ANALYZER_ENTRY_COMMAND',
+                    cycleFinished: false,
+                },
+            });
+            globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
+
+            this.tradeOptions = {
+                ...this.tradeOptions,
+                contractTypes: ['DIGITMATCH'],
+                symbol: this.analyzerSignal.symbol,
+                prediction: hotDigit,
+                duration: 1,
+                duration_unit: 't',
+            };
+            this.is_proposal_subscription_required = false;
+            globalObserver.emit('ui.log', 'TRAPKID ANALYZER READY COMMAND → BUY AUTHORIZED → ' + activeKey + ' → digit=' + hotDigit);
+            await this.purchase('DIGITMATCH');
+        } catch (error) {
+            globalObserver.emit('ui.log.error', error?.message || 'Analyzer ready-command purchase failed.');
+        }
+    };
     onAnalyzerEarlyExit = async command => {
         // Analyzer owns the full lifecycle:
         // 1) a locked signal authorizes the BUY immediately;
@@ -415,184 +533,66 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         }
 
         globalObserver.emit('bot.running');
-
         const validated_trade_options = this.validateTradeOptions(tradeOptions);
+        this.tradeOptions = { ...validated_trade_options };
 
-        // Start with the user's strategy shape only so we can identify the
-        // selected contract type. Analyzer mode is decided AFTER tradeOptions
-        // exists; Analyzer is then the only source allowed to bind symbol/prediction.
-        this.tradeOptions = {
-            ...validated_trade_options,
-        };
-
-        // A new Analyze click starts a fresh Analyzer-owned execution cycle.
-        // Do not let the Blockly program finish immediately after the local BUY;
-        // it must remain active until Analyzer supplies the exit signal.
+        // Analyze/Run never purchases a LOCKED signal. Entry is command-driven.
         this.analyzerCyclePromise = new Promise(resolve => {
             this.resolveAnalyzerCycle = resolve;
         });
 
         this.store.dispatch(start());
         this.checkLimits(validated_trade_options);
+        this.analyzerExecutionStarted = true;
 
-        // Analyzer execution starts from the signal that is already locked at
-        // the moment Analyze is clicked. Do NOT wait for a future signal here.
-        // The dashboard can already display a valid locked signal while the
-        // Blockly runner is still entering start(). That signal is the BUY
-        // authorization for this execution cycle.
-        // Analyze is the BUY trigger. If the Analyzer is still finishing the
-        // lock at the exact click moment, wait only for that current lock to
-        // appear; never wait for EARLY_SELL_READY and never wait for a second
-        // signal after an exit.
-        // Read the Analyzer's currently displayed lock directly. A lock that
-        // is already showing in the Analyzer UI is the entry authorization for
-        // this Analyze click, even if its display expiry timestamp has just
-        // rolled over while the click is being processed.
-        const displayedAnalyzerState = globalObserver.getState('trapkid_analyzer') || {};
-        const displayedSignal = displayedAnalyzerState.signal;
-        const currentSignal =
-            displayedSignal?.signalId &&
-            displayedSignal?.symbol &&
-            Number.isInteger(Number(displayedSignal?.hotDigit)) &&
-            Number.isFinite(Number(displayedSignal?.lockedAt))
-                ? {
-                    ...displayedSignal,
-                    symbol: displayedSignal.symbol,
-                    hotDigit: Number(displayedSignal.hotDigit),
-                    prediction: Number(displayedSignal.hotDigit),
-                }
-                : await this.waitForAnalyzerSignal?.(10000);
-        if (
-            !currentSignal?.signalId ||
-            !Number.isInteger(Number(currentSignal.hotDigit)) ||
-            !currentSignal.symbol
+        const state = globalObserver.getState('trapkid_analyzer') || {};
+        const signal = state?.signal;
+        const analyzerStatus = String(state?.analyzerStatus || state?.status || signal?.status || '').toUpperCase();
+        const entryReady =
+            state?.entryReady === true ||
+            analyzerStatus === 'READY' ||
+            signal?.entryReady === true ||
+            String(signal?.status || '').toUpperCase() === 'READY';
+
+        const pending = this.pendingAnalyzerCommand;
+        this.pendingAnalyzerCommand = null;
+
+        if (pending?.command === 'EXECUTE_ANALYZER_SIGNAL') {
+            void this.onAnalyzerCommand(pending);
+        } else if (
+            entryReady &&
+            signal?.signalId &&
+            signal?.symbol &&
+            Number.isFinite(Number(signal?.lockedAt))
         ) {
-            globalObserver.emit(
-                'ui.log.error',
-                'TRAPKID ANALYZER: no locked signal became available after Analyze.'
-            );
-            if (this.resolveAnalyzerCycle) {
-                const resolve = this.resolveAnalyzerCycle;
-                this.resolveAnalyzerCycle = null;
-                resolve();
-            }
-            return;
+            void this.onAnalyzerCommand({
+                source: 'TRAPKID_ANALYZER_READY_STATE',
+                command: 'EXECUTE_ANALYZER_SIGNAL',
+                commandKey: String(signal.signalId) + ':' + String(signal.lockedAt),
+                signal: { ...signal, prediction: Number(signal.hotDigit), hotDigit: Number(signal.hotDigit) },
+                signalId: String(signal.signalId),
+                status: 'READY',
+                entryReady: true,
+                receivedAt: Date.now(),
+            });
+        } else {
+            globalObserver.setState({
+                trapkid_analyzer: {
+                    ...state,
+                    status: 'WAITING_FOR_ANALYZER_ENTRY',
+                    analyzerStatus: state?.analyzerStatus || state?.status || 'LOCKED',
+                    entryReady: false,
+                    executionArmed: false,
+                    executionTrigger: null,
+                    holdUntilAnalyzerExit: false,
+                },
+            });
+            globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
+            globalObserver.emit('ui.log', 'TRAPKID ANALYZER → LOCKED signal seen. BUY BLOCKED until Analyzer sends READY entry command.');
         }
 
-        // Bind the exact signal BEFORE any exit event can cause another
-        // purchase attempt. This makes the first locked signal the contract
-        // entry authorization.
-        this.analyzerSignal = currentSignal;
-        this.analyzerCommandKey =
-            String(currentSignal.signalId) + ':' + String(currentSignal.lockedAt);
-
-        globalObserver.emit(
-            'ui.log',
-            `TRAPKID ANALYZER SIGNAL ACCEPTED → ${currentSignal.signalId} → hotDigit=${currentSignal.hotDigit}`
-        );
-
-        return Promise.resolve(this.prepareAnalyzerPrediction())
-                .then(() => {
-                    const analyzerSignal = this.analyzerSignal || globalObserver.getState('trapkid_analyzer')?.signal;
-                    if (!analyzerSignal?.signalId) {
-                        throw new Error('TrapKid Analyzer: no authorized signal for purchase.');
-                    }
-
-                    // Analyzer owns the execution path. Builder limits, proposal
-                    // gates and strategy values are not applied in this mode.
-                    this.tradeOptions = {
-                        ...this.tradeOptions,
-                        contractTypes: ['DIGITMATCH'],
-                        symbol: analyzerSignal.symbol,
-                        prediction: Number(analyzerSignal.hotDigit),
-                    };
-
-                    globalObserver.setState({
-                        trapkid_analyzer: {
-                            ...(globalObserver.getState('trapkid_analyzer') || {}),
-                            // Analyzer controls the entire trade lifecycle:
-                            // buy immediately after the signal is locked, then
-                            // keep the contract open until EARLY_SELL_READY.
-                            status: 'ANALYZER_PURCHASE_AUTHORIZED',
-                            signal: analyzerSignal,
-                            signalId: analyzerSignal.signalId,
-                            commandKey: String(analyzerSignal.signalId) + ':' + String(analyzerSignal.lockedAt),
-                            symbol: analyzerSignal.symbol,
-                            entryPrediction: Number(analyzerSignal.hotDigit),
-                            lockedDigit: analyzerSignal.lockedDigit,
-                            hotDigit: analyzerSignal.hotDigit,
-                            entrySource: 'ANALYZER_ONLY',
-                            exitSource: 'ANALYZER_EARLY_SELL_ONLY',
-                            holdUntilAnalyzerExit: true,
-                            executionArmed: true,
-                            executionTrigger: 'ANALYZER_ENTRY',
-                            cycleFinished: false,
-                        },
-                    });
-                    globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
-
-                    // IMPORTANT: Analyzer entry is a DIRECT BUY. The Builder's
-                    // proposal/payout watcher must never be able to stall an
-                    // Analyzer-controlled entry. Analyzer already supplies the
-                    // exact symbol, DIGITMATCH type and hotDigit.
-                    this.is_proposal_subscription_required = false;
-
-                    globalObserver.emit(
-                        'ui.log',
-                        `TRAPKID ANALYZER BUY NOW → ${analyzerSignal.signalId} → digit=${analyzerSignal.hotDigit}`
-                    );
-
-                    return this.purchase('DIGITMATCH')
-                        .then(() => {
-                            const stateAfterPurchase = globalObserver.getState('trapkid_analyzer') || {};
-                            if (!this.contractId || this.isSold) {
-                                throw new Error(
-                                    'TRAPKID ANALYZER: local contract was not created after the Analyzer BUY.'
-                                );
-                            }
-                            const pendingExit = stateAfterPurchase.pendingEarlyExit;
-
-                            // If Analyzer emitted EARLY_SELL_READY while the local
-                            // contract was being created, consume that exact exit
-                            // immediately after the contract becomes open.
-                            if (pendingExit?.status === 'EARLY_SELL_READY') {
-                                return this.onAnalyzerEarlyExit({
-                                    signalId: analyzerSignal.signalId,
-                                    exit: pendingExit,
-                                });
-                            }
-
-                            // The real Deriv BUY is complete at this point. Do NOT keep
-                            // the Blockly/UI start promise pending until EARLY_SELL_READY.
-                            // Doing so makes the Analyze runner look frozen while the
-                            // Analyzer is intentionally watching the open contract.
-                            // The exit observer remains active independently and will
-                            // sell the SAME Deriv contract when EARLY_SELL_READY arrives.
-                            return Promise.resolve();
-                        })
-                        .catch(error => {
-                            globalObserver.emit(
-                                'ui.log.error',
-                                error?.message || 'Analyzer entry purchase failed.'
-                            );
-                            if (this.resolveAnalyzerCycle) {
-                                const resolve = this.resolveAnalyzerCycle;
-                                this.resolveAnalyzerCycle = null;
-                                resolve();
-                            }
-                        });
-                })
-                .catch(error => {
-                    globalObserver.emit('ui.log.error', error?.message || 'TrapKid analyzer failed to prepare a prediction.');
-                    this.store.dispatch({ type: 'STOP' });
-                    if (this.resolveAnalyzerCycle) {
-                        const resolve = this.resolveAnalyzerCycle;
-                        this.resolveAnalyzerCycle = null;
-                        resolve();
-                    }
-                });
-        }
-
+        return this.analyzerCyclePromise;
+    }
     // Compatibility method required by the Blockly interpreter. The old
     // Ticks mixin exposed this method, but Analyzer-only execution deliberately
     // does not create a Deriv ticksService or tick-history promise.
@@ -653,6 +653,12 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             globalObserver.isRegistered('trapkid.analyzer.exit')
         ) {
             globalObserver.unregister('trapkid.analyzer.exit', this.analyzerExitObserver);
+        }
+        if (
+            this.analyzerCommandObserver &&
+            globalObserver.isRegistered('trapkid.analyzer.command')
+        ) {
+            globalObserver.unregister('trapkid.analyzer.command', this.analyzerCommandObserver);
         }
         if (
             this.analyzerStateExitObserver &&
