@@ -635,6 +635,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             // IMPORTANT: a successful BUY does NOT finish this Analyzer cycle.
             // The real Deriv contract remains the active position until the
             // matching Analyzer EARLY_SELL_READY event closes that same contract.
+            return this.analyzerCyclePromise;
         } catch (error) {
             globalObserver.emit(
                 'ui.log.error',
