@@ -507,6 +507,12 @@ export default Engine =>
                             transaction_id: match.transaction_id ?? null,
                             buy_price: Number.isFinite(buyPrice) ? buyPrice : null,
                             profit: Number.isFinite(profit) ? profit : null,
+                            exit_spot: Number.isFinite(Number(match.exit_spot))
+                                ? Number(match.exit_spot)
+                                : null,
+                            exit_spot_time: Number.isFinite(Number(match.exit_spot_time))
+                                ? Number(match.exit_spot_time)
+                                : null,
                         };
                     }
                 }
@@ -573,6 +579,13 @@ export default Engine =>
                             buy_price: Number(openContract.buy_price),
                             currency: openContract.currency || this.derivBuy?.currency || this.tradeOptions?.currency || 'USD',
                             balance_after: Number(openContract.balance_after),
+                            exit_spot: Number(openContract.exit_spot),
+                            exit_spot_time: Number(openContract.exit_spot_time),
+                            entry_spot: Number(openContract.entry_spot),
+                            entry_spot_time: Number(openContract.entry_spot_time),
+                            is_sold: openContract.is_sold,
+                            is_expired: openContract.is_expired,
+                            status: openContract.status ?? null,
                             transaction_ids: openContract.transaction_ids || null,
                             transaction_id: openContract.transaction_id ?? null,
                             buy_transaction_id: openContract.transaction_ids?.buy ?? this.derivBuyTransactionId ?? null,
@@ -638,6 +651,12 @@ export default Engine =>
                                     deriv_balance_after_sell: Number.isFinite(balanceAfter)
                                         ? balanceAfter
                                         : currentContract.deriv_balance_after_sell ?? null,
+                                    exit_spot: Number.isFinite(Number(openContract.exit_spot))
+                                        ? Number(openContract.exit_spot)
+                                        : currentContract.exit_spot,
+                                    exit_spot_time: Number.isFinite(Number(openContract.exit_spot_time))
+                                        ? Number(openContract.exit_spot_time)
+                                        : currentContract.exit_spot_time,
                                     financial_status: 'DERIV_SETTLEMENT_CONFIRMED',
                                 };
                                 contract(this.data.contract);
@@ -713,6 +732,12 @@ export default Engine =>
                                 bid_price: Number.isFinite(Number(openContract.bid_price))
                                     ? Number(openContract.bid_price)
                                     : null,
+                                exit_spot: Number.isFinite(Number(openContract.exit_spot))
+                                    ? Number(openContract.exit_spot)
+                                    : null,
+                                exit_spot_time: Number.isFinite(Number(openContract.exit_spot_time))
+                                    ? Number(openContract.exit_spot_time)
+                                    : null,
                                 balance_after: finalBalanceAfter,
                             };
                         }
@@ -762,6 +787,12 @@ export default Engine =>
                                 currentContract.deriv_sell_transaction_id ??
                                 null,
                             deriv_sell_price: Number.isFinite(reconciledPayout) ? reconciledPayout : null,
+                            exit_spot: Number.isFinite(Number(reconciled.exit_spot))
+                                ? Number(reconciled.exit_spot)
+                                : currentContract.exit_spot,
+                            exit_spot_time: Number.isFinite(Number(reconciled.exit_spot_time))
+                                ? Number(reconciled.exit_spot_time)
+                                : currentContract.exit_spot_time,
                             financial_status: 'DERIV_SETTLEMENT_RECONCILED',
                         };
                         contract(this.data.contract);
