@@ -239,15 +239,17 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                 contractTypes: ['DIGITMATCH'],
                 symbol: this.analyzerSignal.symbol,
                 prediction: hotDigit,
-                duration: 1,
+                // MATCH MODE: keep the same purchased position open while the Analyzer
+                // stream waits for the exact hot digit. MATCH_FOUND closes it.
+                duration: 100000,
                 duration_unit: 't',
             };
             this.is_proposal_subscription_required = false;
             globalObserver.emit('ui.log', 'TRAPKID ANALYZER COMMAND → BUY AUTHORIZED → ' + activeKey + ' → digit=' + hotDigit);
             await this.purchase('DIGITMATCH');
 
-            // Keep Analyze active until the matching Analyzer EARLY_SELL_READY
-            // event has sold and financially confirmed the SAME Deriv contract.
+            // Keep Analyze active until MATCH_FOUND has sold and financially confirmed
+            // the SAME contract. EARLY_SELL_READY is not the match trigger.
             return this.analyzerCyclePromise;
         } catch (error) {
             globalObserver.emit('ui.log.error', error?.message || 'Analyzer command purchase failed.');
