@@ -22,34 +22,22 @@ export default Engine =>
 
             if (analyzerMode) {
                 const analyzerStateGate = globalObserver.getState('trapkid_analyzer') || {};
-                // Analyzer entry is authorized by the execution trigger, not
-                // by a transient UI/status label. The Analyzer bridge may move
-                // the status to WAITING_FOR_ANALYZER_EXIT while the proposal is
-                // still arriving; that must never cancel the already-authorized BUY.
-                if (analyzerStateGate.executionArmed !== true) {
-                    globalObserver.emit(
-                        'ui.log.error',
-                        `TRAPKID ANALYZER BUY BLOCKED → executionArmed=${String(analyzerStateGate.executionArmed)} status=${String(analyzerStateGate.status || '')} trigger=${String(analyzerStateGate.executionTrigger || '')} signal=${String(analyzerStateGate.signalId || '')}`
-                    );
-                    return Promise.resolve();
-                }
+                // STRICT COMMAND GATE:
+                // A LOCKED/visible Analyzer signal, RUN button, status refresh,
+                // or local execution flag is never enough to authorize a BUY.
+                // The only valid entry trigger is an explicit READY Analyzer command.
+                const entryCommandAuthorized =
+                    analyzerStateGate.executionArmed === true &&
+                    analyzerStateGate.executionTrigger === 'ANALYZER_ENTRY_COMMAND' &&
+                    analyzerStateGate.entryReady === true &&
+                    String(analyzerStateGate.analyzerStatus || '').toUpperCase() === 'READY';
 
-                // The Analyzer bridge may update the UI status to WAITING_FOR_ANALYZER_EXIT
-                // immediately after locking. That status is NOT a purchase gate. If the
-                // exact locked signal is armed, normalize the execution trigger back to
-                // ANALYZER_ENTRY so the actual BUY cannot be silently skipped.
-                if (String(analyzerStateGate.executionTrigger || '') !== 'ANALYZER_ENTRY') {
+                if (!entryCommandAuthorized) {
                     globalObserver.emit(
                         'ui.log',
-                        `TRAPKID ANALYZER BUY AUTHORIZED → normalizing trigger from ${String(analyzerStateGate.executionTrigger || 'none')} to ANALYZER_ENTRY`
+                        'TRAPKID ANALYZER BUY BLOCKED → waiting for explicit READY entry command.'
                     );
-                    globalObserver.setState({
-                        trapkid_analyzer: {
-                            ...analyzerStateGate,
-                            executionTrigger: 'ANALYZER_ENTRY',
-                            executionArmed: true,
-                        },
-                    });
+                    return Promise.resolve();
                 }
 
                 // Analyzer owns the contract type for this execution cycle.
@@ -120,7 +108,7 @@ export default Engine =>
                         entryPrediction: signal.prediction,
                         entrySource: 'ANALYZER_ONLY',
                         exitSource: 'ANALYZER_EARLY_SELL_ONLY',
-                        executionTrigger: 'ANALYZER_ENTRY',
+                        executionTrigger: 'ANALYZER_ENTRY_COMMAND',
                     },
                 });
 
