@@ -550,7 +550,7 @@ const MatchesTerminal = () => {
                     <div className='tk-panel-section'>
                         <label>Execution</label>
                         <div className='tk-live-fixed'>1 tick <span>Analyzer signal execution</span></div>
-                        <small className='tk-note'>The financial DIGITMATCH proposal executes for 1 tick. Match lifecycle remains OPEN until the Analyzer live stream produces MATCH_FOUND for the hot digit.</small>
+                        <small className='tk-note'>The financial DIGITMATCH proposal executes for 1 tick. Analyzer lifecycle remains OPEN until the Analyzer live stream produces EARLY_SELL_READY for the hot digit.</small>
                     </div>
 
                     <div className='tk-panel-section'>
@@ -563,9 +563,9 @@ const MatchesTerminal = () => {
                         <div><span>Execution gate</span><strong>{analyzerAuthorizedSignalRef.current ? 'AUTHORIZED • ' + analyzerAuthorizedSignalRef.current : trade ? 'COMMAND ACTIVE' : 'LOCKED • ANALYZE MARKET'}</strong></div>
                         <div><span>Live stream</span><strong>{analyzerDetails?.lastTick?.epoch ? 'LIVE TICK' : 'WAITING'}</strong></div>
                         <div><span>Analyzer feed</span><strong>{analyzerDetails?.connected ? 'CONNECTED' : 'DISCONNECTED'}</strong></div>
-                        <div><span>Match lifecycle</span><strong>{analyzerDetails?.status === 'MATCH_FOUND' || analyzerDetails?.analyzerExitStatus === 'MATCH_FOUND' ? 'MATCH_FOUND' : trade ? 'MATCH_OPEN' : 'WAITING'}</strong></div>
-                        <div><span>Match digit</span><strong>{analyzerDetails?.signal?.hotDigit ?? '—'}</strong></div>
-                        <div><span>Analyzer exit event</span><strong>{analyzerDetails?.analyzerExitStatus || 'WAITING_FOR_MATCH_FOUND'}</strong></div>
+                        <div><span>Analyzer lifecycle</span><strong>{analyzerDetails?.status === 'EARLY_SELL_READY' || analyzerDetails?.analyzerExitStatus === 'EARLY_SELL_READY' ? 'EARLY_SELL_READY' : trade ? 'ANALYZER_ACTIVE' : 'WAITING'}</strong></div>
+                        <div><span>Analyzer exit digit</span><strong>{analyzerDetails?.signal?.hotDigit ?? '—'}</strong></div>
+                        <div><span>Analyzer exit event</span><strong>{analyzerDetails?.analyzerExitStatus || 'WAITING_FOR_EARLY_SELL_READY'}</strong></div>
                         <div><span>Analyzer market</span><strong>{analyzerDetails?.symbol || '—'}</strong></div>
                         <div><span>Analyzer signal</span><strong>{analyzerDetails?.signal?.signalId || 'WAITING'}</strong></div>
                         <div><span>Entry digit</span><strong>{analyzerDetails?.signal?.entryDigit ?? '—'}</strong></div>
@@ -614,7 +614,7 @@ const MatchesTerminal = () => {
             </div>
 
             <div className='tk-disclaimer'>
-                <b>ANALYZER-COMMAND DBOT:</b> Analyze Market produces the execution signal. The DBot opens a DIGITMATCH proposal for 1 tick using the Analyzer market and hot digit, while the Analyzer live stream remains authoritative for the Match lifecycle. <b>Match exit:</b> only the same signal's hot digit appearing on the Analyzer stream creates <code>MATCH_FOUND</code>. <code>EARLY_SELL_READY</code> is informational and is never the Match trigger. The locked entry quote is retained as Analyzer transaction metadata.
+                <b>ANALYZER-COMMAND DBOT:</b> Analyze Market produces the execution signal. The DBot opens a DIGITMATCH proposal for 1 tick using the Analyzer market and hot digit, while the Analyzer live stream remains authoritative for the Analyzer lifecycle. <b>Match exit:</b> only the same Analyzer signal's <code>EARLY_SELL_READY</code> closes the contract. <code>EARLY_SELL_READY</code> is informational and is never the Match trigger. The locked entry quote is retained as Analyzer transaction metadata.
             </div>
         </div>
     );
