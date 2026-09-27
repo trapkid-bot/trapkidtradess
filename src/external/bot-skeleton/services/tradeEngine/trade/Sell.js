@@ -1,216 +1,139 @@
-import { contractStatus } from '../utils/broadcast';
-import { sell } from './state/actions';
+import { getLocalizedErrorMessage } from '@/constants/backend-error-messages';
+import { LogTypes } from '../../../constants/messages';
 import { observer as globalObserver } from '../../../utils/observer';
+import { api_base } from '../../api/api-base';
+import { contractStatus, log } from '../utils/broadcast';
+import { doUntilDone, recoverFromError } from '../utils/helpers';
+import { DURING_PURCHASE } from './state/constants';
 
 export default Engine =>
     class Sell extends Engine {
         isSellAtMarketAvailable() {
-            // Analyzer-only trades are backed by the real Deriv contract ID.
-            // The local Analyzer contract ID is only a tracking key and must
-            // never be required for the actual Deriv sell.
-            return Boolean((this.derivContractId || this.contractId) && !this.isSold);
+            return this.contractId && !this.isSold && this.isSellAvailable && !this.isExpired;
         }
 
-        async sellAtMarket(source = 'BLOCKLY') {
-            const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
-            const analyzerSignal =
-                analyzerState?.signal?.signalId
-                    ? analyzerState.signal
-                    : this.analyzerSignal;
+        async sellAnalyzerEarlyExit() {
+            const state = globalObserver.getState('trapkid_analyzer') || {};
+            const signal = state?.signal?.signalId ? state.signal : this.analyzerSignal;
+            const exit = state?.exit;
 
-            if (source !== 'ANALYZER_EARLY_SELL') {
-                return false;
-            }
-
-            // This method is reached only from the Analyzer command path.
-            // Do not require a second transient UI/state flag before sending the
-            // sell request. The exact Analyzer signal is the authorization and
-            // the Deriv contract_id below is the only financial execution handle.
-            if (!analyzerSignal?.signalId) {
-                return false;
-            }
-
-            // EARLY_SELL_READY must be able to close the already-purchased
-            // Deriv contract even if a UI refresh cleared the local tracking ID.
-            if (!this.derivContractId && !this.contractId) return false;
-            if (this.isSold) return true;
             if (
-                this.analyzerDerivSignalId &&
-                String(this.analyzerDerivSignalId) !== String(analyzerSignal.signalId)
+                !signal?.signalId ||
+                String(state.commandKey || '') !== String(signal.signalId) + ':' + String(signal.lockedAt) ||
+                state.executionTrigger !== 'EARLY_SELL_READY' &&
+                exit?.status !== 'EARLY_SELL_READY'
             ) {
-                globalObserver.emit(
-                    'ui.log.error',
-                    'TRAPKID ANALYZER COMMAND → DERIV CONTRACT/SIGNAL OWNERSHIP MISMATCH; SELL BLOCKED'
-                );
                 return false;
             }
 
-            // Read the live Analyzer exit first. Only fall back to the
-            // engine helper when the shared state does not carry the ready exit.
-            const exit =
-                analyzerState?.exit?.status === 'EARLY_SELL_READY'
-                    ? analyzerState.exit
-                    : this.getAnalyzerExit?.();
-            const exitStatus = String(exit?.status || analyzerState?.exit?.status || '');
-            const exitDigit = Number(exit?.digit ?? analyzerState?.exit?.digit);
-            // Defensive validation at the financial boundary too: the SELL is
-            // allowed only for this exact Analyzer signal and its exact hot digit.
+            const exitSignalId = String(exit?.signalId || '');
+            const exitDigit = Number(exit?.digit);
+            const hotDigit = Number(signal.hotDigit);
             if (
-                exitStatus !== 'EARLY_SELL_READY' ||
+                (exitSignalId && exitSignalId !== String(signal.signalId)) ||
                 !Number.isInteger(exitDigit) ||
-                exitDigit !== Number(analyzerSignal.hotDigit)
+                exitDigit !== hotDigit ||
+                hotDigit < 0 ||
+                hotDigit > 9
             ) {
-                globalObserver.emit(
-                    'ui.log.error',
-                    'TRAPKID ANALYZER COMMAND → EARLY_SELL_READY REJECTED: exit digit/status mismatch'
-                );
+                globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER SELL → signal/exit digit mismatch; sell blocked.');
                 return false;
             }
-            const contract = this.data?.contract || {};
-            const fallbackStake = Number(contract.buy_price ?? this.tradeOptions?.amount ?? 0);
 
-            // Analyzer command has reached the real execution boundary.
-            // There is no local simulation, Builder rule, expiry fallback, or
-            // second approval here: send SELL against the SAME Deriv contract ID.
+            // Use the contract created by the normal DBot purchase path.
+            // Analyzer supplies the decision; normal Deriv SELL supplies the money result.
+            const contractId = String(this.contractId || '');
+            if (!contractId || this.isSold) return false;
+
             globalObserver.emit(
                 'ui.log',
-                'TRAPKID ANALYZER COMMAND → FORCED REAL DERIV SELL → contract=' +
-                    String(this.derivContractId || this.contractId) +
-                    ' → signal=' + String(analyzerSignal.signalId) +
-                    ' → exit=EARLY_SELL_READY'
+                'TRAPKID ANALYZER EARLY SELL → SAME DERIV CONTRACT → ' +
+                    contractId +
+                    ' → signal=' +
+                    String(signal.signalId) +
+                    ' → hotDigit=' +
+                    String(hotDigit)
             );
 
-            // Analyzer is authoritative for the exit decision. Once the Analyzer
-            // verifies EARLY_SELL_READY, execute the real Deriv early-sell request.
-            // Deriv is used only for the actual amount returned (sold_for), transaction
-            // ID, and resulting balance. Do not wait for contract expiry here.
-            let derivSettlement = null;
+            const sellContractAndGetInfo = async () => {
+                const sellResponse = await api_base.api.send({
+                    sell: Number(contractId),
+                    price: 0,
+                });
+
+                let contractResponse = null;
+                try {
+                    contractResponse = await api_base.api.send({
+                        proposal_open_contract: 1,
+                        contract_id: Number(contractId),
+                    });
+                } catch {
+                    // SELL response itself remains authoritative for sold_for/transaction_id.
+                }
+
+                return { sellResponse, contractResponse };
+            };
+
+            let result;
             try {
-                derivSettlement = await this.sellAnalyzerDerivContract?.();
+                result = await doUntilDone(
+                    sellContractAndGetInfo,
+                    ['NoOpenPosition', 'InvalidSellContractProposal', 'UnrecognisedRequest']
+                );
             } catch (error) {
                 globalObserver.emit(
                     'ui.log.error',
-                    `TRAPKID DERIV EARLY SELL ERROR → ${error?.message || 'Unknown error'}`
-                );
-            }
-
-            if (!derivSettlement) {
-                // Allow a later Analyzer command to retry the SAME Deriv contract.
-                // Never fabricate a local settlement when Deriv did not confirm it.
-                this.analyzerDerivSellPromise = null;
-                globalObserver.emit(
-                    'ui.log.error',
-                    'TRAPKID ANALYZER COMMAND → REAL DERIV SELL DID NOT RETURN PROCEEDS; SAME contract remains open/terminal and was not locally closed'
+                    'TRAPKID DERIV EARLY SELL → ' +
+                        (error?.error?.message || error?.error?.code || error?.message || 'sell failed')
                 );
                 return false;
             }
 
-            const actualBuyPrice = Number(derivSettlement?.buy_price ?? this.derivBuy?.buy_price);
-            const stake = Number.isFinite(actualBuyPrice) ? actualBuyPrice : fallbackStake;
-            const payoutValue = Number(
-                derivSettlement?.payout ??
-                derivSettlement?.sold_for
-            );
-            const derivPayout = Number.isFinite(payoutValue) ? payoutValue : NaN;
-            // Deriv's early-sell response supplies the actual proceeds as
-            // sold_for. Realized P/L is simply those Deriv proceeds minus the
-            // actual Deriv buy price; no Analyzer-estimated payout is used.
-            const reportedDerivProfit = Number(derivSettlement?.profit);
-            const derivedDerivProfit =
-                Number.isFinite(reportedDerivProfit)
-                    ? reportedDerivProfit
-                    : Number.isFinite(derivPayout) && Number.isFinite(stake)
-                      ? derivPayout - stake
-                      : NaN;
-            if (!Number.isFinite(derivPayout) || !Number.isFinite(derivedDerivProfit)) {
+            const sold = result?.sellResponse?.sell;
+            const poc = result?.contractResponse?.proposal_open_contract;
+            const soldFor = Number(sold?.sold_for ?? poc?.sell_price);
+            const balanceAfter = Number(sold?.balance_after);
+            const sellTransactionId =
+                sold?.transaction_id ??
+                poc?.transaction_ids?.sell ??
+                null;
+
+            if (
+                String(sold?.contract_id ?? poc?.contract_id ?? contractId) !== contractId ||
+                !Number.isFinite(soldFor) ||
+                sellTransactionId == null
+            ) {
                 globalObserver.emit(
                     'ui.log.error',
-                    'TRAPKID DERIV EARLY SELL → sold_for or Deriv buy price missing; transaction remains open'
+                    'TRAPKID DERIV EARLY SELL → Deriv did not confirm the same contract with sold_for and transaction_id.'
                 );
                 return false;
             }
-            const payout = derivPayout;
-            const finalProfit = derivedDerivProfit;
-            const derivSellTransactionId =
-                derivSettlement?.sell_transaction_id ??
-                derivSettlement?.transaction_ids?.sell ??
-                derivSettlement?.transaction_id ??
-                null;
-            const derivBuyTransactionId =
-                derivSettlement?.buy_transaction_id ??
-                derivSettlement?.transaction_ids?.buy ??
-                this.derivBuyTransactionId ??
-                null;
 
-            const analyzerExitQuoteValue = Number(exit?.quote ?? analyzerState?.exit?.quote);
-            const derivExitSpot = Number(derivSettlement?.exit_spot);
-            const derivExitSpotTime = Number(derivSettlement?.exit_spot_time);
-            const contractId = String(
-                this.analyzerContractId ||
-                this.tradeOptions?.analyzerContractId ||
-                analyzerSignal?.contractId ||
-                analyzerSignal?.contract_id ||
-                this.contractId ||
-                this.tradeOptions?.analyzerEntryCode ||
-                analyzerSignal?.entryCode ||
-                analyzerSignal?.signalId
-            );
-
-            const exitCode =
-                exit?.exitCode ||
-                analyzerState?.exit?.exitCode ||
-                analyzerSignal?.exitCode ||
-                null;
-            const settledExitDigit = Number(exit?.digit ?? analyzerState?.exit?.digit);
-            const settledAtMs = Number(exit?.epoch) > 0 ? Number(exit.epoch) * 1000 : Date.now();
+            const buyPrice = Number(this.data?.contract?.buy_price ?? this.tradeOptions?.amount);
+            const profit = Number.isFinite(buyPrice) ? soldFor - buyPrice : 0;
+            const currentContract = this.data?.contract || {};
 
             this.data.contract = {
-                ...contract,
-                id: contractId,
+                ...currentContract,
                 contract_id: contractId,
+                deriv_contract_id: contractId,
                 transaction_ids: {
-                    ...(contract.transaction_ids || {}),
-                    buy: derivBuyTransactionId || contract.transaction_ids?.buy || null,
-                    sell: derivSellTransactionId || contract.transaction_ids?.sell || null,
+                    ...(currentContract.transaction_ids || {}),
+                    buy: currentContract.transaction_ids?.buy ?? this.derivBuyTransactionId ?? null,
+                    sell: sellTransactionId,
                 },
-                analyzer_contract_id: contractId,
-                analyzer_entry_code:
-                    this.tradeOptions?.analyzerEntryCode ||
-                    analyzerSignal?.entryCode ||
-                    analyzerSignal?.entry_code ||
-                    analyzerSignal?.signalId,
-                analyzer_exit_code: exitCode,
-                analyzer_entry_quote:
-                    this.tradeOptions?.analyzerEntryQuote ??
-                    analyzerSignal?.entryQuote ??
-                    analyzerSignal?.entry_quote ??
-                    analyzerSignal?.quote,
-                analyzer_exit_quote: Number.isFinite(analyzerExitQuoteValue) ? analyzerExitQuoteValue : null,
-                analyzer_exit_digit: Number.isInteger(settledExitDigit) ? settledExitDigit : null,
+                sell_price: soldFor,
+                payout: soldFor,
+                bid_price: soldFor,
+                profit,
+                deriv_sell_price: soldFor,
+                deriv_sell_transaction_id: sellTransactionId,
+                deriv_balance_after_sell: Number.isFinite(balanceAfter) ? balanceAfter : null,
                 analyzer_exit_status: 'EARLY_SELL_READY',
-                sell_price: payout,
-                bid_price: Number.isFinite(derivSettlement?.bid_price)
-                    ? Number(derivSettlement.bid_price)
-                    : payout,
-                payout,
-                profit: finalProfit,
-                deriv_contract_id: this.derivContractId || contract.deriv_contract_id || null,
-                deriv_transaction_id: derivBuyTransactionId || contract.deriv_transaction_id || null,
-                deriv_sell_transaction_id: derivSellTransactionId || contract.deriv_sell_transaction_id || null,
-                deriv_sell_price: Number.isFinite(derivPayout) ? derivPayout : null,
-                deriv_balance_after_sell: Number.isFinite(Number(derivSettlement?.balance_after))
-                    ? Number(derivSettlement.balance_after)
-                    : null,
+                analyzer_exit_digit: hotDigit,
+                analyzer_exit_quote: Number.isFinite(Number(exit?.quote)) ? Number(exit.quote) : null,
                 financial_status: 'DERIV_SELL_CONFIRMED',
-                exit_spot: Number.isFinite(analyzerExitQuoteValue) ? analyzerExitQuoteValue : derivExitSpot,
-                exit_tick: Number.isFinite(derivExitSpot)
-                    ? Math.abs(Math.trunc(derivExitSpot * 100)) % 10
-                    : Number.isInteger(exitDigit)
-                      ? exitDigit
-                      : null,
-                exit_tick_time: Number.isFinite(derivExitSpotTime)
-                    ? Math.floor(derivExitSpotTime)
-                    : Math.floor(settledAtMs / 1000),
                 status: 'sold',
                 is_sold: true,
                 is_expired: false,
@@ -221,47 +144,50 @@ export default Engine =>
             this.isSold = true;
             this.isExpired = false;
             this.isSellAvailable = false;
-            this.contractId = '';
             this.updateTotals(this.data.contract);
+
+            globalObserver.emit('deriv.contract.sell', {
+                local_contract_id: String(signal.signalId),
+                contract_id: contractId,
+                transaction_id: sellTransactionId,
+                sell_transaction_id: sellTransactionId,
+                sold_for: soldFor,
+                balance_after: Number.isFinite(balanceAfter) ? balanceAfter : null,
+                currency: sold?.currency || this.tradeOptions?.currency || 'USD',
+            });
 
             contractStatus({
                 id: 'contract.sold',
                 data: contractId,
                 contract: this.data.contract,
             });
-            globalObserver.emit('bot.contract', this.data.contract);
 
             globalObserver.setState({
                 trapkid_analyzer: {
-                    ...analyzerState,
+                    ...state,
                     status: 'ANALYZER_SETTLED',
-                    signal: analyzerSignal,
-                    signalId: analyzerSignal.signalId,
-                    commandKey: analyzerState.commandKey,
+                    signal,
+                    signalId: signal.signalId,
+                    commandKey: String(signal.signalId) + ':' + String(signal.lockedAt),
                     executionTrigger: 'ANALYZER_SETTLED',
                     holdUntilAnalyzerExit: false,
                     settlementSource: 'ANALYZER_EARLY_SELL',
                     analyzerContractId: contractId,
-                    analyzerEntryCode: this.data.contract.analyzer_entry_code,
-                    analyzerExitCode: this.data.contract.analyzer_exit_code,
-                    analyzerEntryQuote: this.data.contract.analyzer_entry_quote,
-                    analyzerExitQuote: this.data.contract.analyzer_exit_quote,
-                    derivExitSpot: this.data.contract.exit_spot,
-                    payout,
-                    profit: finalProfit,
-                    derivPayout: Number.isFinite(derivPayout) ? derivPayout : null,
-                    derivBalanceAfterSell: Number.isFinite(Number(derivSettlement?.balance_after))
-                        ? Number(derivSettlement.balance_after)
-                        : null,
-                    exit: exit || analyzerState.exit,
+                    derivContractId: contractId,
+                    derivSellTransactionId: sellTransactionId,
+                    derivPayout: soldFor,
+                    payout: soldFor,
+                    profit,
+                    derivBalanceAfterSell: Number.isFinite(balanceAfter) ? balanceAfter : null,
+                    exit: {
+                        ...(exit || {}),
+                        status: 'EARLY_SELL_READY',
+                        signalId: String(signal.signalId),
+                        digit: hotDigit,
+                    },
                 },
             });
-
             globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
-            globalObserver.emit(
-                'ui.log',
-                `TRAPKID ANALYZER EXIT EXECUTED → ${contractId} → Deriv proceeds=${payout} → profit=${finalProfit}`
-            );
 
             if (this.afterPromise) {
                 this.afterPromise();
@@ -270,5 +196,115 @@ export default Engine =>
 
             this.store.dispatch(sell());
             return true;
+        }
+
+        sellAtMarket(source = 'BLOCKLY') {
+            if (source === 'ANALYZER_EARLY_SELL') {
+                return this.sellAnalyzerEarlyExit();
+            }
+            globalObserver.emit('bot.sell');
+
+            // Prevent calling sell twice
+            if (this.store.getState().scope !== DURING_PURCHASE) {
+                return Promise.resolve();
+            }
+
+            if (!this.isSellAtMarketAvailable()) {
+                log(LogTypes.NOT_OFFERED);
+                return Promise.resolve();
+            }
+
+            let delay_index = 1;
+
+            return new Promise(resolve => {
+                const onContractSold = sell_response => {
+                    delay_index = 1;
+
+                    if (sell_response) {
+                        const { sold_for } = sell_response.sell;
+                        log(LogTypes.SELL, { sold_for });
+                    }
+
+                    contractStatus('purchase.sold');
+                    this.waitForAfter();
+                    resolve();
+                };
+
+                const contract_id = this.contractId;
+
+                const sellContractAndGetContractInfo = () => {
+                    return doUntilDone(() => api_base.api.send({ sell: contract_id, price: 0 }))
+                        .then(sell_response => {
+                            doUntilDone(() => api_base.api.send({ proposal_open_contract: 1, contract_id })).then(
+                                () => sell_response
+                            );
+                        })
+                        .catch(e => {
+                            const error = e.error;
+                            if (error.code === 'InvalidOfferings') {
+                                // "InvalidOfferings" may occur when user tries to sell the contract too close
+                                // to the expiry time. We shouldn't interrupt the bot but instead let the contract
+                                // finish.
+                                return Promise.resolve();
+                            }
+
+                            const sell_error = {
+                                name: error.code,
+                                message: getLocalizedErrorMessage(error.code, error.details),
+                                msg_type: e.msg_type,
+                                error: { ...error.error },
+                            };
+
+                            if (error.code === 'RateLimit') {
+                                return Promise.reject(sell_error);
+                            }
+
+                            // For every other error, check whether the contract is not actually already sold.
+                            return doUntilDone(() =>
+                                api_base.api.send({
+                                    proposal_open_contract: 1,
+                                    contract_id,
+                                })
+                            ).then(proposal_open_contract_response => {
+                                const { proposal_open_contract } = proposal_open_contract_response;
+
+                                if (!proposal_open_contract.is_sold) {
+                                    return Promise.reject(sell_error);
+                                }
+
+                                // If the contract is sold at this point it means there was a race condition.
+                                // Pretend this sell request was successful and mislead the trade engine into
+                                // moving onto the next scope.
+                                return Promise.resolve({
+                                    sell: {
+                                        sold_for: proposal_open_contract.sell_price,
+                                    },
+                                });
+                            });
+                        });
+                };
+
+                const errors_to_ignore = ['NoOpenPosition', 'InvalidSellContractProposal', 'UnrecognisedRequest'];
+
+                // Restart buy/sell on error is enabled, don't recover from sell error.
+                if (!this.options.timeMachineEnabled) {
+                    // eslint-disable-next-line no-promise-executor-return
+                    return doUntilDone(sellContractAndGetContractInfo, errors_to_ignore)
+                        .then(sell_response => onContractSold(sell_response))
+                        .catch(error => error);
+                }
+
+                // If above checkbox not checked, try to recover from sell error.
+                const recoverFn = (error_code, makeDelay) => {
+                    return makeDelay().then(() => this.observer.emit('REVERT', 'during'));
+                };
+                // eslint-disable-next-line no-promise-executor-return
+                return recoverFromError(
+                    sellContractAndGetContractInfo,
+                    recoverFn,
+                    errors_to_ignore,
+                    delay_index++
+                ).then(sell_response => onContractSold(sell_response));
+            });
         }
     };
