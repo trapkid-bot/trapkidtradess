@@ -137,6 +137,32 @@ const TrapKidAnalyzerDock = () => {
                         ...(commandBoundToSignal ? { commandKey: signalKey } : {}),
                         lastSeen: now,
                     };
+                    // A fresh Analyzer signal starts a new execution cycle.
+                    // Never carry the previous cycle's Deriv contract/settlement
+                    // fields into the new signal; doing so makes the LINK badge
+                    // display an old contract while the engine is trading a new one.
+                    if (isNewSignal || initialSignalIsFresh) {
+                        mergedAnalyzerState.derivProposalId = null;
+                        mergedAnalyzerState.derivProposalAskPrice = null;
+                        mergedAnalyzerState.derivContractId = null;
+                        mergedAnalyzerState.deriv_contract_id = null;
+                        mergedAnalyzerState.derivTransactionId = null;
+                        mergedAnalyzerState.derivBuyPrice = null;
+                        mergedAnalyzerState.derivBuy = null;
+                        mergedAnalyzerState.analyzerContractId = null;
+                        mergedAnalyzerState.analyzerPotentialPayout = null;
+                        mergedAnalyzerState.derivPayout = null;
+                        mergedAnalyzerState.payout = null;
+                        mergedAnalyzerState.derivBalanceAfterBuy = null;
+                        mergedAnalyzerState.derivSellTransactionId = null;
+                        mergedAnalyzerState.derivBalanceAfterSell = null;
+                        mergedAnalyzerState.analyzerExitCode = null;
+                        mergedAnalyzerState.analyzerExitStatus = null;
+                        mergedAnalyzerState.analyzerExecutionStatus = null;
+                        mergedAnalyzerState.pendingEarlyExit = null;
+                        mergedAnalyzerState.exit = null;
+                    }
+
                     const rawExitForPublish = data?.exit;
                     const exitPublishKey =
                         rawExitForPublish?.status === 'EARLY_SELL_READY'
