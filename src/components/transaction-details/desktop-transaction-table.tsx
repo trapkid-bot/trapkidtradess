@@ -13,6 +13,18 @@ import { TColumn, TDesktopTransactionTable, TTableCell } from './transaction-det
 
 const PARENT_CLASS = 'transaction-details-modal-desktop';
 
+const AnalyzerCell = ({ data }: { data: any }) => (
+    <div style={{ lineHeight: 1.2 }}>
+        <div style={{ fontSize: 10, wordBreak: 'break-all' }}>
+            {data?.analyzer_entry_code || '—'}
+        </div>
+        <div style={{ fontSize: 10, opacity: 0.7 }}>
+            {data?.analyzer_execution_status ||
+                (data?.is_sold ? 'ANALYZER_SETTLED' : 'HOLDING_FOR_ANALYZER_EARLY_SELL')}
+        </div>
+    </div>
+);
+
 const TableCell = ({ label, extra_classes = [], loader = false }: TTableCell) => {
     return (
         <div className={classNames(`${PARENT_CLASS}__table-cell`, ...extra_classes)}>
@@ -128,6 +140,7 @@ export default function DesktopTransactionTable({
                                     }
                                     loader={!data.is_completed}
                                 />
+                                <TableCell label={<AnalyzerCell data={data} />} />
                             </div>
                         );
                     }
