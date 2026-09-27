@@ -40,12 +40,39 @@ export default Engine =>
                 return false;
             }
 
-            // Use the contract created by the normal DBot purchase path.
-            // Analyzer supplies the decision; normal Deriv SELL supplies the money result.
-            const contractId = String(this.contractId || '');
-            const recordedDerivContractId = String(state.derivContractId || state.deriv_contract_id || '');
+            // The BUY response is the canonical owner of the real Deriv
+            // contract ID. UI/bridge state can lag or still contain the previous
+            // Analyzer cycle, so never choose a contract ID from stale UI state.
+            const buyResponseContractId = String(this.derivBuy?.contract_id || '');
+            const engineDerivContractId = String(this.derivContractId || '');
+            const engineContractId = String(this.contractId || '');
+            const stateDerivContractId = String(state.derivContractId || state.deriv_contract_id || '');
+            const contractId =
+                buyResponseContractId ||
+                engineDerivContractId ||
+                engineContractId ||
+                stateDerivContractId;
+
             if (!contractId || this.isSold) return false;
-            if (recordedDerivContractId && recordedDerivContractId !== contractId) {
+
+            // Keep the in-memory engine bound to the exact ID returned by this BUY.
+            this.contractId = contractId;
+            this.derivContractId = contractId;
+
+            if (buyResponseContractId && engineDerivContractId && buyResponseContractId !== engineDerivContractId) {
+                globalObserver.emit(
+                    'ui.log.error',
+                    'TRAPKID ANALYZER SELL → current BUY contract ID mismatch detected; using Deriv BUY response ID ' +
+                        buyResponseContractId
+                );
+            }
+            if (stateDerivContractId && buyResponseContractId && stateDerivContractId !== buyResponseContractId) {
+                globalObserver.emit(
+                    'ui.log',
+                    'TRAPKID ANALYZER SELL → stale bridge contract ID ignored; current BUY ID=' +
+                        buyResponseContractId
+                );
+            }
                 globalObserver.emit(
                     'ui.log.error',
                     'TRAPKID ANALYZER SELL → Deriv contract ownership mismatch; SAME contract sell blocked.'
