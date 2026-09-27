@@ -378,13 +378,13 @@ const MatchesTerminal = () => {
         const applyExecutionState = (state: any) => {
             if (!state) return;
 
-            if (state.status === 'ANALYZER_SETTLED' || state.status === 'WAITING_FOR_ANALYZER') {
+            if (state.status === 'ANALYZER_EARLY_SELL_CONFIRMED' || state.status === 'ANALYZER_SETTLED' || state.status === 'WAITING_FOR_ANALYZER') {
                 tradeRef.current = null;
                 sellingRef.current = false;
                 setTrade(null);
                 if (state.status === 'ANALYZER_SETTLED') {
                     setStatus(
-                        'ANALYZER EARLY_SELL_READY → SAME DERIV CONTRACT SETTLED' +
+                        'ANALYZER EARLY_SELL_READY → SAME CONTRACT CLOSED' +
                         (state.derivPayout != null ? ' • ' + formatMoney(Number(state.derivPayout), currency) : '')
                     );
                 }
@@ -394,7 +394,7 @@ const MatchesTerminal = () => {
             const contractId = String(state.derivContractId || state.analyzerContractId || '');
             const signal = state.signal;
             if (!contractId || !signal?.signalId) return;
-            if (!['ANALYZER_EXECUTION', 'ANALYZER_PURCHASE_AUTHORIZED', 'RUNNING', 'EARLY_EXIT_COMMAND_RECEIVED', 'ANALYZER_DATA_BOUND'].includes(String(state.status || ''))) return;
+            if (!['ANALYZER_EXECUTION', 'ANALYZER_PURCHASE_AUTHORIZED', 'RUNNING', 'WAITING_FOR_EARLY_SELL_READY', 'EARLY_SELL_READY', 'EARLY_EXIT_EXECUTING', 'EARLY_EXIT_COMMAND_RECEIVED', 'ANALYZER_DATA_BOUND'].includes(String(state.status || ''))) return;
 
             const prediction = Number(state.hotDigit ?? state.prediction ?? signal.hotDigit ?? signal.prediction);
             const buyPrice = Number(state.derivBuyPrice);
@@ -419,9 +419,13 @@ const MatchesTerminal = () => {
             setSymbol(nextTrade.symbol);
             setPrediction(nextTrade.prediction);
             setStatus(
-                state.status === 'RUNNING'
-                    ? 'ANALYZER BUY CONFIRMED • 1-TICK EXECUTION • MATCH OPEN • waiting for hot digit'
-                    : 'ANALYZER COMMAND RECEIVED • TradeEngine executing ' + nextTrade.signalId
+                state.status === 'RUNNING' || state.status === 'WAITING_FOR_EARLY_SELL_READY'
+                    ? 'ANALYZER BUY CONFIRMED • 1-TICK EXECUTION • OPEN • waiting for Analyzer EARLY_SELL_READY'
+                    : state.status === 'EARLY_SELL_READY'
+                      ? 'ANALYZER EARLY_SELL_READY • SAME CONTRACT EXIT AUTHORIZED'
+                      : state.status === 'EARLY_EXIT_EXECUTING'
+                        ? 'ANALYZER EARLY SELL EXECUTING • SAME CONTRACT'
+                        : 'ANALYZER COMMAND RECEIVED • TradeEngine executing ' + nextTrade.signalId
             );
         };
 
