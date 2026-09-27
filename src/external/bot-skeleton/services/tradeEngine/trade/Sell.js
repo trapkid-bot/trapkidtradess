@@ -77,6 +77,24 @@ export default Engine =>
 
             if (!contractId || this.isSold) return false;
 
+            // HARD ONE-SELL LOCK:
+            // EARLY_SELL_READY can arrive through both the explicit Analyzer
+            // event and the shared-state bridge. Once this exact signal reaches
+            // the real SELL boundary, only the first invocation may touch Deriv.
+            // Keep the key even when Deriv rejects the SELL (for example because
+            // a literal 1-tick contract has already expired). Duplicate bridge
+            // events must never issue another SELL request for the same contract.
+            const analyzerSellKey = String(signal.signalId) + ':' + String(signal.lockedAt);
+            if (this.analyzerSellAttemptKey === analyzerSellKey) {
+                globalObserver.emit(
+                    'ui.log',
+                    'TRAPKID ANALYZER SELL → duplicate EARLY_SELL_READY ignored → signal=' +
+                        String(signal.signalId)
+                );
+                return false;
+            }
+            this.analyzerSellAttemptKey = analyzerSellKey;
+
             // Keep the in-memory engine bound to the exact ID returned by this BUY.
             this.contractId = contractId;
             this.derivContractId = contractId;
