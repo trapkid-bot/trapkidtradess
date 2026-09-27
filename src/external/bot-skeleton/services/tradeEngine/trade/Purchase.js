@@ -747,8 +747,11 @@ export default Engine =>
             if (this.analyzerSettlementPromise) return this.analyzerSettlementPromise;
 
             this.analyzerSettlementPromise = (async () => {
-                const maxChecks = 300;
-                const intervalMs = 100;
+                // EARLY_SELL_READY can arrive in the same tick as the BUY.
+                // Use a tight observer loop so local polling does not add a
+                // 100ms delay to an already time-critical 1-tick contract.
+                const maxChecks = 3000;
+                const intervalMs = 10;
 
                 for (let attempt = 0; attempt < maxChecks; attempt += 1) {
                     const liveState = globalObserver.getState('trapkid_analyzer') || {};
