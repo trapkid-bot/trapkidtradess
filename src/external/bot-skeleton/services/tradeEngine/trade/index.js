@@ -29,7 +29,31 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         this.subscription_id_for_accumulators = null;
         this.is_proposal_requested_for_accumulators = false;
         this.analyzerExitObserver = this.onAnalyzerEarlyExit;
+        this.analyzerStateExitObserver = state => {
+            // Some Analyzer bridge versions publish EARLY_SELL_READY as state
+            // before (or instead of) emitting trapkid.analyzer.exit. Treat the
+            // exact Analyzer state as an equivalent exit trigger. The signalId,
+            // lockedAt and hot digit are still validated by onAnalyzerEarlyExit.
+            if (state?.exit?.status !== 'EARLY_SELL_READY') return;
+            const signal = this.analyzerSignal || state?.signal;
+            if (!signal?.signalId || !Number.isFinite(Number(signal.lockedAt))) return;
+            const commandKey = String(signal.signalId) + ':' + String(signal.lockedAt);
+            if (String(state.commandKey || '') !== commandKey) return;
+            if (Number(state.exit.digit) !== Number(signal.hotDigit)) return;
+            if (!this.contractId && !this.derivContractId) return;
+            if (this.isSold || this.analyzerDerivSellPromise) return;
+            void this.onAnalyzerEarlyExit({
+                source: 'TRAPKID_ANALYZER_STATE',
+                command: 'ANALYZER_EARLY_EXIT',
+                commandKey,
+                signalId: String(signal.signalId),
+                signal,
+                exit: state.exit,
+                receivedAt: Date.now(),
+            });
+        };
         globalObserver.register('trapkid.analyzer.exit', this.analyzerExitObserver);
+        globalObserver.register('trapkid.analyzer.updated', this.analyzerStateExitObserver);
         this.store = createStore(rootReducer, applyMiddleware(thunk));
         // Keep Analyze running while the Analyzer-owned local contract is open.
         // The cycle resolves only after Analyzer emits EARLY_SELL_READY and the
@@ -57,20 +81,12 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             signal?.signalId && Number.isFinite(Number(signal?.lockedAt))
                 ? String(signal.signalId) + ':' + String(signal.lockedAt)
                 : '';
-        const boundAnalyzerExit =
-            !!boundSignalKey &&
-            String(analyzerState.commandKey || '') === boundSignalKey &&
-            (
-                analyzerState.executionArmed === true ||
-                analyzerState.purchaseConsumedKey === boundSignalKey ||
-                analyzerState.purchaseInFlightKey === boundSignalKey ||
-                this.analyzerPurchaseKey === boundSignalKey
-            );
-
-        // Once the exact Analyzer signal is bound to this contract, the
-        // Analyzer exit event remains authoritative even if a UI/state refresh
-        // dropped executionArmed. Builder execution rules must not block it.
-        if (!boundAnalyzerExit) return;
+        // Once the exact Analyzer signal is bound, the matching
+        // EARLY_SELL_READY command is authoritative. Do not require transient
+        // execution flags such as executionArmed/purchaseInFlightKey here.
+        // Those flags can legitimately change during a UI/state refresh while
+        // the real Deriv contract is still open.
+        if (!boundSignalKey) return;
         const commandSignalId = String(command?.signalId || command?.signal?.signalId || '');
         const commandKeyFromEvent = String(command?.commandKey || command?.key || '');
         const activeSignalId = String(signal?.signalId || '');
@@ -86,13 +102,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         if (!signal || !eventIdentifiesSignal) return;
 
         const boundCommandKey = String(analyzerState.commandKey || '');
-        const signalIsBoundToThisTrade =
-            boundCommandKey === activeSignalKey &&
-            (
-                analyzerState.executionArmed === true ||
-                analyzerState.purchaseInFlightKey === activeSignalKey ||
-                analyzerState.purchaseConsumedKey === activeSignalKey
-            );
+        const signalIsBoundToThisTrade = boundCommandKey === activeSignalKey;
 
         const lockExpiry = Number(signal?.expiresAt);
         // Once this exact Analyzer signal is bound to the running trade,
@@ -570,7 +580,14 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         ) {
             globalObserver.unregister('trapkid.analyzer.exit', this.analyzerExitObserver);
         }
+        if (
+            this.analyzerStateExitObserver &&
+            globalObserver.isRegistered('trapkid.analyzer.updated')
+        ) {
+            globalObserver.unregister('trapkid.analyzer.updated', this.analyzerStateExitObserver);
+        }
         this.analyzerExitObserver = null;
+        this.analyzerStateExitObserver = null;
         this.disposeTotalObserver?.();
     }
 
