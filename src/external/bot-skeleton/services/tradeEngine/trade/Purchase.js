@@ -335,7 +335,7 @@ export default Engine =>
                         entryPrediction: Number(this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
                         lockedQuote: this.analyzerSignal?.lockedQuote,
                         entrySource: 'ANALYZER_ONLY',
-                        exitSource: 'ANALYZER_EARLY_SELL_ONLY',
+                        exitSource: 'ANALYZER_MATCH_STREAM',
                         executionTrigger: null,
                         purchaseInFlightKey: null,
                         purchaseConsumedKey: purchasedSignalKey || undefined,
