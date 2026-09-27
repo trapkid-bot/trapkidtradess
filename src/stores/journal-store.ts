@@ -118,7 +118,18 @@ export default class JournalStore {
         const client = this.core.client as RootStore['client'];
         const { loginid } = client;
         this.journal_filters = getSetting('journal_filter') ?? this.filters.map(filter => filter.id);
-        this.unfiltered_messages = getStoredItemsByUser(this.JOURNAL_CACHE, loginid, []);
+        const storedMessages = getStoredItemsByUser(this.JOURNAL_CACHE, loginid, []);
+        // Remove legacy Analyzer bridge diagnostics that were written by older
+        // builds. They are no longer part of the Analyzer-only lifecycle.
+        this.unfiltered_messages = storedMessages.filter(item => {
+            const message = typeof item?.message === 'string' ? item.message : '';
+            return !(
+                message.includes('TRAPKID DERIV FINANCIAL QUOTE') ||
+                message.includes('TRAPKID DERIV FINANCIAL BUY') ||
+                message.includes('TRAPKID ANALYZER EXIT → Deriv did not return the early-sell proceeds') ||
+                message.includes('TRAPKID DERIV EARLY SELL → no sell response')
+            );
+        });
     }
 
     getServerTime() {
