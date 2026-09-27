@@ -15,6 +15,9 @@ const TrapKidAnalyzerDock = () => {
     const [open, setOpen] = React.useState(false);
     const [pos, setPos] = React.useState({ x: 22, y: 120 });
     const [lastSeen, setLastSeen] = React.useState<number | null>(null);
+    const [executionState, setExecutionState] = React.useState<any>(() => (
+        globalObserver.getState('trapkid_analyzer') || {}
+    ));
     const drag = React.useRef<{ dx: number; dy: number } | null>(null);
     const analyzerSignalKeyRef = React.useRef<string | null>(null);
     const analyzerExitKeyRef = React.useRef<string | null>(null);
@@ -239,17 +242,32 @@ const TrapKidAnalyzerDock = () => {
         };
     }, [analyzerApi]);
 
-    const connected = Boolean(details?.connected);
+    React.useEffect(() => {
+        const onAnalyzerUpdated = (state: any) => {
+            setExecutionState(state || {});
+        };
+        globalObserver.register('trapkid.analyzer.updated', onAnalyzerUpdated);
+        setExecutionState(globalObserver.getState('trapkid_analyzer') || {});
+        return () => {
+            globalObserver.unregister('trapkid.analyzer.updated', onAnalyzerUpdated);
+        };
+    }, []);
 
-    const saveAnalyzerUrl = () => {
-        const value = urlDraft.trim().replace(/\/$/, '');
-        if (!value) return;
-        setAnalyzerApi(value);
-        try { window.localStorage.setItem('trapkid_analyzer_url', value); } catch {}
-        setDetails(null);
-        setLastSeen(null);
-        setConnectionError('Connecting…');
-    };
+    const connected = Boolean(details?.connected);
+    const activeSignalId = String(details?.signal?.signalId || '');
+    const executionSignalId = String(executionState?.signalId || executionState?.signal?.signalId || '');
+    const signalMatches = !!activeSignalId && activeSignalId === executionSignalId;
+    const hotDigit = Number(details?.analysis?.hotDigit ?? details?.signal?.hotDigit);
+    const exitDigit = Number(details?.exit?.digit ?? executionState?.exit?.digit);
+    const exitStatus = String(details?.exit?.status || executionState?.exit?.status || 'IDLE');
+    const exitValid = exitStatus === 'EARLY_SELL_READY' && Number.isInteger(exitDigit) && exitDigit === hotDigit;
+    const derivContractId = String(executionState?.derivContractId || executionState?.analyzerContractId || executionState?.signal?.contractId || '—');
+    const buyPrice = executionState?.derivBuyPrice ?? executionState?.derivBuy?.buy_price;
+    const buyTransactionId = executionState?.derivTransactionId || executionState?.derivBuy?.transaction_id || '—';
+    const sellTransactionId = executionState?.derivSellTransactionId || '—';
+    const soldFor = executionState?.derivPayout ?? executionState?.payout;
+    const balanceAfterSell = executionState?.derivBalanceAfterSell;
+    const lifecycle = String(executionState?.status || (connected ? 'CONNECTED_WAITING' : 'DISCONNECTED'));
 
     const beginDrag = (e: React.PointerEvent<HTMLDivElement>) => {
         const rect = e.currentTarget.getBoundingClientRect();
@@ -317,8 +335,17 @@ const TrapKidAnalyzerDock = () => {
                         <span>PREDICTION<b>{details?.signal?.prediction ?? details?.signal?.lockedDigit ?? '—'}</b></span>
                         <span>ENTRY QUOTE<b>{details?.signal?.entryQuote ?? '—'}</b></span>
                         <span>LOCKED QUOTE<b>{details?.signal?.lockedQuote ?? '—'}</b></span>
-                        <span>EXIT<b>{details?.exit?.status || details?.signal?.exitStatus || 'IDLE'}</b></span>
-                        <span>EXIT DIGIT<b>{details?.exit?.digit ?? details?.signal?.exitDigit ?? '—'}</b></span>
+                        <span>EXIT<b>{exitStatus}</b></span>
+                        <span>EXIT DIGIT<b>{Number.isInteger(exitDigit) ? exitDigit : '—'}</b></span>
+                        <span>SIGNAL MATCH<b>{signalMatches ? 'VALID' : 'WAITING'}</b></span>
+                        <span>EXIT VALIDATION<b>{exitStatus === 'EARLY_SELL_READY' ? (exitValid ? 'HOT DIGIT MATCH' : 'REJECTED') : 'WAITING'}</b></span>
+                        <span>LIFECYCLE<b>{lifecycle}</b></span>
+                        <span>DERIV CONTRACT<b>{derivContractId}</b></span>
+                        <span>STAKE / BUY<b>{Number.isFinite(Number(buyPrice)) ? Number(buyPrice).toFixed(2) : '—'}</b></span>
+                        <span>BUY TX<b>{buyTransactionId}</b></span>
+                        <span>SELL TX<b>{sellTransactionId}</b></span>
+                        <span>SOLD FOR<b>{Number.isFinite(Number(soldFor)) ? Number(soldFor).toFixed(2) : '—'}</b></span>
+                        <span>BALANCE AFTER<b>{Number.isFinite(Number(balanceAfterSell)) ? Number(balanceAfterSell).toFixed(2) : '—'}</b></span>
                     </div>
 
                     <div className='tk-analyzer-global-dbot'>
