@@ -41,6 +41,16 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             // exact Analyzer state as an equivalent exit trigger. The signalId,
             // lockedAt and hot digit are still validated by onAnalyzerEarlyExit.
             if (state?.exit?.status !== 'EARLY_SELL_READY') return;
+            // Ignore lifecycle states emitted by the exit handler itself.
+            // Otherwise trapkid.analyzer.updated feeds straight back into the
+            // EARLY_SELL handler and creates duplicate SELL requests.
+            if (
+                ['EARLY_EXIT_COMMAND_RECEIVED', 'EARLY_EXIT_EXECUTING', 'ANALYZER_SETTLED'].includes(
+                    String(state?.status || '')
+                )
+            ) {
+                return;
+            }
             const stateSignal = state?.signal;
             const engineSignal = this.analyzerSignal;
             const signal =
@@ -209,6 +219,9 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // 3) EARLY_SELL_READY is the ONLY event allowed to SELL it.
         // Never turn EARLY_SELL_READY into another BUY.
         const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
+        // The explicit EXIT event and the shared state bridge can deliver the
+        // same lifecycle signal. Only one handler may process it at a time.
+        if (this.analyzerExitHandling || this.isSold) return false;
         // Analyzer exit is authoritative by signal identity, not by whichever
         // transient UI status happens to be rendered. This is important when
         // EARLY_SELL_READY arrives immediately after Analyze and before the
@@ -314,6 +327,10 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
 
         const commandKey = String(signal.signalId) + ':' + String(signal.lockedAt);
 
+        // Lock this exact EXIT before publishing lifecycle state. This prevents
+        // the state-bridge observer from issuing a second SELL for the same signal.
+        this.analyzerExitHandling = true;
+
         // IMPORTANT: once the event has identified the exact signal and the
         // exit digit matches Analyzer hotDigit, do not add another command-key
         // gate here. Analyzer command timestamps/bridge state can be refreshed
@@ -360,6 +377,9 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                 },
             });
             globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
+            // BUY is still in flight. Keep the exact EXIT persisted, then allow
+            // Purchase.js to consume it after Deriv returns the real contract ID.
+            this.analyzerExitHandling = false;
             return;
         }
         // IMPORTANT: do not gate the exit on purchaseConsumedKey,
@@ -388,7 +408,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         globalObserver.setState({
             trapkid_analyzer: {
                 ...analyzerState,
-                status: 'EARLY_EXIT_COMMAND_RECEIVED',
+                status: 'EARLY_EXIT_EXECUTING',
                 signal,
                 signalId: signal.signalId,
                 commandKey,
@@ -424,7 +444,15 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                 })
                 .catch(error => {
                     globalObserver.emit('ui.log.error', error?.message || 'Analyzer early sell failed.');
+                })
+                .finally(() => {
+                    // Keep the engine protected after a confirmed sell. If the
+                    // sell fails, allow a later explicit EXIT retry without ever
+                    // permitting concurrent SELL requests.
+                    if (!this.isSold) this.analyzerExitHandling = false;
                 });
+        } else {
+            this.analyzerExitHandling = false;
         }
     };
 
