@@ -108,7 +108,10 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // exact locked trade; neither should be allowed to block the exit.
         const eventIdentifiesSignal =
             (commandSignalId && commandSignalId === activeSignalId) ||
-            (commandKeyFromEvent && commandKeyFromEvent === activeSignalKey);
+            (commandKeyFromEvent && (
+                commandKeyFromEvent === activeSignalKey ||
+                commandKeyFromEvent.startsWith(activeSignalId + ':')
+            ));
 
         if (!signal || !eventIdentifiesSignal) return;
 
@@ -161,7 +164,12 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         }
 
         const commandKey = String(signal.signalId) + ':' + String(signal.lockedAt);
-        if (String(analyzerState.commandKey || '') !== commandKey) return;
+
+        // IMPORTANT: once the event has identified the exact signal and the
+        // exit digit matches Analyzer hotDigit, do not add another command-key
+        // gate here. Analyzer command timestamps/bridge state can be refreshed
+        // between the EXIT event and this handler. The signalId is the trade
+        // identity; the Deriv contract_id is the financial execution handle.
 
         // EARLY_SELL_READY is an EXIT-only event. If the BUY is still in
         // flight, remember the exact exit instead of dropping the event.
