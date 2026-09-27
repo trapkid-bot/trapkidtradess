@@ -144,7 +144,7 @@ export default Engine =>
                         purchaseInFlightKey: analyzerSignalKey,
                         entryPrediction: signal.hotDigit,
                         entrySource: 'ANALYZER_ONLY',
-                        exitSource: 'ANALYZER_EARLY_SELL_ONLY',
+                        exitSource: 'ANALYZER_MATCH_STREAM',
                         executionTrigger: 'ANALYZER_ENTRY_COMMAND',
                     },
                 });
@@ -492,8 +492,8 @@ export default Engine =>
                         basis: 'stake',
                         contract_type: 'DIGITMATCH',
                         currency,
-                        ...(logicalDuration != null ? { duration: logicalDuration } : {}),
-                        ...(logicalDurationUnit != null ? { duration_unit: logicalDurationUnit } : {}),
+                        duration: logicalDuration,
+                        duration_unit: logicalDurationUnit,
                         underlying_symbol: symbol,
                         barrier: String(predictionDigit),
                     });
