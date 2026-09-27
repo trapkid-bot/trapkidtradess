@@ -259,13 +259,10 @@ export default Engine =>
                     analyzer_locked_quote: Number(this.analyzerSignal?.lockedQuote ?? this.analyzerSignal?.entryQuote ?? NaN),
                     analyzer_hot_digit: Number(this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
                     analyzer_prediction: Number(this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
-                    duration: ANALYZER_LOGICAL_DURATION,
-                    duration_unit: ANALYZER_LOGICAL_DURATION_UNIT,
-                    analyzer_duration: ANALYZER_LOGICAL_DURATION,
-
-                    analyzer_duration_unit: ANALYZER_LOGICAL_DURATION_UNIT,
-                    deriv_physical_duration: ANALYZER_PHYSICAL_HOLD_TICKS,
-                    deriv_physical_duration_unit: 't',
+                    duration: logicalDuration,
+                    duration_unit: logicalDurationUnit,
+                    analyzer_duration: logicalDuration,
+                    analyzer_duration_unit: logicalDurationUnit,
                     analyzer_exit_status: 'MATCH_OPEN',
                     analyzer_execution_status: 'MATCH_OPEN',
                     analyzer_exit_code: null,
@@ -409,9 +406,8 @@ export default Engine =>
                 // 6. The exact Deriv BUY contract_id is canonical and must be the contract sold.
                 // 7. The matching hot digit is the Analyzer-authorized exit event.
                 // The exact BUY remains bound to this signal; no replacement contract is created.
-                const logicalDuration = ANALYZER_LOGICAL_DURATION;
-                const logicalDurationUnit = ANALYZER_LOGICAL_DURATION_UNIT;
-                const physicalHoldDuration = ANALYZER_PHYSICAL_HOLD_TICKS;
+                const logicalDuration = this.tradeOptions?.duration ?? null;
+                const logicalDurationUnit = this.tradeOptions?.duration_unit ?? null;
 
                 const proposalRequest = {
                     proposal: 1,
@@ -419,8 +415,8 @@ export default Engine =>
                     basis: 'stake',
                     contract_type: 'DIGITMATCH',
                     currency,
-                    duration: ANALYZER_PHYSICAL_HOLD_TICKS,
-                    duration_unit: 't',
+                    ...(this.tradeOptions?.duration != null ? { duration: this.tradeOptions.duration } : {}),
+                    ...(this.tradeOptions?.duration_unit != null ? { duration_unit: this.tradeOptions.duration_unit } : {}),
                     underlying_symbol: symbol,
                     barrier: String(predictionDigit),
                 };
