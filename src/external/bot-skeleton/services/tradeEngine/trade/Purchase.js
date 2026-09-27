@@ -389,6 +389,80 @@ export default Engine =>
                 return onSuccess(buyResponse);
             }
 
+            // Analyzer supplies only the trade decision. Use Deriv's normal
+            // proposal -> buy sequence so the financial contract is created
+            // exactly through the same API mechanics as the normal bot.
+            if (analyzerMode) {
+                const signal = this.analyzerSignal || globalObserver.getState('trapkid_analyzer')?.signal;
+                const amount = Number(this.tradeOptions?.amount);
+                const symbol = String(signal?.symbol || '');
+                const hotDigit = Number(signal?.hotDigit);
+                const currency = this.tradeOptions?.currency || 'USD';
+
+                if (!signal?.signalId || !symbol || !Number.isFinite(amount) || amount <= 0 ||
+                    !Number.isInteger(hotDigit) || hotDigit < 0 || hotDigit > 9) {
+                    throw new Error('TRAPKID ANALYZER BUY -> missing stake, market, or hot digit.');
+                }
+
+                const proposalRequest = {
+                    proposal: 1,
+                    amount,
+                    basis: this.tradeOptions?.basis || 'stake',
+                    contract_type: 'DIGITMATCH',
+                    currency,
+                    duration: 1,
+                    duration_unit: 't',
+                    underlying_symbol: symbol,
+                    barrier: String(hotDigit),
+                };
+
+                let proposalResponse;
+                try {
+                    proposalResponse = await doUntilDone(
+                        () => api_base.api.send(proposalRequest),
+                        ['InvalidContractProposal']
+                    );
+                } catch (error) {
+                    const code = error?.error?.code || error?.code || error?.message || 'unknown';
+                    globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER PROPOSAL ERROR -> ' + code);
+                    throw error;
+                }
+
+                const proposal = proposalResponse?.proposal;
+                const proposalId = proposal?.id;
+                const askPrice = Number(proposal?.ask_price);
+                const potentialPayout = Number(proposal?.payout);
+                if (!proposalId || !Number.isFinite(askPrice) || askPrice <= 0) {
+                    throw new Error('TRAPKID ANALYZER PROPOSAL -> Deriv returned no valid proposal.');
+                }
+
+                globalObserver.setState({
+                    trapkid_analyzer: {
+                        ...(globalObserver.getState('trapkid_analyzer') || {}),
+                        derivProposalId: String(proposalId),
+                        derivProposalAskPrice: askPrice,
+                        analyzerPotentialPayout: Number.isFinite(potentialPayout) ? potentialPayout : null,
+                        payout: Number.isFinite(potentialPayout) ? potentialPayout : null,
+                        payoutSource: 'DERIV_PROPOSAL',
+                    },
+                });
+                globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
+
+                let buyResponse;
+                try {
+                    buyResponse = await doUntilDone(
+                        () => api_base.api.send({ buy: String(proposalId), price: askPrice }),
+                        ['PriceMoved', 'InvalidContractProposal']
+                    );
+                } catch (error) {
+                    const code = error?.error?.code || error?.code || error?.message || 'unknown';
+                    globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER BUY ERROR -> ' + code);
+                    throw error;
+                }
+
+                return onSuccess(buyResponse);
+            }
+
             if (this.is_proposal_subscription_required) {
                 const { id, askPrice } = this.selectProposal(contract_type);
 
