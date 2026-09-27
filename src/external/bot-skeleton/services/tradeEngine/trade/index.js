@@ -35,6 +35,8 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // Prevent duplicate EXIT handlers from racing each other or recursively
         // re-entering after the handler publishes an updated Analyzer state.
         this.analyzerExitHandling = false;
+        // Per-signal financial exit lock. Sell.js keeps this key after a failed
+        // SELL so duplicate Analyzer bridge events cannot retry the same contract.
         this.analyzerStateExitObserver = state => {
             // Some Analyzer bridge versions publish EARLY_SELL_READY as state
             // before (or instead of) emitting trapkid.analyzer.exit. Treat the
@@ -145,6 +147,9 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         }
 
         const activeKey = String(signal.signalId) + ':' + String(signal.lockedAt);
+        if (this.analyzerSellAttemptKey && this.analyzerSellAttemptKey !== activeKey) {
+            this.analyzerSellAttemptKey = null;
+        }
         if (String(commandKey || activeKey) !== activeKey) return;
 
         // The Analyzer command is itself the execution trigger.
@@ -380,6 +385,8 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             // BUY is still in flight. Keep the exact EXIT persisted, then allow
             // Purchase.js to consume it after Deriv returns the real contract ID.
             this.analyzerExitHandling = false;
+            // BUY is still in flight; no real SELL has been attempted yet.
+            this.analyzerSellAttemptKey = null;
             return;
         }
         // IMPORTANT: do not gate the exit on purchaseConsumedKey,
@@ -446,10 +453,10 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                     globalObserver.emit('ui.log.error', error?.message || 'Analyzer early sell failed.');
                 })
                 .finally(() => {
-                    // Keep the engine protected after a confirmed sell. If the
-                    // sell fails, allow a later explicit EXIT retry without ever
-                    // permitting concurrent SELL requests.
-                    if (!this.isSold) this.analyzerExitHandling = false;
+                    // Do not reopen this signal for another SELL attempt.
+                    // Sell.js owns the per-signal financial lock. A new Analyzer
+                    // signal clears it in onAnalyzerCommand.
+                    this.analyzerExitHandling = true;
                 });
         } else {
             this.analyzerExitHandling = false;
