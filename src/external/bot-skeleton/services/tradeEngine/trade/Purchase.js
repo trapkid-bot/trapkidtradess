@@ -35,10 +35,6 @@ export const analyzerPurchaseReservations = analyzerPurchaseReservationStore;
 // ANALYZER MATCH MODE: keep the purchased position open while the live
 // Analyzer stream searches for the exact hot digit. The same contract is
 // closed as soon as that digit appears.
-const ANALYZER_PHYSICAL_HOLD_TICKS = 1;
-const ANALYZER_LOGICAL_DURATION = 1;
-const ANALYZER_LOGICAL_DURATION_UNIT = 't';
-
 export default Engine =>
     class Purchase extends Engine {
         async purchase(contract_type) {
@@ -326,10 +322,8 @@ export default Engine =>
                         analyzerContractSignalId: this.analyzerSignal?.signalId || null,
                         analyzerPotentialPayout: Number.isFinite(Number(buy.payout)) ? Number(buy.payout) : null,
                         payout: Number.isFinite(Number(buy.payout)) ? Number(buy.payout) : null,
-                        analyzerLogicalDuration: ANALYZER_LOGICAL_DURATION,
-                        analyzerLogicalDurationUnit: ANALYZER_LOGICAL_DURATION_UNIT,
-                        derivPhysicalDuration: ANALYZER_PHYSICAL_HOLD_TICKS,
-                        derivPhysicalDurationUnit: 's',
+                        analyzerLogicalDuration: logicalDuration,
+                        analyzerLogicalDurationUnit: logicalDurationUnit,
                         payoutSource: 'DERIV_BUY',
                         derivBalanceAfterBuy: Number.isFinite(Number(buy.balance_after)) ? Number(buy.balance_after) : null,
                         signal: this.analyzerSignal || globalObserver.getState('trapkid_analyzer')?.signal,
