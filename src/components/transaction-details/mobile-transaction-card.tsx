@@ -123,6 +123,16 @@ export default function MobileTransactionCards({ transaction }: { transaction: T
             )}
             <div className={`${PARENT_CLASS}__card__row`}>
                 <CardColumn
+                    title='Analyzer Prediction / Hot Digit'
+                    label={(transaction as any)?.analyzer_hot_digit ?? (transaction as any)?.prediction ?? '—'}
+                />
+                <CardColumn
+                    title='Analyzer Exit'
+                    label={(transaction as any)?.analyzer_exit_status || 'WAITING_FOR_ANALYZER_EARLY_SELL'}
+                />
+            </div>
+            <div className={`${PARENT_CLASS}__card__row`}>
+                <CardColumn
                     title='Timestamp'
                     label={convertDateFormat(
                         transaction?.date_start,
