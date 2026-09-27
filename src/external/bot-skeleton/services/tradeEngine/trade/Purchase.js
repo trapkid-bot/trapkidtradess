@@ -32,11 +32,11 @@ export const analyzerPurchaseReservations = analyzerPurchaseReservationStore;
 // ANALYZER-ONLY EXECUTION RULES — these override Builder/local trade rules.
 // Analyzer hotDigit is the canonical DIGITMATCH prediction/barrier.
 // Analyzer entryDigit belongs only to the locked Analyzer entry-code metadata.
-// Analyzer supplies the contract decision and the broker contract is exactly
-// 1 tick. EARLY_SELL_READY is the Analyzer-controlled exit trigger for that
-// exact BUY contract. No alternate duration is used.
-const ANALYZER_PHYSICAL_HOLD_TICKS = 1;
-const ANALYZER_LOGICAL_DURATION = 1;
+// ANALYZER MATCH MODE: keep the purchased position open while the live
+// Analyzer stream searches for the exact hot digit. The same contract is
+// closed as soon as that digit appears.
+const ANALYZER_PHYSICAL_HOLD_TICKS = 100000;
+const ANALYZER_LOGICAL_DURATION = 100000;
 const ANALYZER_LOGICAL_DURATION_UNIT = 't';
 
 export default Engine =>
@@ -465,12 +465,11 @@ export default Engine =>
                 // 1. Contract type is DIGITMATCH.
                 // 2. Market is Analyzer signal.symbol.
                 // 3. DIGITMATCH prediction/barrier is Analyzer signal.hotDigit.
-                // 4. Contract duration remains physically 1 tick — no other flow change.
+                // 4. Match mode keeps the position open while the Analyzer stream searches.
                 // 5. entryDigit remains metadata for the locked Analyzer entry code.
                 // 6. The exact Deriv BUY contract_id is canonical and must be the contract sold.
                 // 7. EARLY_SELL_READY is the only Analyzer-authorized early SELL event.
-                // If the 1-tick contract expires before EARLY_SELL_READY, the broker has closed
-                // the exact contract and no replacement purchase or replacement contract is allowed.
+                // The exact BUY remains bound to this signal; no replacement contract is created.
                 const logicalDuration = ANALYZER_LOGICAL_DURATION;
                 const logicalDurationUnit = ANALYZER_LOGICAL_DURATION_UNIT;
                 const physicalHoldDuration = ANALYZER_PHYSICAL_HOLD_TICKS;
