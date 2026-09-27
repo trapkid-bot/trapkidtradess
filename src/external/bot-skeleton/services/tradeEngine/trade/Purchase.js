@@ -357,13 +357,17 @@ export default Engine =>
             if (analyzerMode) {
                 const signal = this.analyzerSignal || globalObserver.getState('trapkid_analyzer')?.signal;
                 const amount = Number(this.tradeOptions?.amount);
+                // Analyzer is authoritative for BOTH the market and the entry digit.
+                // Do not substitute the Builder prediction/hot digit when entryDigit
+                // is present. The hot digit remains Analyzer-owned exit intelligence.
                 const symbol = String(signal?.symbol || '');
+                const entryDigit = Number(signal?.entryDigit);
                 const hotDigit = Number(signal?.hotDigit);
                 const currency = this.tradeOptions?.currency || 'USD';
 
                 if (!signal?.signalId || !symbol || !Number.isFinite(amount) || amount <= 0 ||
-                    !Number.isInteger(hotDigit) || hotDigit < 0 || hotDigit > 9) {
-                    throw new Error('TRAPKID ANALYZER BUY -> missing stake, market, or hot digit.');
+                    !Number.isInteger(entryDigit) || entryDigit < 0 || entryDigit > 9) {
+                    throw new Error('TRAPKID ANALYZER BUY -> missing stake, Analyzer market, or Analyzer entry digit.');
                 }
 
                 // IMPORTANT:
@@ -385,7 +389,7 @@ export default Engine =>
                     duration: physicalHoldDuration,
                     duration_unit: 't',
                     underlying_symbol: symbol,
-                    barrier: String(hotDigit),
+                    barrier: String(entryDigit),
                 };
 
                 // Publish the normal DBot buying lifecycle before the broker
@@ -397,7 +401,7 @@ export default Engine =>
                     analyzer: true,
                     contract_type: 'DIGITMATCH',
                     symbol,
-                    prediction: hotDigit,
+                    prediction: entryDigit,
                     analyzer_entry_code: this.analyzerCommandKey || null,
                 });
                 globalObserver.setState({
@@ -407,7 +411,7 @@ export default Engine =>
                         analyzerExecutionStatus: 'ANALYZER_BUYING',
                         contractType: 'DIGITMATCH',
                         stake: amount,
-                        entryDigit: hotDigit,
+                        entryDigit,
                         analyzerEntryCode: this.analyzerCommandKey || null,
                     },
                 });
@@ -449,16 +453,87 @@ export default Engine =>
                 });
                 globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
+                // A proposal can become invalid between proposal and buy.
+                // Never retry a stale proposal id: request a fresh Analyzer-bound
+                // proposal and only accept the first successful BUY. This preserves
+                // the one-signal -> one-contract invariant while eliminating
+                // ContractBuyValidationError caused by an expired/moved proposal.
+                const makeFreshAnalyzerProposal = async () => {
+                    const response = await api_base.api.send({
+                        proposal: 1,
+                        amount,
+                        basis: 'stake',
+                        contract_type: 'DIGITMATCH',
+                        currency,
+                        duration: physicalHoldDuration,
+                        duration_unit: 't',
+                        underlying_symbol: symbol,
+                        barrier: String(entryDigit),
+                    });
+                    const fresh = response?.proposal;
+                    const freshId = fresh?.id;
+                    const freshAskPrice = Number(fresh?.ask_price);
+                    if (!freshId || !Number.isFinite(freshAskPrice) || freshAskPrice <= 0) {
+                        throw new Error('TRAPKID ANALYZER BUY -> Deriv returned no fresh valid proposal.');
+                    }
+                    return { id: String(freshId), askPrice: freshAskPrice, proposal: fresh };
+                };
+
                 let buyResponse;
-                try {
-                    buyResponse = await doUntilDone(
-                        () => api_base.api.send({ buy: String(proposalId), price: askPrice }),
-                        ['PriceMoved', 'InvalidContractProposal']
-                    );
-                } catch (error) {
-                    const code = error?.error?.code || error?.code || error?.message || 'unknown';
-                    globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER BUY ERROR -> ' + code);
-                    throw error;
+                let activeProposalId = String(proposalId);
+                let activeAskPrice = askPrice;
+                let lastBuyError;
+
+                for (let attempt = 0; attempt < 4; attempt += 1) {
+                    try {
+                        buyResponse = await api_base.api.send({
+                            buy: activeProposalId,
+                            price: activeAskPrice,
+                        });
+                        if (buyResponse?.buy?.contract_id) break;
+                        throw new Error('TRAPKID ANALYZER BUY -> Deriv returned no contract_id.');
+                    } catch (error) {
+                        lastBuyError = error;
+                        const code = String(error?.error?.code || error?.code || error?.message || 'unknown');
+                        globalObserver.emit('ui.log.error', 'TRAPKID ANALYZER BUY ERROR -> ' + code);
+
+                        const retryable = [
+                            'PriceMoved',
+                            'InvalidContractProposal',
+                            'ContractBuyValidationError',
+                            'ContractBuyValidation',
+                            'RateLimit',
+                        ].some(name => code.includes(name));
+
+                        if (!retryable || attempt === 3) throw error;
+
+                        // Refresh the proposal immediately before retrying the buy.
+                        // No second contract can exist because no BUY succeeded yet.
+                        const fresh = await makeFreshAnalyzerProposal();
+                        activeProposalId = fresh.id;
+                        activeAskPrice = fresh.askPrice;
+
+                        globalObserver.setState({
+                            trapkid_analyzer: {
+                                ...(globalObserver.getState('trapkid_analyzer') || {}),
+                                derivProposalId: activeProposalId,
+                                derivProposalAskPrice: activeAskPrice,
+                                analyzerEntryDigit: entryDigit,
+                                analyzerPotentialPayout: Number.isFinite(Number(fresh.proposal?.payout))
+                                    ? Number(fresh.proposal.payout)
+                                    : null,
+                                payout: Number.isFinite(Number(fresh.proposal?.payout))
+                                    ? Number(fresh.proposal.payout)
+                                    : null,
+                                payoutSource: 'DERIV_PROPOSAL_REFRESH',
+                            },
+                        });
+                        globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
+                    }
+                }
+
+                if (!buyResponse?.buy?.contract_id) {
+                    throw lastBuyError || new Error('TRAPKID ANALYZER BUY -> no Deriv contract returned.');
                 }
 
                 return onSuccess(buyResponse);
