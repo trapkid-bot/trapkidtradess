@@ -33,6 +33,21 @@ export default Engine =>
             if (this.isSold) return Promise.resolve();
 
             const exit = this.getAnalyzerExit?.();
+            const exitStatus = String(exit?.status || analyzerState?.exit?.status || '');
+            const exitDigit = Number(exit?.digit ?? analyzerState?.exit?.digit);
+            // Defensive validation at the financial boundary too: the SELL is
+            // allowed only for this exact Analyzer signal and its exact hot digit.
+            if (
+                exitStatus !== 'EARLY_SELL_READY' ||
+                !Number.isInteger(exitDigit) ||
+                exitDigit !== Number(analyzerSignal.hotDigit)
+            ) {
+                globalObserver.emit(
+                    'ui.log.error',
+                    'TRAPKID ANALYZER COMMAND → EARLY_SELL_READY REJECTED: exit digit/status mismatch'
+                );
+                return Promise.resolve();
+            }
             const contract = this.data?.contract || {};
             const fallbackStake = Number(contract.buy_price ?? this.tradeOptions?.amount ?? 0);
 
@@ -63,12 +78,11 @@ export default Engine =>
 
             if (!derivSettlement) {
                 // Allow a later Analyzer command to retry the SAME Deriv contract.
-                // A failed sell request must not permanently poison the one-shot
-                // promise and leave the UI stuck in "waiting".
+                // Never fabricate a local settlement when Deriv did not confirm it.
                 this.analyzerDerivSellPromise = null;
                 globalObserver.emit(
                     'ui.log.error',
-                    'TRAPKID ANALYZER COMMAND → REAL DERIV SELL DID NOT RETURN PROCEEDS; SAME contract sell remains retryable'
+                    'TRAPKID ANALYZER COMMAND → REAL DERIV SELL DID NOT RETURN PROCEEDS; SAME contract remains open/terminal and was not locally closed'
                 );
                 return Promise.resolve();
             }
