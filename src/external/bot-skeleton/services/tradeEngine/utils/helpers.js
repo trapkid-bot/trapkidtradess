@@ -27,20 +27,12 @@ const getAnalyzerTradeDuration = trade_option => {
         ].includes(String(state.status || ''));
 
     if (analyzerActive && (trade_option?.contractTypes || []).includes('DIGITMATCH')) {
-        // Analyzer is authoritative for duration when it supplies one.
-        // Otherwise preserve the user's selected ticks value from the DBot
-        // execution settings. EARLY_SELL_READY remains the Analyzer exit.
-        const analyzerDuration = Number(signal?.duration);
-        const analyzerDurationUnit = signal?.duration_unit || signal?.durationUnit;
-        if (Number.isFinite(analyzerDuration) && analyzerDuration > 0) {
-            return {
-                duration: analyzerDuration,
-                duration_unit: analyzerDurationUnit || 't',
-            };
-        }
+        // Analyzer supplies the contract decision only. The DBot execution
+        // setting remains exactly one tick for this Analyzer DIGITMATCH path.
+        // EARLY_SELL_READY is handled by the normal sell pipeline.
         return {
-            duration: trade_option.duration,
-            duration_unit: trade_option.duration_unit,
+            duration: 1,
+            duration_unit: 't',
         };
     }
 
