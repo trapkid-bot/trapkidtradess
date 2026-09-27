@@ -14,16 +14,16 @@ import { TColumn, TDesktopTransactionTable, TTableCell } from './transaction-det
 const PARENT_CLASS = 'transaction-details-modal-desktop';
 
 const AnalyzerCell = ({ data }: { data: any }) => (
-    <div style={{ lineHeight: 1.2 }}>
-        <div style={{ fontSize: 10, wordBreak: 'break-all' }}>
-            {data?.analyzer_entry_code || '—'}
-        </div>
-        <div style={{ fontSize: 10 }}>
-            Hot digit: {data?.analyzer_hot_digit ?? data?.prediction ?? '—'}
-        </div>
-        <div style={{ fontSize: 10, opacity: 0.7 }}>
-            Exit: {data?.analyzer_exit_status || 'WAITING_FOR_ANALYZER_EARLY_SELL'}
-        </div>
+    <div style={{ lineHeight: 1.2, wordBreak: 'break-word' }}>
+        <div style={{ fontSize: 10, fontWeight: 600 }}>Entry code: {data?.analyzer_entry_code || data?.analyzer_command_key || '—'}</div>
+        <div style={{ fontSize: 10 }}>Entry digit: {data?.analyzer_entry_digit ?? '—'}</div>
+        <div style={{ fontSize: 10 }}>Entry quote: {data?.analyzer_entry_quote ?? '—'}</div>
+        <div style={{ fontSize: 10 }}>Locked quote: {data?.analyzer_locked_quote ?? '—'}</div>
+        <div style={{ fontSize: 10 }}>Contract: {data?.analyzer_contract_id || data?.deriv_contract_id || data?.contract_id || '—'}</div>
+        <div style={{ fontSize: 10 }}>Hot digit: {data?.analyzer_hot_digit ?? data?.prediction ?? '—'}</div>
+        <div style={{ fontSize: 10 }}>Exit: {data?.analyzer_exit_status || 'WAITING_FOR_ANALYZER_EARLY_SELL'}</div>
+        <div style={{ fontSize: 10 }}>Exit code: {data?.analyzer_exit_code || 'WAITING'}</div>
+        <div style={{ fontSize: 10 }}>Exit digit: {data?.analyzer_exit_digit ?? '—'}</div>
         <div style={{ fontSize: 10, opacity: 0.7 }}>
             {data?.analyzer_execution_status ||
                 (data?.is_sold ? 'ANALYZER_SETTLED' : 'HOLDING_FOR_ANALYZER_EARLY_SELL')}
