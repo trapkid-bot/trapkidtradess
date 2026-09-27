@@ -266,11 +266,20 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
 
         if ((this.contractId || this.derivContractId) && !this.isSold) {
             void this.sellAtMarket('ANALYZER_EARLY_SELL')
-                .then(() => {
-                    if (this.resolveAnalyzerCycle) {
+                .then(sold => {
+                    // Do not release the Analyzer cycle unless the SAME Deriv
+                    // contract was actually sold and settlement was confirmed.
+                    if (sold && this.resolveAnalyzerCycle) {
                         const resolve = this.resolveAnalyzerCycle;
                         this.resolveAnalyzerCycle = null;
                         resolve();
+                        return;
+                    }
+                    if (!sold) {
+                        globalObserver.emit(
+                            'ui.log.error',
+                            'TRAPKID ANALYZER → early-sell command received, but Deriv did not confirm the same contract as sold; cycle remains locked to this contract.'
+                        );
                     }
                 })
                 .catch(error => {
