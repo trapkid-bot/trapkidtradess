@@ -9,6 +9,12 @@ import { observer as globalObserver } from '../../../utils/observer';
 let delayIndex = 0;
 let purchase_reference;
 
+// Analyzer signal -> real Deriv BUY contract binding.
+// This module singleton is the immutable in-process source for SELL. It prevents
+// another TradeEngine instance or stale observer state from supplying an older
+// contract_id for the current Analyzer signal.
+export const analyzerContractBindings = new Map();
+
 // ANALYZER-ONLY EXECUTION RULES — these override Builder/local trade rules.
 // Analyzer entryDigit is the ONLY DIGITMATCH purchase barrier.
 // Analyzer hotDigit is the ONLY Analyzer-controlled early-exit digit.
@@ -176,6 +182,15 @@ export default Engine =>
                 this.derivContractId = String(buy.contract_id);
                 this.derivBuy = buy;
                 this.derivBuyTransactionId = buy.transaction_id ?? null;
+
+                // Bind the broker's actual BUY contract to this exact Analyzer signal
+                // before publishing any lifecycle/UI state. SELL must use this value.
+                if (this.analyzerSignal?.signalId && Number.isFinite(Number(this.analyzerSignal?.lockedAt))) {
+                    analyzerContractBindings.set(
+                        String(this.analyzerSignal.signalId) + ':' + String(this.analyzerSignal.lockedAt),
+                        String(buy.contract_id)
+                    );
+                }
                 this.isSold = false;
                 this.isExpired = false;
                 this.isSellAvailable = true;
