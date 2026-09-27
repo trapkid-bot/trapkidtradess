@@ -122,17 +122,8 @@ export default Engine =>
             this.contractId = contractId;
             this.derivContractId = contractId;
 
-            if (buyResponseContractId && stateBuyContractId && buyResponseContractId !== stateBuyContractId) {
-                globalObserver.emit(
-                    'ui.log.error',
-                    'TRAPKID ANALYZER SELL BLOCKED → BUY binding mismatch; engine=' +
-                        buyResponseContractId +
-                        ' state=' +
-                        stateBuyContractId
-                );
-                return false;
-            }
-
+            // The immutable signal binding above is the sole BUY identity.
+            // Do not reference the old per-engine buyResponseContractId here.
             globalObserver.emit(
                 'ui.log',
                 'TRAPKID ANALYZER EARLY SELL → SAME DERIV CONTRACT → ' +
