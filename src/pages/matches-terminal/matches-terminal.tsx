@@ -372,344 +372,69 @@ const MatchesTerminal = () => {
         };
     }, []);
 
-    const requestProposal = useCallback(async (entry: {
-        symbol: string;
-        prediction: number;
-        holdTicks: number;
-        stake: number;
-    }) => {
-        setError('');
-        setStatus('Requesting live Match proposal…');
-        if (!api_base.is_authorized || !api_base.api) {
-            throw new Error('Log in to Deriv first. The existing Deriv account switcher controls demo/real.');
-        }
+    // The TradeEngine is the single financial executor.
+    // This terminal never sends its own BUY or SELL requests. It only reflects
+    // Analyzer commands and the authoritative Deriv contract state published
+    // by the engine.
+    useEffect(() => {
+        const applyExecutionState = (state: any) => {
+            if (!state) return;
 
-        const response = await sendApiRequest({
-            proposal: 1,
-            amount: entry.stake,
-            basis: 'stake',
-            contract_type: 'DIGITMATCH',
-            currency,
-            duration: ANALYZER_PHYSICAL_HOLD_SECONDS,
-            duration_unit: 's',
-            barrier: String(entry.prediction),
-            underlying_symbol: entry.symbol,
-        });
-
-        if (!response?.proposal) throw new Error('No Match proposal returned by Deriv.');
-        const p = response.proposal;
-        const ask = Number(p.ask_price ?? p.display_value ?? entry.stake);
-        const nextPayout = Number(p.payout ?? p.payout_amount ?? 0);
-        setProposalId(String(p.id));
-        setPayout(nextPayout || null);
-        setStatus(`Proposal ready — ${entry.symbol} / MATCH ${entry.prediction} / logical 1 tick / Analyzer lifecycle hold`);
-        return { id: String(p.id), ask, payout: nextPayout };
-    }, [currency]);
-
-    const buyFromAnalyzerSignal = useCallback(async (signal: any) => {
-        try {
-            const signalId = String(signal?.signalId || '');
-            const lockedAt = Number(signal?.lockedAt);
-            const commandKey = signalId
-                ? signalId + ':' + (Number.isFinite(lockedAt) ? lockedAt : '')
-                : '';
-            if (!commandKey || analyzerAuthorizedSignalRef.current !== commandKey) {
-                throw new Error('Analyzer command was not authorized. DBot remains idle.');
+            if (state.status === 'ANALYZER_SETTLED' || state.status === 'WAITING_FOR_ANALYZER') {
+                tradeRef.current = null;
+                sellingRef.current = false;
+                setTrade(null);
+                if (state.status === 'ANALYZER_SETTLED') {
+                    setStatus(
+                        'ANALYZER EARLY_SELL_READY → SAME DERIV CONTRACT SETTLED' +
+                        (state.derivPayout != null ? ' • ' + formatMoney(Number(state.derivPayout), currency) : '')
+                    );
+                }
+                return;
             }
-            const entrySymbol = String(signal?.symbol || '');
-            const entryPrediction = Number(signal?.hotDigit ?? signal?.prediction ?? signal?.lockedDigit);
-            const bridgeState = globalObserver.getState('trapkid_analyzer') || {};
-            const liveAnalyzerSymbol = String(bridgeState?.symbol || analyzerDetails?.symbol || '');
-            const liveAnalyzerSignalId = String(bridgeState?.signal?.signalId || analyzerDetails?.signal?.signalId || '');
-            const liveAnalyzerPrediction = Number(
-                bridgeState?.signal?.hotDigit ??
-                bridgeState?.signal?.prediction ??
-                bridgeState?.signal?.lockedDigit ??
-                analyzerDetails?.signal?.hotDigit ??
-                analyzerDetails?.signal?.prediction ??
-                analyzerDetails?.signal?.lockedDigit
-            );
-            const logicalHoldTicks = ANALYZER_LOGICAL_DURATION;
-            const entryStake = Number(stake);
 
-            if (!signalId) throw new Error('Analyzer signal has no signalId.');
-            if (!entrySymbol) throw new Error('Analyzer signal has no market symbol.');
-            if (liveAnalyzerSymbol !== entrySymbol) throw new Error('Analyzer market changed before execution; waiting for the current Analyzer signal.');
-            if (liveAnalyzerSignalId !== signalId) throw new Error('Analyzer signal changed before execution; stale signal blocked.');
-            if (!Number.isInteger(liveAnalyzerPrediction) || liveAnalyzerPrediction !== entryPrediction) throw new Error('Analyzer prediction changed before execution; stale prediction blocked.');
-            if (!Number.isInteger(entryPrediction) || entryPrediction < 0 || entryPrediction > 9) throw new Error('Analyzer signal has no valid locked digit.');
-            if (signal.expiresAt && Number.isFinite(Number(signal.expiresAt)) && Date.now() > Number(signal.expiresAt)) {
-                throw new Error('Analyzer signal expired before DBot could open the contract.');
-            }
-            if (tradeRef.current || sellingRef.current) return;
+            const contractId = String(state.derivContractId || state.analyzerContractId || '');
+            const signal = state.signal;
+            if (!contractId || !signal?.signalId) return;
+            if (!['ANALYZER_EXECUTION', 'ANALYZER_PURCHASE_AUTHORIZED', 'RUNNING', 'EARLY_EXIT_COMMAND_RECEIVED', 'ANALYZER_DATA_BOUND'].includes(String(state.status || ''))) return;
 
-            // Consume the authorization before any proposal/buy request is sent.
-            // No button, local prediction, local tick or stale signal can authorize execution.
-            analyzerAuthorizedSignalRef.current = null;
-            setError('');
-            const proposal = await requestProposal({
-                symbol: entrySymbol,
-                prediction: entryPrediction,
-                holdTicks: logicalHoldTicks,
-                stake: entryStake,
-            });
-            const response = await sendApiRequest({ buy: proposal.id, price: Math.max(0, proposal.ask) });
-            const b = response?.buy;
-            if (!b?.contract_id) throw new Error('Deriv did not return a contract id.');
-
+            const prediction = Number(state.hotDigit ?? state.prediction ?? signal.hotDigit ?? signal.prediction);
+            const buyPrice = Number(state.derivBuyPrice ?? state.derivTransactionId ? state.derivBuyPrice : 0);
             const nextTrade: Trade = {
-                signalId,
-                contractId: String(b.contract_id),
-                prediction: entryPrediction,
-                symbol: entrySymbol,
-                stake: entryStake,
-                payout: Number(b.payout ?? proposal.payout ?? 0),
-                buyPrice: Number(b.buy_price ?? proposal.ask),
-                bidPrice: Number(b.buy_price ?? proposal.ask),
-                openedAt: Date.now(),
+                signalId: String(signal.signalId),
+                contractId,
+                prediction: Number.isInteger(prediction) ? prediction : 0,
+                symbol: String(state.symbol || signal.symbol || symbol),
+                stake: Number.isFinite(Number(buyPrice)) && Number(buyPrice) > 0 ? Number(buyPrice) : stake,
+                payout: Number.isFinite(Number(state.analyzerPotentialPayout ?? state.payout)) ? Number(state.analyzerPotentialPayout ?? state.payout) : 0,
+                buyPrice: Number.isFinite(Number(buyPrice)) ? Number(buyPrice) : 0,
+                bidPrice: Number.isFinite(Number(state.derivBuyPrice)) ? Number(state.derivBuyPrice) : 0,
+                openedAt: Number(state.analyzerBoundAt || Date.now()),
                 holdTicks: ANALYZER_LOGICAL_DURATION,
-                entryDigit: Number.isInteger(Number(signal?.entryDigit)) ? Number(signal.entryDigit) : null,
-                hotDigit: Number.isInteger(Number(signal?.hotDigit)) ? Number(signal.hotDigit) : null,
-                lockedDigit: entryPrediction,
+                entryDigit: Number.isInteger(Number(signal.entryDigit)) ? Number(signal.entryDigit) : prediction,
+                hotDigit: Number.isInteger(Number(signal.hotDigit)) ? Number(signal.hotDigit) : prediction,
+                lockedDigit: Number.isInteger(Number(signal.lockedDigit)) ? Number(signal.lockedDigit) : prediction,
             };
 
             tradeRef.current = nextTrade;
-            sellingRef.current = false;
             setTrade(nextTrade);
-
-            globalObserver.setState({
-                trapkid_analyzer: {
-                    ...(globalObserver.getState('trapkid_analyzer') || {}),
-                    status: 'RUNNING',
-                    analyzerStatus: 'ANALYZE_CLICK',
-                    entryReady: true,
-                    executionArmed: true,
-                    executionTrigger: 'ANALYZER_ENTRY',
-                    signalId,
-                    commandKey,
-                    signal,
-                    symbol: entrySymbol,
-                    entryPrediction,
-                    lockedDigit: entryPrediction,
-                    hotDigit: Number(signal?.hotDigit ?? entryPrediction),
-                    entrySource: 'ANALYZER_ONLY',
-                    exitSource: 'ANALYZER_EARLY_SELL_ONLY',
-                    holdUntilAnalyzerExit: true,
-                    derivContractId: String(b.contract_id),
-                    derivTransactionId: b.transaction_id ?? null,
-                    derivBuyPrice: Number(b.buy_price ?? proposal.ask),
-                    analyzerPotentialPayout: Number(b.payout ?? proposal.payout ?? 0),
-                    payout: Number(b.payout ?? proposal.payout ?? 0),
-                    payoutSource: 'DERIV_BUY',
-                    derivBalanceAfterBuy: Number.isFinite(Number(b.balance_after)) ? Number(b.balance_after) : null,
-                    analyzerLogicalDuration: ANALYZER_LOGICAL_DURATION,
-                    analyzerLogicalDurationUnit: ANALYZER_LOGICAL_DURATION_UNIT,
-                    derivPhysicalDuration: ANALYZER_PHYSICAL_HOLD_SECONDS,
-                    derivPhysicalDurationUnit: 's',
-                },
-            });
-            globalObserver.emit(
-                'trapkid.analyzer.updated',
-                globalObserver.getState('trapkid_analyzer') || {}
-            );
-            setPrediction(entryPrediction);
-            setSymbol(entrySymbol);
-            setStatus(`ANALYZER BUY CONFIRMED • ${entrySymbol} • DIGITMATCH ${entryPrediction} • logical 1 tick • holding for Analyzer EARLY_SELL_READY • ${signalId}`);
-            setProposalId(null);
-
-            api_base.api?.send({
-                proposal_open_contract: 1,
-                contract_id: nextTrade.contractId,
-                subscribe: 1,
-            });
-            return true;
-        } catch (e: any) {
-            setError(e?.message || 'Analyzer signal buy failed');
-            setStatus('Analyzer signal received — trade not opened');
-            return false;
-        }
-    }, [analyzerDetails?.signal, analyzerDetails?.symbol, requestProposal, stake]);
-
-    const exitOnHit = useCallback(async (active: Trade, quote: number, hitDigit: number) => {
-        try {
-            if (!api_base.api) throw new Error('Deriv connection is not available.');
-            // Analyzer decides when the exit happens. We do not use a
-            // Deriv market tick to trigger it. For the broker-side close,
-            // use the Analyzer's exit quote when supplied; otherwise use
-            // Deriv's documented market-sell price of 0.
-            const response = await sendApiRequest({
-                sell: active.contractId,
-                price: 0,
-            });
-
-            const sold = response?.sell;
-            const soldFor = Number(sold?.sold_for);
-            if (!Number.isFinite(soldFor)) {
-                throw new Error('Deriv did not return authoritative sold_for for the same contract.');
-            }
-            const pnl = soldFor - active.buyPrice;
-
-            setTrades(prev => [
-                {
-                    time: new Date().toLocaleTimeString(),
-                    digit: hitDigit,
-                    result: 'EXIT ON HIT',
-                    pnl,
-                },
-                ...prev,
-            ].slice(0, 20));
-
-            setStatus('Analyzer EARLY_SELL_READY → SAME DERIV CONTRACT SOLD at ' + formatMoney(soldFor, currency));
-            globalObserver.setState({
-                trapkid_analyzer: {
-                    ...(globalObserver.getState('trapkid_analyzer') || {}),
-                    status: 'ANALYZER_SETTLED',
-                    analyzerStatus: 'EARLY_SELL_READY',
-                    entryReady: false,
-                    executionArmed: false,
-                    executionTrigger: 'ANALYZER_SETTLED',
-                    signalId: active.signalId,
-                    commandKey: active.signalId + ':' + String(analyzerDetails?.signal?.lockedAt || ''),
-                    derivContractId: active.contractId,
-                    derivSellTransactionId: sold.transaction_id ?? null,
-                    derivPayout: soldFor,
-                    payout: soldFor,
-                    profit: pnl,
-                    derivBalanceAfterSell: Number.isFinite(Number(sold.balance_after)) ? Number(sold.balance_after) : null,
-                    holdUntilAnalyzerExit: false,
-                    exit: {
-                        ...(analyzerDetails?.exit || {}),
-                        status: 'EARLY_SELL_READY',
-                        signalId: active.signalId,
-                        digit: hitDigit,
-                    },
-                },
-            });
-            globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer') || {});
-            setTrade(null);
-            tradeRef.current = null;
-            sellingRef.current = false;
-            void quote;
-        } catch (e: any) {
-            setError(e?.message || 'Early exit failed');
-            setStatus('Target appeared, but the broker rejected the early sale.');
-            sellingRef.current = false;
-        }
-    }, [analyzerDetails?.exit?.quote, currency]);
-    useEffect(() => {
-        const signal = analyzerDetails?.signal;
-        const signalId = String(signal?.signalId || '');
-        const lockedAt = Number(signal?.lockedAt);
-        const signalKey = signalId
-            ? signalId + ':' + (Number.isFinite(lockedAt) ? lockedAt : '')
-            : '';
-
-        if (!analyzerInitializedRef.current || !signalKey) return;
-        const freshSignalAfterMount = Number.isFinite(lockedAt) &&
-            lockedAt >= analyzerMountedAtRef.current - 30000;
-        if (signalKey === analyzerBaselineSignalRef.current && !freshSignalAfterMount) return;
-        if (signalKey === analyzerProcessedSignalRef.current) return;
-        if (tradeRef.current || sellingRef.current) return;
-
-        const signalReady =
-            signal.exitStatus !== 'EARLY_EXIT_TRIGGERED' &&
-            signal.exitStatus !== 'EXPIRED' &&
-            signal.earlyExit !== true &&
-            (!signal.expiresAt || Date.now() <= Number(signal.expiresAt));
-
-        if (!signalReady) {
-            setStatus('ANALYZER SIGNAL RECEIVED • waiting for an executable signal state…');
-            return;
-        }
-
-        analyzerProcessedSignalRef.current = signalKey;
-        analyzerAuthorizedSignalRef.current = signalKey;
-        setStatus(
-            'ANALYZER COMMAND RECEIVED • ' +
-            String(signal.symbol || analyzerDetails?.symbol || '—') +
-            ' • MATCH ' + String(signal.prediction ?? signal.lockedDigit ?? '—') +
-            ' • executing…'
-        );
-
-        void buyFromAnalyzerSignal(signal).then(ok => {
-            if (!ok) {
-                analyzerProcessedSignalRef.current = null;
-                analyzerAuthorizedSignalRef.current = null;
-            }
-        });
-    }, [analyzerDetails, buyFromAnalyzerSignal]);
-
-    useEffect(() => {
-        const onAnalyzerCommand = (command: any) => {
-            if (String(command?.command || '') !== 'EXECUTE_ANALYZER_SIGNAL') return;
-            const signal = command?.signal;
-            if (!signal?.signalId || !signal?.symbol) return;
-
-            const signalId = String(signal.signalId);
-            const lockedAt = Number(signal.lockedAt);
-            const commandKey = signalId + ':' + (Number.isFinite(lockedAt) ? lockedAt : '');
-            if (!commandKey || tradeRef.current || sellingRef.current) return;
-
-            analyzerAuthorizedSignalRef.current = commandKey;
-            analyzerProcessedSignalRef.current = commandKey;
+            setSymbol(nextTrade.symbol);
+            setPrediction(nextTrade.prediction);
             setStatus(
-                'ANALYZER ANALYZE CLICK → BUYING NOW • ' +
-                signalId +
-                ' • ' +
-                String(signal.symbol) +
-                ' • DIGITMATCH ' +
-                String(signal.hotDigit ?? signal.prediction ?? signal.lockedDigit ?? '—')
+                state.status === 'RUNNING'
+                    ? 'ANALYZER BUY CONFIRMED • SAME DERIV CONTRACT HELD • waiting for EARLY_SELL_READY'
+                    : 'ANALYZER COMMAND RECEIVED • TradeEngine executing ' + nextTrade.signalId
             );
-
-            void buyFromAnalyzerSignal(signal).then(ok => {
-                if (!ok) {
-                    analyzerProcessedSignalRef.current = null;
-                    analyzerAuthorizedSignalRef.current = null;
-                }
-            });
         };
 
-        globalObserver.register('trapkid.analyzer.command', onAnalyzerCommand);
+        const onAnalyzerUpdated = (state: any) => applyExecutionState(state);
+        globalObserver.register('trapkid.analyzer.updated', onAnalyzerUpdated);
+        applyExecutionState(globalObserver.getState('trapkid_analyzer') || {});
+
         return () => {
-            globalObserver.unregister('trapkid.analyzer.command', onAnalyzerCommand);
+            globalObserver.unregister('trapkid.analyzer.updated', onAnalyzerUpdated);
         };
-    }, [buyFromAnalyzerSignal]);
-
-    useEffect(() => {
-        const tick = analyzerDetails?.lastTick;
-        if (tick) {
-            const epoch = Number(tick.epoch);
-            if (Number.isFinite(epoch) && analyzerTickRef.current !== epoch) {
-                analyzerTickRef.current = epoch;
-            }
-        }
-
-        const active = tradeRef.current;
-        const analyzerExit = analyzerDetails?.exit;
-        const exitReady = analyzerExit?.status === 'EARLY_SELL_READY';
-        const exitDigit = Number(analyzerExit?.digit);
-        const exitQuote = Number(analyzerExit?.quote);
-        const activeSignalId = String(analyzerDetails?.signal?.signalId || '');
-
-        // Analyzer's EARLY_SELL_READY command is the only exit trigger.
-        // Do not require the local prediction to match: the Analyzer owns
-        // the exit digit and the DBot obeys that exact command.
-        if (
-            active &&
-            !sellingRef.current &&
-            exitReady &&
-            Number.isInteger(exitDigit) &&
-            activeSignalId === active.signalId &&
-            exitDigit === Number(active.hotDigit)
-        ) {
-            sellingRef.current = true;
-            void exitOnHit(
-                active,
-                Number.isFinite(exitQuote) ? exitQuote : 0,
-                exitDigit
-            );
-        }
-    }, [analyzerDetails, trade, exitOnHit]);
+    }, [currency, stake, symbol]);
 
     const selectMarket = (next: string) => {
         if (analyzerDetails?.symbol && next !== analyzerDetails.symbol) {
