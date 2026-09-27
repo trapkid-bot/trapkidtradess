@@ -218,11 +218,10 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         }
     };
     onAnalyzerEarlyExit = async command => {
-        // Analyzer owns the full lifecycle:
-        // 1) a locked signal authorizes the BUY immediately;
-        // 2) the purchased contract stays open;
-        // 3) EARLY_SELL_READY is the ONLY event allowed to SELL it.
-        // Never turn EARLY_SELL_READY into another BUY.
+        // Analyzer-only settlement lifecycle:
+        // BUY creates the real Deriv contract. EARLY_SELL_READY is an Analyzer
+        // signal/observation only; it MUST NOT send a Deriv SELL request.
+        // The exact purchased contract is left with Deriv until it settles.
         const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
         // The explicit EXIT event and the shared state bridge can deliver the
         // same lifecycle signal. Only one handler may process it at a time.
@@ -342,132 +341,54 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // between the EXIT event and this handler. The signalId is the trade
         // identity; the Deriv contract_id is the financial execution handle.
 
-        // EARLY_SELL_READY is an EXIT-only event. If the BUY is still in
-        // flight, remember the exact exit instead of dropping the event.
-        // The pending exit is consumed immediately after contractId exists.
-        if (this.isSold) return;
+        // EARLY_SELL_READY is NOT a manual SELL command here.
+        // The contract was already purchased. Record the Analyzer signal and
+        // wait for Deriv to automatically settle the exact BUY contract.
+        const contractId = String(
+            this.derivBuy?.contract_id ||
+            analyzerState?.analyzerBuyContractId ||
+            ''
+        );
 
-        // The REAL Deriv contract_id is the financial execution handle.
-        // If the current engine still has the BUY response, it is always the
-        // canonical source. Only fall back to Analyzer state that is explicitly
-        // bound to THIS signal; never revive a generic/stale derivContractId.
-        const currentBuyContractId = String(this.derivBuy?.contract_id || '');
-        const stateBuySignalId = String(analyzerState?.analyzerBuySignalId || '');
-        const stateBuyContractId =
-            stateBuySignalId === activeSignalId
-                ? String(analyzerState?.analyzerBuyContractId || '')
-                : '';
-        const stateAnalyzerSignalId = String(analyzerState?.analyzerContractSignalId || '');
-        const stateAnalyzerContractId =
-            stateAnalyzerSignalId === activeSignalId
-                ? String(analyzerState?.analyzerContractId || '')
-                : '';
-        const exactBoundContractId =
-            currentBuyContractId ||
-            stateBuyContractId ||
-            stateAnalyzerContractId;
-
-        if (!this.derivContractId && exactBoundContractId) {
-            this.derivContractId = exactBoundContractId;
-        }
-        if (!this.contractId && exactBoundContractId) {
-            this.contractId = exactBoundContractId;
-        }
-
-        // If the BUY has genuinely not produced a Deriv contract yet, preserve
-        // this exact exit and consume it immediately when the BUY completes.
-        if (!this.derivContractId) {
-            globalObserver.setState({
-                trapkid_analyzer: {
-                    ...analyzerState,
-                    pendingEarlyExit: {
-                        ...exit,
-                        status: 'EARLY_SELL_READY',
-                        signalId: activeSignalId,
-                    },
-                },
-            });
-            globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
-            // BUY is still in flight. Keep the exact EXIT persisted, then allow
-            // Purchase.js to consume it after Deriv returns the real contract ID.
+        if (!contractId) {
+            globalObserver.emit(
+                'ui.log',
+                'TRAPKID ANALYZER → EARLY_SELL_READY observed before BUY contract binding; no SELL sent.'
+            );
             this.analyzerExitHandling = false;
-            // BUY is still in flight; no real SELL has been attempted yet.
-            this.analyzerSellAttemptKey = null;
-            return;
+            return false;
         }
-        // IMPORTANT: do not gate the exit on purchaseConsumedKey,
-        // analyzerPurchaseKey, or analyzerCommandKey. Those are local lifecycle
-        // bookkeeping values and can lag the real Analyzer command. Once the
-        // exact signalId + EARLY_SELL_READY + matching hot digit have been
-        // validated above, the existing Deriv contract is authorized to SELL.
-        //
-        // The command path below is deliberately unconditional with respect to
-        // those local flags. This is the command-following boundary:
-        // Analyzer READY -> same derivContractId -> real Deriv SELL.
-        
-        // The contract is already open. EARLY_SELL_READY now closes that
-        // existing Analyzer contract and can never create a second BUY.
-        this.tradeOptions = {
-            ...this.tradeOptions,
-            contractTypes: ['DIGITMATCH'],
-            symbol: signal.symbol,
-            prediction: Number(signal.hotDigit),
-            duration: this.tradeOptions?.duration,
-            duration_unit: this.tradeOptions?.duration_unit,
-        };
 
-        // The contract is already purchased in Analyzer mode. This event
-        // only closes that existing contract.
         globalObserver.setState({
             trapkid_analyzer: {
                 ...analyzerState,
-                status: 'EARLY_EXIT_EXECUTING',
+                status: 'WAITING_FOR_ANALYZER_SETTLEMENT',
+                analyzerExecutionStatus: 'WAITING_FOR_DERIV_SETTLEMENT',
                 signal,
-                signalId: signal.signalId,
+                signalId: activeSignalId,
                 commandKey,
                 symbol: signal.symbol,
-                prediction: Number(signal.hotDigit),
+                prediction: Number(signal.entryDigit ?? signal.prediction),
+                entryDigit: Number(signal.entryDigit),
                 hotDigit: Number(signal.hotDigit),
                 exit,
-                executionTrigger: 'EARLY_SELL_READY',
+                executionTrigger: 'ANALYZER_EARLY_SELL_READY',
                 holdUntilAnalyzerExit: false,
                 executionArmed: true,
                 cycleFinished: false,
+                settlementSource: 'DERIV_AUTOMATIC_SETTLEMENT',
+                analyzerContractId: contractId,
+                derivContractId: contractId,
+                pendingEarlyExit: null,
             },
         });
         globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
-
-        if ((this.contractId || this.derivContractId) && !this.isSold) {
-            void this.sellAtMarket('ANALYZER_EARLY_SELL')
-                .then(sold => {
-                    // Do not release the Analyzer cycle unless the SAME Deriv
-                    // contract was actually sold and settlement was confirmed.
-                    if (sold && this.resolveAnalyzerCycle) {
-                        const resolve = this.resolveAnalyzerCycle;
-                        this.resolveAnalyzerCycle = null;
-                        resolve();
-                        return;
-                    }
-                    if (!sold) {
-                        globalObserver.emit(
-                            'ui.log.error',
-                            'TRAPKID ANALYZER → early-sell command received, but Deriv did not confirm the same contract as sold; cycle remains locked to this contract.'
-                        );
-                    }
-                })
-                .catch(error => {
-                    globalObserver.emit('ui.log.error', error?.message || 'Analyzer early sell failed.');
-                })
-                .finally(() => {
-                    // Do not reopen this signal for another SELL attempt.
-                    // Sell.js owns the per-signal financial lock. A new Analyzer
-                    // signal clears it in onAnalyzerCommand.
-                    this.analyzerExitHandling = true;
-                });
-        } else {
-            this.analyzerExitHandling = false;
-        }
-    };
+        globalObserver.emit(
+            'ui.log',
+            'TRAPKID ANALYZER → EARLY_SELL_READY observed → NO SELL REQUEST → waiting for Deriv settlement of SAME CONTRACT=' + contractId
+        );
+        this.analyzerExitHandling = true;
+        return false;
 
     init(...args) {
         const [, options] = expectInitArg(args);
