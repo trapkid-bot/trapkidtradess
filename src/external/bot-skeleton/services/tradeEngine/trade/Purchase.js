@@ -443,10 +443,14 @@ export default Engine =>
                     };
                 }
 
-                // The contract may have expired before the Analyzer exit arrived.
-                // In that case, keep the existing read-only financial reconciliation
-                // as the fallback instead of fabricating a payout.
-                return this.settleAnalyzerDerivContract?.();
+                // Analyzer controls this lifecycle. Never silently switch an
+                // Analyzer early-exit into expiry settlement when the Deriv sell
+                // response is unavailable.
+                globalObserver.emit(
+                    'ui.log.error',
+                    'TRAPKID DERIV EARLY SELL → no sell response; Analyzer lifecycle remains open'
+                );
+                return null;
             })();
 
             return this.analyzerDerivSellPromise;
