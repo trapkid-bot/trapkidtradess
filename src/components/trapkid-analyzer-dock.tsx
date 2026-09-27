@@ -358,7 +358,9 @@ const TrapKidAnalyzerDock = () => {
     const hotDigit = Number(details?.analysis?.hotDigit ?? details?.signal?.hotDigit);
     const exitDigit = Number(details?.exit?.digit ?? executionState?.exit?.digit);
     const exitStatus = String(
-        executionState?.analyzerExitStatus === 'EARLY_SELL_READY' || executionState?.status === 'EARLY_EXIT_EXECUTING' || executionState?.status === 'ANALYZER_EARLY_SELL_CONFIRMED'
+        executionState?.analyzerExitStatus === 'EARLY_SELL_READY' ||
+        executionState?.status === 'EARLY_EXIT_EXECUTING' ||
+        executionState?.status === 'ANALYZER_EARLY_SELL_CONFIRMED'
             ? 'EARLY_SELL_READY'
             : details?.exit?.status || executionState?.exit?.status || 'IDLE'
     );
