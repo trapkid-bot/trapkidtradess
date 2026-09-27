@@ -345,7 +345,7 @@ const TrapKidAnalyzerDock = () => {
             ? 'MATCH_FOUND'
             : details?.exit?.status || executionState?.exit?.status || 'IDLE'
     );
-    const exitValid = ['EARLY_SELL_READY', 'MATCH_FOUND'].includes(exitStatus) && Number.isInteger(exitDigit) && exitDigit === hotDigit;
+    const exitValid = exitStatus === 'EARLY_SELL_READY' && Number.isInteger(exitDigit) && exitDigit === hotDigit;
     const executionContractSignalId = String(
         executionState?.analyzerContractSignalId ||
         executionState?.analyzer_contract_signal_id ||
@@ -447,7 +447,7 @@ const TrapKidAnalyzerDock = () => {
                         <span>EXIT<b>{exitStatus}</b></span>
                         <span>EXIT DIGIT<b>{Number.isInteger(exitDigit) ? exitDigit : '—'}</b></span>
                         <span>SIGNAL MATCH<b>{signalMatches ? 'VALID' : 'WAITING'}</b></span>
-                        <span>EXIT VALIDATION<b>{['EARLY_SELL_READY', 'MATCH_FOUND'].includes(exitStatus) ? (exitValid ? 'HOT DIGIT MATCH' : 'REJECTED') : 'WAITING'}</b></span>
+                        <span>EXIT VALIDATION<b>{exitStatus === 'EARLY_SELL_READY' ? (exitValid ? 'HOT DIGIT MATCH' : 'REJECTED') : 'WAITING'}</b></span>
                         <span>LIFECYCLE<b>{lifecycle}</b></span>
                         <span>DERIV CONTRACT<b>{derivContractId}</b></span>
                         <span>STAKE / BUY<b>{Number.isFinite(Number(buyPrice)) ? Number(buyPrice).toFixed(2) : '—'}</b></span>
