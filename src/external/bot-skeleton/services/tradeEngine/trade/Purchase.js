@@ -411,7 +411,7 @@ export default Engine =>
                 // The exact BUY remains bound to this signal; no replacement contract is created.
                 const logicalDuration = ANALYZER_LOGICAL_DURATION;
                 const logicalDurationUnit = ANALYZER_LOGICAL_DURATION_UNIT;
-                const physicalHoldDuration = ANALYZER_PHYSICAL_HOLD_TICKS;
+                const physicalHoldDuration = ANALYZER_PHYSICAL_HOLD_SECONDS;
 
                 const proposalRequest = {
                     proposal: 1,
