@@ -365,36 +365,21 @@ const TrapKidAnalyzerDock = () => {
             : details?.exit?.status || executionState?.exit?.status || 'IDLE'
     );
     const exitValid = exitStatus === 'EARLY_SELL_READY' && Number.isInteger(exitDigit) && exitDigit === hotDigit;
-    const executionContractSignalId = String(
-        executionState?.analyzerContractSignalId ||
-        executionState?.analyzer_contract_signal_id ||
-        ''
-    );
-    const rawDerivContractId = String(
-        executionState?.derivContractId ||
-        executionState?.analyzerContractId ||
-        executionState?.signal?.contractId ||
-        ''
-    );
-    // Never display a contract from another Analyzer cycle. If the bridge has
-    // not yet associated the real BUY response with this signal, show waiting
-    // instead of a stale contract ID.
-    const derivContractId =
-        executionContractSignalId && activeSignalId && executionContractSignalId !== activeSignalId
-            ? '—'
-            : rawDerivContractId || '—';
-    const buyPrice = executionState?.derivBuyPrice ?? executionState?.derivBuy?.buy_price;
-    const buyTransactionId = executionState?.derivTransactionId || executionState?.derivBuy?.transaction_id || '—';
-    const sellTransactionId = executionState?.derivSellTransactionId || '—';
+    const analyzerContractId = String(executionState?.analyzerContractId || '—');
+    const derivProposalId = String(executionState?.derivProposalId || '—');
+    const derivProposalPayout = executionState?.analyzerPotentialPayout ?? executionState?.payout;
+    const buyPrice = executionState?.derivBuyPrice ?? executionState?.stake ?? executionState?.buyPrice;
+    const buyTransactionId = executionState?.analyzerEntryCode || executionState?.commandKey || '—';
     const soldFor =
-        executionState?.financialStatus === 'DERIV_SELL_CONFIRMED' ||
-        executionState?.financial_status === 'DERIV_SELL_CONFIRMED'
-            ? executionState?.derivSellPrice ?? executionState?.derivPayout ?? executionState?.payout
-            : executionState?.derivSellPrice ?? executionState?.deriv_sell_price;
-    const balanceAfterSell = executionState?.derivBalanceAfterSell;
-    const sellConfirmed =
-        String(executionState?.financialStatus || executionState?.financial_status || '') === 'DERIV_SELL_CONFIRMED' &&
-        Boolean(executionState?.derivSellTransactionId || executionState?.deriv_sell_transaction_id);
+        executionState?.financialStatus === 'ANALYZER_SIMULATED_SETTLEMENT' ||
+        executionState?.financial_status === 'ANALYZER_SIMULATED_SETTLEMENT'
+            ? executionState?.payout
+            : null;
+    const sellTransactionId = executionState?.status === 'ANALYZER_EARLY_SELL_CONFIRMED'
+        ? executionState?.analyzerExitCode || 'ANALYZER_SETTLED'
+        : '—';
+    const sellConfirmed = executionState?.status === 'ANALYZER_EARLY_SELL_CONFIRMED';
+    const balanceAfterSell = null;
     const lifecycle = String(executionState?.status || (connected ? 'CONNECTED_WAITING' : 'DISCONNECTED'));
 
     const beginDrag = (e: React.PointerEvent<HTMLDivElement>) => {
@@ -468,12 +453,12 @@ const TrapKidAnalyzerDock = () => {
                         <span>SIGNAL MATCH<b>{signalMatches ? 'VALID' : 'WAITING'}</b></span>
                         <span>EXIT VALIDATION<b>{exitStatus === 'EARLY_SELL_READY' ? (exitValid ? 'HOT DIGIT MATCH' : 'REJECTED') : 'WAITING'}</b></span>
                         <span>LIFECYCLE<b>{lifecycle}</b></span>
-                        <span>DERIV CONTRACT<b>{derivContractId}</b></span>
+                        <span>ANALYZER CONTRACT<b>{analyzerContractId}</b></span>
                         <span>STAKE / BUY<b>{Number.isFinite(Number(buyPrice)) ? Number(buyPrice).toFixed(2) : '—'}</b></span>
-                        <span>BUY TX<b>{buyTransactionId}</b></span>
-                        <span>SELL TX<b>{sellTransactionId}</b></span>
-                        <span>SOLD FOR<b>{sellConfirmed && Number.isFinite(Number(soldFor)) ? Number(soldFor).toFixed(2) : '—'}</b></span>
-                        <span>BALANCE AFTER<b>{sellConfirmed && Number.isFinite(Number(balanceAfterSell)) ? Number(balanceAfterSell).toFixed(2) : '—'}</b></span>
+                        <span>ANALYZER ENTRY<b>{buyTransactionId}</b></span>
+                        <span>ANALYZER EXIT<b>{sellTransactionId}</b></span>
+                        <span>SETTLED PAYOUT<b>{sellConfirmed && Number.isFinite(Number(soldFor)) ? Number(soldFor).toFixed(2) : '—'}</b></span>
+                        <span>DERIV BALANCE<b>UNCHANGED (LOCAL)</b></span>
                     </div>
 
                     <div className='tk-analyzer-global-dbot'>
@@ -486,7 +471,7 @@ const TrapKidAnalyzerDock = () => {
                         <code>GET /api/status?client=dbot</code>
                         <small>HTTP live bridge. Last successful read: {lastSeen ? new Date(lastSeen).toLocaleTimeString() : 'waiting…'}</small>
                         <div style={{ marginTop: 8 }}>
-                            <small>Automatic connection is enabled. The dock checks the Analyzer every 100ms so the hot digit can settle the same open match immediately.</small>
+                            <small>Automatic connection is enabled. Analyzer controls entry and settlement; Deriv supplies financial proposal/payout data only.</small>
                         </div>
                         {connectionError && <small style={{ display: 'block', marginTop: 6 }}>Connection: {connectionError} — retrying automatically…</small>}
                     </div>
