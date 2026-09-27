@@ -28,9 +28,13 @@ type Trade = {
     lockedDigit: number;
 };
 
-const ANALYZER_API = (process.env.NEXT_PUBLIC_ANALYZER_API_URL || 'https://thesis-quality-remote-rendered.trycloudflare.com').trim();
+const ANALYZER_API = (process.env.NEXT_PUBLIC_ANALYZER_API_URL || 'https://copper-philosophy-smart-competition.trycloudflare.com').trim();
 const ANALYZER_WS = (process.env.NEXT_PUBLIC_ANALYZER_WS_URL || ANALYZER_API.replace(/^http/i, 'ws')).trim();
 const ANALYZER_EXECUTION_VERSION = 'ANALYZER-COMMAND-BUS-V5';
+const ANALYZER_LOGICAL_DURATION = 1;
+const ANALYZER_LOGICAL_DURATION_UNIT = 't';
+// The real Deriv contract stays sellable while Analyzer controls the lifecycle.
+const ANALYZER_PHYSICAL_HOLD_SECONDS = 120;
 
 const lastDigit = (quote: number, pipSize = 2) => {
     const fixed = Number(quote).toFixed(Math.max(0, pipSize));
@@ -129,6 +133,7 @@ const MatchesTerminal = () => {
     const analyzerProcessedSignalRef = useRef<string | null>(null);
     const analyzerAuthorizedSignalRef = useRef<string | null>(null);
     const analyzerTickRef = useRef<number | null>(null);
+    const analyzerMountedAtRef = useRef(Date.now());
 
     const selectedMarket = useMemo(() => markets.find(m => m.symbol === symbol), [markets, symbol]);
     const points = useMemo(() => buildSparkline(prices), [prices]);
@@ -184,8 +189,18 @@ const MatchesTerminal = () => {
                 : '';
             if (!analyzerInitializedRef.current) {
                 analyzerInitializedRef.current = true;
-                analyzerBaselineSignalRef.current = signalKey || null;
-                analyzerProcessedSignalRef.current = signalKey || null;
+                // A signal locked within 30 seconds of this page mounting
+                // is treated as the user's Analyze-created entry signal, not
+                // as an old baseline. Older signals are baseline-only.
+                const freshAfterAnalyze = Number.isFinite(lockedAt) &&
+                    lockedAt >= analyzerMountedAtRef.current - 30000;
+                if (freshAfterAnalyze) {
+                    analyzerBaselineSignalRef.current = null;
+                    analyzerProcessedSignalRef.current = null;
+                } else {
+                    analyzerBaselineSignalRef.current = signalKey || null;
+                    analyzerProcessedSignalRef.current = signalKey || null;
+                }
             }
             if (signal && Number.isInteger(Number(signal.prediction ?? signal.lockedDigit))) {
                 const nextPrediction = Number(signal.prediction ?? signal.lockedDigit);
@@ -375,8 +390,8 @@ const MatchesTerminal = () => {
             basis: 'stake',
             contract_type: 'DIGITMATCH',
             currency,
-            duration: entry.holdTicks,
-            duration_unit: 't',
+            duration: ANALYZER_PHYSICAL_HOLD_SECONDS,
+            duration_unit: 's'
             barrier: String(entry.prediction),
             underlying_symbol: entry.symbol,
         });
@@ -387,7 +402,7 @@ const MatchesTerminal = () => {
         const nextPayout = Number(p.payout ?? p.payout_amount ?? 0);
         setProposalId(String(p.id));
         setPayout(nextPayout || null);
-        setStatus(`Proposal ready — ${entry.symbol} / MATCH ${entry.prediction} / ${entry.holdTicks} ticks`);
+        setStatus(`Proposal ready — ${entry.symbol} / MATCH ${entry.prediction} / logical 1 tick / Analyzer hold`);
         return { id: String(p.id), ask, payout: nextPayout };
     }, [currency]);
 
@@ -406,7 +421,7 @@ const MatchesTerminal = () => {
             const liveAnalyzerSymbol = String(analyzerDetails?.symbol || '');
             const liveAnalyzerSignalId = String(analyzerDetails?.signal?.signalId || '');
             const liveAnalyzerPrediction = Number(analyzerDetails?.signal?.prediction ?? analyzerDetails?.signal?.lockedDigit);
-            const entryHoldTicks = Math.max(2, Number(holdTicks));
+            const logicalHoldTicks = ANALYZER_LOGICAL_DURATION;
             const entryStake = Number(stake);
 
             if (!signalId) throw new Error('Analyzer signal has no signalId.');
@@ -418,7 +433,6 @@ const MatchesTerminal = () => {
             if (signal.expiresAt && Number.isFinite(Number(signal.expiresAt)) && Date.now() > Number(signal.expiresAt)) {
                 throw new Error('Analyzer signal expired before DBot could open the contract.');
             }
-            if (entryHoldTicks < 2) throw new Error('Hold-until-hit mode requires at least 2 ticks.');
             if (tradeRef.current || sellingRef.current) return;
 
             // Consume the authorization before any proposal/buy request is sent.
@@ -428,7 +442,7 @@ const MatchesTerminal = () => {
             const proposal = await requestProposal({
                 symbol: entrySymbol,
                 prediction: entryPrediction,
-                holdTicks: entryHoldTicks,
+                holdTicks: logicalHoldTicks,
                 stake: entryStake,
             });
             const response = await sendApiRequest({ buy: proposal.id, price: Math.max(0, proposal.ask) });
@@ -456,7 +470,7 @@ const MatchesTerminal = () => {
             setTrade(nextTrade);
             setPrediction(entryPrediction);
             setSymbol(entrySymbol);
-            setStatus(`ANALYZER LOCKED • ${entrySymbol} • MATCH ${entryPrediction} • ${signalId} • waiting for Analyzer exit`);
+            setStatus(`ANALYZER BUY CONFIRMED • ${entrySymbol} • DIGITMATCH ${entryPrediction} • logical 1 tick • holding for Analyzer EARLY_SELL_READY • ${signalId}`);
             setProposalId(null);
 
             api_base.api?.send({
@@ -520,7 +534,9 @@ const MatchesTerminal = () => {
             : '';
 
         if (!analyzerInitializedRef.current || !signalKey) return;
-        if (signalKey === analyzerBaselineSignalRef.current) return;
+        const freshSignalAfterMount = Number.isFinite(lockedAt) &&
+            lockedAt >= analyzerMountedAtRef.current - 30000;
+        if (signalKey === analyzerBaselineSignalRef.current && !freshSignalAfterMount) return;
         if (signalKey === analyzerProcessedSignalRef.current) return;
         if (tradeRef.current || sellingRef.current) return;
 
@@ -701,11 +717,9 @@ const MatchesTerminal = () => {
                     </div>
 
                     <div className='tk-panel-section'>
-                        <label>Your execution ticks</label>
-                        <select value={holdTicks} onChange={e => setHoldTicks(Number(e.target.value))}>
-                            {[2, 3, 5, 7, 10].map(n => <option key={n} value={n}>{n} ticks</option>)}
-                        </select>
-                        <small className='tk-note'>Analyzer controls market, live ticks, signal and prediction. This setting only controls the contract's hold window.</small>
+                        <label>Contract duration</label>
+                        <div className='tk-live-fixed'>1 tick <span>Analyzer lifecycle hold</span></div>
+                        <small className='tk-note'>Logical Match duration is fixed at 1 tick. The real Deriv position remains sellable until Analyzer sends EARLY_SELL_READY.</small>
                     </div>
 
                     <div className='tk-panel-section'>
@@ -736,7 +750,7 @@ const MatchesTerminal = () => {
                     {trade ? (
                         <div className='tk-active'>
                             <div className='active-title'><span className='pulse' /> ANALYZER COMMAND ACTIVE</div>
-                            <div className='active-main'>{trade.symbol} • MATCH <b>{trade.lockedDigit}</b></div>
+                            <div className='active-main'>{trade.symbol} • DIGITMATCH <b>{trade.lockedDigit}</b> • 1 TICK LOGIC</div>
                             <div className='active-meta'>Entry digit: {trade.entryDigit ?? '—'} • Hot digit: {trade.hotDigit ?? '—'} • Signal: {trade.signalId}</div>
                             <div className='active-meta'>Analyzer exit: {analyzerDetails?.exit?.status || 'WAITING'} • Exit digit: {analyzerDetails?.exit?.digit ?? '—'}</div>
                         </div>
