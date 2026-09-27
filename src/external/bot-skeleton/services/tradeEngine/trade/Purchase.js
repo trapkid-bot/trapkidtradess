@@ -918,7 +918,7 @@ export default Engine =>
         financialAnalyzerBuyPromise = (signal, contractId) =>
             this.openAnalyzerDerivContract(signal, contractId);
 
-        purchase(contract_type) {
+        async purchase(contract_type) {
             const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
             const currentSignal = analyzerState?.signal;
             const currentSignalIsExecutable =
@@ -1135,8 +1135,13 @@ export default Engine =>
                 );
             }
 
-            // Analyzer is the complete execution engine. Create the contract locally
-            // from Analyzer data. No proposal, BUY request, or Deriv contract observer.
+            // REAL DERIV BUY IS THE ENTRY GATE.
+            // Never publish a fake/local "open" contract first. Analyzer supplies
+            // the signal, but Deriv must accept the proposal and BUY the actual
+            // DIGITMATCH contract before the UI is allowed to show an open trade.
+            // This is what causes the configured stake to leave the active Deriv
+            // balance and gives us Deriv's authoritative contract_id, buy_price,
+            // payout and transaction_id.
             const signal = this.analyzerSignal;
             const entryCode =
                 this.tradeOptions.analyzerEntryCode ||
@@ -1148,19 +1153,50 @@ export default Engine =>
                 signal?.contractId ||
                 signal?.contract_id ||
                 entryCode;
+
+            if (!signal?.signalId || !signal?.symbol || !Number.isInteger(Number(signal.hotDigit))) {
+                throw new Error('TRAPKID ANALYZER: invalid locked signal; real Deriv BUY blocked.');
+            }
+
+            globalObserver.emit(
+                'ui.log',
+                'TRAPKID DERIV BUY REQUEST → ' + String(signal.symbol) +
+                    ' → DIGITMATCH ' + Number(signal.hotDigit) +
+                    ' → stake=' + (Number(this.tradeOptions.amount) || 0)
+            );
+
+            // The financial bridge is now awaited. A local contract is NOT created
+            // if Deriv rejects, times out, or fails to return a real contract_id.
+            const derivBuy = await this.financialAnalyzerBuyPromise(signal, contractId);
+            if (!derivBuy?.contract_id) {
+                const failedState = globalObserver.getState('trapkid_analyzer') || {};
+                globalObserver.setState({
+                    trapkid_analyzer: {
+                        ...failedState,
+                        status: 'DERIV_BUY_FAILED',
+                        purchaseInFlightKey: null,
+                        purchaseConsumedKey: null,
+                        executionTrigger: 'ANALYZER_ENTRY',
+                        executionArmed: true,
+                    },
+                });
+                globalObserver.emit(
+                    'ui.log.error',
+                    'TRAPKID DERIV BUY FAILED → no real Deriv contract was opened; local contract was not created.'
+                );
+                throw new Error('TRAPKID DERIV BUY failed. No real Deriv contract was opened.');
+            }
+
+            const derivContractId = String(derivBuy.contract_id);
+            const actualBuyPrice = Number(derivBuy.buy_price);
+            const actualPayout = Number(derivBuy.payout);
+            const balanceAfterBuy = Number(derivBuy.balance_after);
             const entryQuote = Number(
                 this.tradeOptions.analyzerEntryQuote ??
                 signal?.entryQuote ??
                 signal?.entry_quote ??
                 signal?.quote
             );
-            const buyPrice = Number(this.tradeOptions.amount) || 0;
-
-            this.isSold = false;
-            this.isExpired = false;
-            this.isSellAvailable = true;
-            this.contractId = String(contractId);
-            this.analyzerContractId = String(contractId);
             const openedAtMs = Number(
                 signal?.lockedAt ??
                 signal?.entryEpoch ??
@@ -1169,34 +1205,39 @@ export default Engine =>
             );
             const durationValue = Number(this.tradeOptions.duration);
             const durationUnit = this.tradeOptions.duration_unit || 't';
-            const payoutValue = Number(
-                signal?.payout ??
-                signal?.potentialPayout ??
-                signal?.potential_payout ??
-                signal?.return
-            );
-            const potentialPayout = Number.isFinite(payoutValue) ? payoutValue : 0;
+
+            this.isSold = false;
+            this.isExpired = false;
+            this.isSellAvailable = true;
+            // Keep the Analyzer entry identity for the UI/journal, while the
+            // Deriv contract ID is the ONLY handle used for the real sell.
+            this.contractId = String(contractId);
+            this.analyzerContractId = String(contractId);
+            this.derivContractId = derivContractId;
+            this.derivBuy = derivBuy;
+            this.derivBuyTransactionId = derivBuy.transaction_id ?? null;
 
             this.data.contract = {
                 id: String(contractId),
                 contract_id: String(contractId),
+                deriv_contract_id: derivContractId,
                 transaction_ids: {
-                    buy: String(entryCode),
+                    buy: derivBuy.transaction_id ?? null,
                     sell: null,
                 },
                 contract_type: 'DIGITMATCH',
-                symbol: signal?.symbol || this.tradeOptions.symbol,
-                underlying_symbol: signal?.symbol || this.tradeOptions.symbol,
-                display_name: signal?.symbol || this.tradeOptions.symbol,
+                symbol: signal.symbol,
+                underlying_symbol: signal.symbol,
+                display_name: signal.symbol,
                 shortcode: 'DIGITMATCH',
                 barrier: Number(signal.hotDigit),
                 prediction: Number(signal.hotDigit),
-                buy_price: buyPrice,
+                buy_price: Number.isFinite(actualBuyPrice) ? actualBuyPrice : Number(this.tradeOptions.amount),
                 sell_price: 0,
-                bid_price: Number.isFinite(entryQuote) ? entryQuote : 0,
-                payout: potentialPayout,
+                bid_price: Number.isFinite(actualBuyPrice) ? actualBuyPrice : 0,
+                payout: Number.isFinite(actualPayout) ? actualPayout : 0,
                 profit: 0,
-                currency: this.tradeOptions.currency || 'USD',
+                currency: derivBuy.currency || this.tradeOptions.currency || 'USD',
                 purchase_time: Math.floor(openedAtMs / 1000),
                 date_start: Math.floor(openedAtMs / 1000),
                 date_expiry:
@@ -1212,8 +1253,6 @@ export default Engine =>
                         ? durationValue
                         : 0,
                 tick_passed: 0,
-                // Analyzer controls the exit, so the live contract must remain
-                // eligible for an early Deriv sell until EARLY_SELL_READY arrives.
                 is_valid_to_sell: true,
                 is_valid_to_cancel: false,
                 is_settleable: false,
@@ -1223,8 +1262,7 @@ export default Engine =>
                 analyzer_contract_id: String(contractId),
                 analyzer_entry_code: String(entryCode),
                 analyzer_entry_quote: Number.isFinite(entryQuote) ? entryQuote : null,
-                analyzer_locked_quote:
-                    Number(this.tradeOptions.analyzerLockedQuote) || null,
+                analyzer_locked_quote: Number(this.tradeOptions.analyzerLockedQuote) || null,
                 analyzer_hot_digit: Number(signal.hotDigit),
                 analyzer_prediction: Number(signal.hotDigit),
                 analyzer_duration: durationValue,
@@ -1233,6 +1271,11 @@ export default Engine =>
                 analyzer_exit_quote: null,
                 analyzer_exit_digit: null,
                 analyzer_exit_status: 'WAITING_FOR_ANALYZER_EXIT',
+                deriv_transaction_id: derivBuy.transaction_id ?? null,
+                deriv_buy_price: Number.isFinite(actualBuyPrice) ? actualBuyPrice : null,
+                deriv_potential_payout: Number.isFinite(actualPayout) ? actualPayout : null,
+                deriv_balance_after_buy: Number.isFinite(balanceAfterBuy) ? balanceAfterBuy : null,
+                financial_status: 'DERIV_BUY_CONFIRMED',
                 status: 'open',
                 is_sold: false,
             };
@@ -1250,34 +1293,30 @@ export default Engine =>
                     executionTrigger: 'ANALYZER_ENTRY',
                     holdUntilAnalyzerExit: true,
                     analyzerContractId: String(contractId),
+                    derivContractId,
+                    derivTransactionId: derivBuy.transaction_id ?? null,
+                    derivBuyPrice: Number.isFinite(actualBuyPrice) ? actualBuyPrice : null,
+                    analyzerPotentialPayout: Number.isFinite(actualPayout) ? actualPayout : null,
+                    payout: Number.isFinite(actualPayout) ? actualPayout : null,
+                    payoutSource: 'DERIV_BUY',
+                    derivBalanceAfterBuy: Number.isFinite(balanceAfterBuy) ? balanceAfterBuy : null,
                     analyzerEntryCode: String(entryCode),
                     analyzerEntryQuote: Number.isFinite(entryQuote) ? entryQuote : null,
-                    settlementSource: 'ANALYZER',
+                    settlementSource: 'DERIV',
                 },
             });
             globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
-            // Publish the Analyzer-owned contract immediately so the
-            // contract card leaves the generic "waiting for a signal" loader.
-            // This is a local UI event only; no Deriv contract is created.
-            contract({
-                ...this.data.contract,
-                contract_id: String(contractId),
-                is_sold: false,
-                status: 'open',
-                analyzer_signal_id: String(signal.signalId),
-                analyzer_command_key: this.analyzerCommandKey,
-                analyzer_hot_digit: Number(signal.hotDigit),
-                analyzer_entry_code: String(entryCode),
-            });
+            // Only now publish the contract as OPEN. At this point Deriv has
+            // already deducted the stake and returned a real contract_id.
             const purchasePayload = {
                 ...this.data.contract,
                 id: String(contractId),
                 contract_id: String(contractId),
+                deriv_contract_id: derivContractId,
                 is_sold: false,
                 status: 'open',
             };
-
             contract(purchasePayload);
             contractStatus({
                 id: 'contract.purchase_sent',
@@ -1288,10 +1327,11 @@ export default Engine =>
                 id: 'contract.purchase_received',
                 data: String(contractId),
                 buy: {
-                    contract_id: String(contractId),
-                    transaction_id: String(entryCode),
-                    buy_price: buyPrice,
-                    currency: this.tradeOptions.currency || 'USD',
+                    contract_id: derivContractId,
+                    transaction_id: derivBuy.transaction_id ?? null,
+                    buy_price: Number.isFinite(actualBuyPrice) ? actualBuyPrice : null,
+                    payout: Number.isFinite(actualPayout) ? actualPayout : null,
+                    currency: derivBuy.currency || this.tradeOptions.currency || 'USD',
                     analyzer_contract_id: String(contractId),
                     analyzer_entry_code: String(entryCode),
                     analyzer_entry_quote: Number.isFinite(entryQuote) ? entryQuote : null,
@@ -1301,18 +1341,20 @@ export default Engine =>
 
             globalObserver.emit(
                 'ui.log',
-                `TRAPKID ANALYZER CONTRACT OPEN → ${String(entryCode)} → quote=${Number.isFinite(entryQuote) ? entryQuote : '—'}`
+                'TRAPKID REAL DERIV CONTRACT OPEN → ' + String(derivContractId) +
+                    ' → stake=' + (Number.isFinite(actualBuyPrice) ? actualBuyPrice : '—') +
+                    ' → payout=' + (Number.isFinite(actualPayout) ? actualPayout : '—')
             );
 
-            // Financial leg only. Do not await it: Analyzer owns execution timing
-            // and this bridge only mirrors the authorized trade financially at Deriv.
-            this.financialAnalyzerBuyPromise(signal, contractId);
-
+            // If Analyzer signalled EARLY_SELL_READY during the Deriv BUY, execute
+            // that exact exit immediately against the SAME real Deriv contract.
             const postEntryState = globalObserver.getState('trapkid_analyzer') || {};
             const pendingExit = postEntryState.pendingEarlyExit;
-            if (pendingExit?.status === 'EARLY_SELL_READY' &&
+            if (
+                pendingExit?.status === 'EARLY_SELL_READY' &&
                 String(pendingExit.signalId || '') === String(signal.signalId || '') &&
-                Number(pendingExit.digit) === Number(signal.hotDigit)) {
+                Number(pendingExit.digit) === Number(signal.hotDigit)
+            ) {
                 const settledState = {
                     ...postEntryState,
                     exit: { ...pendingExit },
@@ -1323,30 +1365,30 @@ export default Engine =>
                 };
                 globalObserver.setState({ trapkid_analyzer: settledState });
                 globalObserver.emit('trapkid.analyzer.updated', settledState);
-                setTimeout(() => {
-                    void this.onAnalyzerEarlyExit({
-                        source: 'TRAPKID_ANALYZER_PENDING_EXIT',
-                        command: 'ANALYZER_EARLY_EXIT',
-                        commandKey: this.analyzerCommandKey,
-                        signalId: String(signal.signalId),
-                        signal,
-                        exit: pendingExit,
-                        receivedAt: Date.now(),
-                    });
-                }, 0);
+                await this.onAnalyzerEarlyExit({
+                    source: 'TRAPKID_ANALYZER_PENDING_EXIT',
+                    command: 'ANALYZER_EARLY_EXIT',
+                    commandKey: this.analyzerCommandKey,
+                    signalId: String(signal.signalId),
+                    signal,
+                    exit: pendingExit,
+                    receivedAt: Date.now(),
+                });
             }
 
-            return Promise.resolve({
+            return {
                 buy: {
-                    contract_id: String(contractId),
-                    transaction_id: String(entryCode),
-                    buy_price: buyPrice,
-                    currency: this.tradeOptions.currency || 'USD',
+                    contract_id: derivContractId,
+                    transaction_id: derivBuy.transaction_id ?? null,
+                    buy_price: Number.isFinite(actualBuyPrice) ? actualBuyPrice : null,
+                    payout: Number.isFinite(actualPayout) ? actualPayout : null,
+                    balance_after: Number.isFinite(balanceAfterBuy) ? balanceAfterBuy : null,
+                    currency: derivBuy.currency || this.tradeOptions.currency || 'USD',
                     analyzer_contract_id: String(contractId),
                     analyzer_entry_code: String(entryCode),
                     analyzer_entry_quote: Number.isFinite(entryQuote) ? entryQuote : null,
                 },
-            });
+            };
         }
         getPurchaseReference = () => purchase_reference;
         regeneratePurchaseReference = () => {
