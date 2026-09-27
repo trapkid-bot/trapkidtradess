@@ -400,7 +400,7 @@ const MatchesTerminal = () => {
             if (!['ANALYZER_EXECUTION', 'ANALYZER_PURCHASE_AUTHORIZED', 'RUNNING', 'EARLY_EXIT_COMMAND_RECEIVED', 'ANALYZER_DATA_BOUND'].includes(String(state.status || ''))) return;
 
             const prediction = Number(state.hotDigit ?? state.prediction ?? signal.hotDigit ?? signal.prediction);
-            const buyPrice = Number(state.derivBuyPrice ?? state.derivTransactionId ? state.derivBuyPrice : 0);
+            const buyPrice = Number(state.derivBuyPrice);
             const nextTrade: Trade = {
                 signalId: String(signal.signalId),
                 contractId,
