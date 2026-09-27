@@ -160,8 +160,8 @@ export default Engine =>
                 this.tradeOptions.prediction = signal.hotDigit;
                 this.tradeOptions.symbol = signal.symbol;
                 // Analyzer supplies the decision; the bot keeps its normal
-                // Deriv purchase pipeline. Execution is fixed to 1 tick.
-                this.tradeOptions.duration = 1;
+                // Analyzer Match mode keeps the position open while the live stream searches.
+                this.tradeOptions.duration = ANALYZER_PHYSICAL_HOLD_TICKS;
                 this.tradeOptions.duration_unit = 't';
 
                 globalObserver.setState({
@@ -468,7 +468,7 @@ export default Engine =>
                 // 4. Match mode keeps the position open while the Analyzer stream searches.
                 // 5. entryDigit remains metadata for the locked Analyzer entry code.
                 // 6. The exact Deriv BUY contract_id is canonical and must be the contract sold.
-                // 7. EARLY_SELL_READY is the only Analyzer-authorized early SELL event.
+                // 7. The matching hot digit is the Analyzer-authorized exit event.
                 // The exact BUY remains bound to this signal; no replacement contract is created.
                 const logicalDuration = ANALYZER_LOGICAL_DURATION;
                 const logicalDurationUnit = ANALYZER_LOGICAL_DURATION_UNIT;
