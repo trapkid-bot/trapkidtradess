@@ -35,7 +35,14 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             // exact Analyzer state as an equivalent exit trigger. The signalId,
             // lockedAt and hot digit are still validated by onAnalyzerEarlyExit.
             if (state?.exit?.status !== 'EARLY_SELL_READY') return;
-            const signal = this.analyzerSignal || state?.signal;
+            const stateSignal = state?.signal;
+            const engineSignal = this.analyzerSignal;
+            const signal =
+                stateSignal?.signalId
+                    ? stateSignal
+                    : engineSignal?.signalId
+                      ? engineSignal
+                      : null;
             if (!signal?.signalId || !Number.isFinite(Number(signal.lockedAt))) return;
             const commandKey = String(signal.signalId) + ':' + String(signal.lockedAt);
             // Analyzer command keys can carry the command-generation timestamp,
@@ -48,6 +55,8 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                 (stateCommandKey.startsWith(String(signal.signalId) + ':') &&
                     stateCommandKey.split(':')[0] === String(signal.signalId));
             if (!commandBelongsToSignal) return;
+            const stateExitSignalId = String(state.exit.signalId || '');
+            if (stateExitSignalId && stateExitSignalId !== String(signal.signalId)) return;
             if (Number(state.exit.digit) !== Number(signal.hotDigit)) return;
             if (this.isSold || this.analyzerDerivSellPromise) return;
             // If the exit arrives while the real Deriv BUY is still in flight,
