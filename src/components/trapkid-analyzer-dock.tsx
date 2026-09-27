@@ -454,6 +454,10 @@ const TrapKidAnalyzerDock = () => {
                     </div>
 
                     <div className='tk-analyzer-global-dbot'>
+                        <strong>{exitValid ? 'Analyzer exit signal is ready — executing on the Analyzer hot digit' : 'Analyzer is waiting for the hot digit'}</strong>
+                    </div>
+
+                    <div className='tk-analyzer-global-dbot'>
                         <strong>ANALYZER → DBOT COMMAND LINK</strong>
                         <div className='tk-link-proof'><span className={connected ? 'is-live' : 'is-offline'} /> {connected ? 'ANALYZER DATA CHANNEL LIVE' : 'ANALYZER DATA CHANNEL OFFLINE'}</div>
                         <code>GET /api/status?client=dbot</code>
