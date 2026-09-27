@@ -267,7 +267,23 @@ class DBot {
             return;
         }
 
-        if (this.is_bot_running) return;
+        if (this.is_bot_running) {
+            // Analyzer signals can arrive while the previous Analyzer-owned
+            // contract is still waiting for EARLY_SELL_READY. Do not discard the
+            // newer command; keep the newest exact signal queued and start it only
+            // after the current TradeEngine cycle has settled.
+            const queuedSignalKey = String(
+                command?.commandKey ||
+                (signal.signalId + ':' + String(signal.lockedAt ?? ''))
+            );
+            this.pendingAnalyzerCommand = command;
+            globalObserver.emit(
+                'ui.log',
+                'TRAPKID ANALYZER COMMAND QUEUED → ' + queuedSignalKey +
+                    ' → waiting for current Analyzer contract settlement'
+            );
+            return;
+        }
 
         const workspace = this.workspace;
         const tradeDefinition = workspace
@@ -355,6 +371,18 @@ class DBot {
                     tradeEngine.dispose?.();
                     if (this.analyzerEngine === tradeEngine) this.analyzerEngine = null;
                     this.is_bot_running = false;
+
+                    const pending = this.pendingAnalyzerCommand;
+                    this.pendingAnalyzerCommand = null;
+                    if (
+                        pending?.signal?.signalId &&
+                        String(pending.commandKey || '') !== String(command.commandKey || '')
+                    ) {
+                        // Start the queued Analyzer command only after the previous
+                        // Analyzer-owned local contract has completed its lifecycle.
+                        queueMicrotask(() => this.runAnalyzer(pending));
+                    }
+
                     globalObserver.emit('bot.stop');
                 })
                 .catch(error => {
@@ -362,6 +390,16 @@ class DBot {
                     if (this.analyzerEngine === tradeEngine) this.analyzerEngine = null;
                     this.is_bot_running = false;
                     globalObserver.emit('ui.log.error', error?.message || 'TRAPKID ANALYZER execution failed.');
+
+                    const pending = this.pendingAnalyzerCommand;
+                    this.pendingAnalyzerCommand = null;
+                    if (
+                        pending?.signal?.signalId &&
+                        String(pending.commandKey || '') !== String(command.commandKey || '')
+                    ) {
+                        queueMicrotask(() => this.runAnalyzer(pending));
+                    }
+
                     globalObserver.emit('bot.stop');
                 });
         } catch (error) {
