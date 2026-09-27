@@ -35,8 +35,8 @@ export const analyzerPurchaseReservations = analyzerPurchaseReservationStore;
 // ANALYZER MATCH MODE: keep the purchased position open while the live
 // Analyzer stream searches for the exact hot digit. The same contract is
 // closed as soon as that digit appears.
-const ANALYZER_PHYSICAL_HOLD_TICKS = 100000;
-const ANALYZER_LOGICAL_DURATION = 100000;
+const ANALYZER_PHYSICAL_HOLD_TICKS = 10;
+const ANALYZER_LOGICAL_DURATION = 10;
 const ANALYZER_LOGICAL_DURATION_UNIT = 't';
 
 export default Engine =>
@@ -266,8 +266,8 @@ export default Engine =>
                     analyzer_duration_unit: ANALYZER_LOGICAL_DURATION_UNIT,
                     deriv_physical_duration: ANALYZER_PHYSICAL_HOLD_TICKS,
                     deriv_physical_duration_unit: 't',
-                    analyzer_exit_status: 'WAITING_FOR_ANALYZER_EARLY_SELL',
-                    analyzer_execution_status: 'WAITING_FOR_ANALYZER_EARLY_SELL',
+                    analyzer_exit_status: 'MATCH_OPEN',
+                    analyzer_execution_status: 'MATCH_OPEN',
                     analyzer_exit_code: null,
                     analyzer_contract_id: String(buy.contract_id),
                     analyzer_contract_signal_id: this.analyzerSignal?.signalId || null,
@@ -349,80 +349,19 @@ export default Engine =>
                 });
                 globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
-                // EARLY_SELL_READY is an Analyzer observation only.
-                // Never send a Deriv SELL request from this event. The BUY has
-                // already created the contract; settlement is handled by Deriv.
-                const postPurchaseState = globalObserver.getState('trapkid_analyzer') || {};
-                const liveExit = postPurchaseState.exit;
-                const pendingExit = postPurchaseState.pendingEarlyExit;
-                const readyExit = pendingExit?.status === 'EARLY_SELL_READY' ? pendingExit : liveExit;
-                const pendingMatches =
-                    readyExit?.status === 'EARLY_SELL_READY' &&
-                    String(readyExit.signalId || this.analyzerSignal?.signalId || '') === String(this.analyzerSignal?.signalId || '') &&
-                    Number(readyExit.digit) === Number(this.analyzerSignal?.hotDigit);
-
-                this.store.dispatch(purchaseSuccessful());
-
-                if (pendingMatches && this.contractId && !this.isSold) {
-                    // The Analyzer exit may already be READY by the time BUY returns.
-                    // Promote the exact contract immediately so Summary/Transactions
-                    // never show a stale WAITING state after the Analyzer has signaled
-                    // EARLY_SELL_READY.
-                    this.data.contract = {
-                        ...(this.data.contract || {}),
-                        analyzer_exit_status: 'EARLY_SELL_READY',
-                        analyzer_execution_status: 'EARLY_SELL_READY',
-                        analyzer_exit_code:
-                            String(this.analyzerSignal?.signalId || '') + ':' + String(readyExit?.epoch || ''),
-                        analyzer_exit_digit: Number(this.analyzerSignal?.hotDigit),
-                        analyzer_exit_quote: Number.isFinite(Number(readyExit?.quote))
-                            ? Number(readyExit.quote)
-                            : null,
-                        analyzer_hot_digit: Number(this.analyzerSignal?.hotDigit),
-                        analyzer_prediction: Number(this.analyzerSignal?.hotDigit),
-                        analyzer_contract_id: String(this.contractId),
-                        analyzer_contract_signal_id: this.analyzerSignal?.signalId || null,
-                    };
-                    contract(this.data.contract);
-
-                    globalObserver.setState({
-                        trapkid_analyzer: {
-                            ...(globalObserver.getState('trapkid_analyzer') || {}),
-                            status: 'EARLY_SELL_READY',
-                            analyzerExecutionStatus: 'EARLY_SELL_READY',
-                            signal: this.analyzerSignal,
-                            signalId: this.analyzerSignal?.signalId,
-                            commandKey: purchasedSignalKey,
-                            symbol: this.analyzerSignal?.symbol,
-                            prediction: Number(this.analyzerSignal?.hotDigit),
-                            entryDigit: Number(this.analyzerSignal?.entryDigit),
-                            hotDigit: Number(this.analyzerSignal?.hotDigit),
-                            entrySource: 'ANALYZER_ONLY',
-                            exitSource: 'ANALYZER_EXIT_SIGNAL_ONLY',
-                            exit: { ...readyExit, status: 'EARLY_SELL_READY' },
-                            analyzerExitStatus: 'EARLY_SELL_READY',
-                            analyzerExitDigit: Number(this.analyzerSignal?.hotDigit),
-                            analyzerExitQuote: Number.isFinite(Number(readyExit?.quote)) ? Number(readyExit.quote) : null,
-                            executionTrigger: 'ANALYZER_EARLY_SELL_READY',
-                            holdUntilAnalyzerExit: false,
-                            executionArmed: true,
-                            pendingEarlyExit: null,
-                            settlementSource: 'ANALYZER_EARLY_SELL_PENDING',
-                            analyzerContractId: String(this.contractId),
-                            derivContractId: String(this.contractId),
-                        },
-                    });
-                    globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
-                    globalObserver.emit(
-                        'ui.log',
-                        'TRAPKID ANALYZER → EARLY_SELL_READY observed after BUY → same contract=' + String(this.contractId)
-                    );
-                }
-
-                // Restore the working contract watcher, but its only
-                // settlement trigger is Analyzer EARLY_SELL_READY for the
-                // Analyzer hot digit. It never accepts broker expiry/win/loss
-                // as an Analyzer exit.
+                // Analyzer Match mode: EARLY_SELL_READY is not the exit trigger.
+                // The live Analyzer stream owns the exit; MATCH_FOUND closes this exact contract.
+                globalObserver.setState({
+                    trapkid_analyzer: {
+                        ...(globalObserver.getState('trapkid_analyzer') || {}),
+                        status: 'MATCH_OPEN',
+                        analyzerExecutionStatus: 'MATCH_OPEN',
+                        executionTrigger: 'ANALYZER_ENTRY_COMMAND',
+                        holdUntilAnalyzerExit: true,
+                        matchFound: false,
+                    },
+                });
+                globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
 
                 if (this.is_proposal_subscription_required) {
                     this.renewProposalsOnPurchase();
@@ -481,7 +420,7 @@ export default Engine =>
                     contract_type: 'DIGITMATCH',
                     currency,
                     duration: ANALYZER_PHYSICAL_HOLD_TICKS,
-                    duration_unit: 't',
+                    duration_unit: ANALYZER_LOGICAL_DURATION_UNIT,
                     underlying_symbol: symbol,
                     barrier: String(predictionDigit),
                 };
@@ -561,7 +500,7 @@ export default Engine =>
                         contract_type: 'DIGITMATCH',
                         currency,
                         duration: ANALYZER_PHYSICAL_HOLD_TICKS,
-                        duration_unit: 't',
+                        duration_unit: ANALYZER_LOGICAL_DURATION_UNIT,
                         underlying_symbol: symbol,
                         barrier: String(predictionDigit),
                     });
