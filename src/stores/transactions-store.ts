@@ -29,7 +29,6 @@ export default class TransactionsStore {
         this.root_store = root_store;
         this.core = core;
         this.is_transaction_details_modal_open = false;
-        this.disposeReactionsFn = this.registerReactions();
 
         makeObservable(this, {
             elements: observable,
@@ -51,6 +50,10 @@ export default class TransactionsStore {
             onDerivOpenContractEvent: action.bound,
             onDerivSellEvent: action.bound,
         });
+
+        // MobX must finish binding action methods before reactions and Observer
+        // listeners capture them. This also keeps teardown using the same bound refs.
+        this.disposeReactionsFn = this.registerReactions();
 
         globalObserver.register('deriv.contract.buy', this.onDerivBuyEvent);
         globalObserver.register('deriv.contract.open', this.onDerivOpenContractEvent);
@@ -122,15 +125,58 @@ export default class TransactionsStore {
     private findDerivTransactionIndex(ledger: any) {
         const account = this.core?.client?.loginid as string;
         const items = this.elements[account] || [];
+        const localId = String(ledger?.local_contract_id || '');
+        const derivId = String(ledger?.contract_id || ledger?.deriv_contract_id || '');
+        const buyTransactionId = String(
+            ledger?.buy_transaction_id || ledger?.transaction_ids?.buy || ledger?.transaction_id || ''
+        );
+
         return items.findIndex(item => {
             if (item.type !== transaction_elements.CONTRACT || typeof item.data === 'string') return false;
             const data: any = item.data;
             return (
-                String(data.contract_id || '') === String(ledger.local_contract_id || ledger.contract_id || '') ||
-                String(data.deriv_contract_id || '') === String(ledger.contract_id || '') ||
-                String(data.transaction_ids?.buy || '') === String(ledger.buy_transaction_id || ledger.transaction_id || '')
+                (localId && String(data.contract_id || '') === localId) ||
+                (derivId && String(data.deriv_contract_id || '') === derivId) ||
+                (derivId && String(data.contract_id || '') === derivId) ||
+                (buyTransactionId && String(data.transaction_ids?.buy || '') === buyTransactionId) ||
+                (buyTransactionId && String(data.deriv_transaction_id || '') === buyTransactionId)
             );
         });
+    }
+
+    private getDerivLedgerForContract(data: any) {
+        const keys = [
+            data?.deriv_contract_id,
+            data?.contract_id,
+            data?.analyzer_contract_id,
+            data?.transaction_ids?.buy,
+        ]
+            .filter(value => value !== undefined && value !== null && String(value) !== '')
+            .map(value => String(value));
+
+        for (const key of keys) {
+            if (this.deriv_ledger[key]) return this.deriv_ledger[key];
+        }
+        return null;
+    }
+
+    private storeDerivLedger(event: any) {
+        const ledger = event || {};
+        const keys = [
+            ledger.contract_id,
+            ledger.deriv_contract_id,
+            ledger.local_contract_id,
+            ledger.buy_transaction_id,
+            ledger.transaction_id,
+        ]
+            .filter(value => value !== undefined && value !== null && String(value) !== '')
+            .map(value => String(value));
+
+        keys.forEach(key => {
+            this.deriv_ledger[key] = ledger;
+        });
+
+        return ledger;
     }
 
     private mergeDerivLedgerIntoContract(data: any, ledger: any) {
@@ -186,7 +232,7 @@ export default class TransactionsStore {
             balance_after: event.balance_after ?? this.deriv_ledger[key]?.balance_after,
             financial_status: 'DERIV_BUY_CONFIRMED',
         };
-        this.deriv_ledger[key] = ledger;
+        this.storeDerivLedger(ledger);
         const account = this.core?.client?.loginid as string;
         const index = this.findDerivTransactionIndex(ledger);
         if (index >= 0) {
@@ -245,8 +291,7 @@ export default class TransactionsStore {
     }
 
     pushTransaction(data: TContractInfo) {
-        const ledgerKey = String((data as any)?.deriv_contract_id || (data as any)?.contract_id || '');
-        const ledger = this.deriv_ledger[ledgerKey];
+        const ledger = this.getDerivLedgerForContract(data);
         if (ledger) data = this.mergeDerivLedgerIntoContract(data, ledger);
         const is_completed = isEnded(data as ProposalOpenContract);
         const { run_id } = this.root_store.run_panel;
