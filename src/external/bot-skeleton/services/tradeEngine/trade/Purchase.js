@@ -30,8 +30,8 @@ export const analyzerContractBindings = analyzerContractBindingStore;
 export const analyzerPurchaseReservations = analyzerPurchaseReservationStore;
 
 // ANALYZER-ONLY EXECUTION RULES — these override Builder/local trade rules.
-// Analyzer entryDigit is the ONLY DIGITMATCH purchase barrier.
-// Analyzer hotDigit is the ONLY Analyzer-controlled early-exit digit.
+// Analyzer hotDigit is the canonical DIGITMATCH prediction/barrier.
+// Analyzer entryDigit belongs only to the locked Analyzer entry-code metadata.
 // A real Deriv contract is requested for exactly 1 tick. We do not silently
 // substitute 10/60 ticks or another physical duration.
 const ANALYZER_PHYSICAL_HOLD_TICKS = 1;
@@ -143,7 +143,7 @@ export default Engine =>
                         signalId: signal.signalId,
                         commandKey: analyzerSignalKey,
                         purchaseInFlightKey: analyzerSignalKey,
-                        entryPrediction: signal.entryDigit,
+                        entryPrediction: signal.hotDigit,
                         entrySource: 'ANALYZER_ONLY',
                         exitSource: 'ANALYZER_EARLY_SELL_ONLY',
                         executionTrigger: 'ANALYZER_ENTRY_COMMAND',
@@ -263,8 +263,8 @@ export default Engine =>
                     analyzer_duration_unit: ANALYZER_LOGICAL_DURATION_UNIT,
                     deriv_physical_duration: ANALYZER_PHYSICAL_HOLD_TICKS,
                     deriv_physical_duration_unit: 't',
-                    analyzer_exit_status: 'WAITING_FOR_DERIV_SETTLEMENT',
-                    analyzer_execution_status: 'WAITING_FOR_DERIV_SETTLEMENT',
+                    analyzer_exit_status: 'WAITING_FOR_ANALYZER_EARLY_SELL',
+                    analyzer_execution_status: 'WAITING_FOR_ANALYZER_EARLY_SELL',
                     analyzer_exit_code: null,
                     analyzer_contract_id: String(buy.contract_id),
                     analyzer_contract_signal_id: this.analyzerSignal?.signalId || null,
@@ -335,7 +335,7 @@ export default Engine =>
                         signal: this.analyzerSignal || globalObserver.getState('trapkid_analyzer')?.signal,
                         signalId: this.analyzerSignal?.signalId,
                         commandKey: this.analyzerCommandKey,
-                        entryPrediction: Number(this.analyzerSignal?.entryDigit ?? this.tradeOptions?.prediction),
+                        entryPrediction: Number(this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
                         lockedQuote: this.analyzerSignal?.lockedQuote,
                         entrySource: 'ANALYZER_ONLY',
                         exitSource: 'ANALYZER_EARLY_SELL_ONLY',
@@ -745,6 +745,42 @@ export default Engine =>
                     }
 
                     const status = String(poc.status || '').toLowerCase();
+
+                    // Keep the purchased contract's Analyzer metadata synchronized
+                    // with the live Analyzer exit state. EARLY_SELL_READY means the
+                    // hot digit has appeared; never leave the transaction/summary
+                    // showing a generic "waiting" exit after that signal is ready.
+                    const liveAnalyzerState = globalObserver.getState('trapkid_analyzer') || {};
+                    const liveAnalyzerExit = liveAnalyzerState?.exit;
+                    const liveHotDigit = Number(
+                        liveAnalyzerState?.signal?.hotDigit ??
+                        this.analyzerSignal?.hotDigit
+                    );
+                    const liveExitMatches =
+                        liveAnalyzerExit?.status === 'EARLY_SELL_READY' &&
+                        String(liveAnalyzerExit.signalId || this.analyzerSignal?.signalId || '') ===
+                            String(this.analyzerSignal?.signalId || '') &&
+                        Number(liveAnalyzerExit.digit) === liveHotDigit;
+
+                    if (liveExitMatches && this.data.contract) {
+                        this.data.contract = {
+                            ...this.data.contract,
+                            analyzer_exit_status: 'EARLY_SELL_READY',
+                            analyzer_exit_digit: liveHotDigit,
+                            analyzer_exit_quote: Number.isFinite(Number(liveAnalyzerExit.quote))
+                                ? Number(liveAnalyzerExit.quote)
+                                : this.data.contract.analyzer_exit_quote ?? null,
+                            analyzer_exit_code:
+                                String(this.analyzerSignal?.signalId || '') + ':' +
+                                String(liveAnalyzerExit.epoch || ''),
+                            analyzer_execution_status:
+                                this.data.contract.analyzer_execution_status === 'ANALYZER_SETTLED'
+                                    ? 'ANALYZER_SETTLED'
+                                    : 'EARLY_SELL_READY',
+                        };
+                        contract(this.data.contract);
+                    }
+
                     const settled = Boolean(poc.is_sold) || ['won', 'lost', 'sold', 'expired'].includes(status);
                     if (!settled) {
                         await new Promise(resolve => setTimeout(resolve, intervalMs));
