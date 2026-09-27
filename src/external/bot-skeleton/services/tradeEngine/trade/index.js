@@ -90,7 +90,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                     signalId,
                     commandKey,
                     exit: matchExit,
-                    analyzerExitStatus: 'MATCH_FOUND',
+                    analyzerExitStatus: 'EARLY_SELL_READY',
                     analyzerExitDigit: hotDigit,
                     executionTrigger: 'MATCH_FOUND',
                     holdUntilAnalyzerExit: false,
@@ -237,15 +237,17 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         }
     };
     onAnalyzerEarlyExit = async command => {
-        // Analyzer Match lifecycle:
-        // BUY opens one match position. The live Analyzer stream owns the
-        // exit: the exact hot digit appearing creates MATCH_FOUND.
+        // Analyzer lifecycle:
+        // BUY opens immediately for the Analyzer signal's one-tick DIGITMATCH
+        // financial execution. Analyzer EARLY_SELL_READY is the settlement
+        // command for the already-open contract.
         const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
         // STRICT MATCH FLOW: EARLY_SELL_READY is informational only. It must
         // never enter the sell path. Only the Analyzer live-stream MATCH_FOUND
         // event is allowed to settle the already-purchased contract.
         const analyzerExit = command?.exit || analyzerState?.exit;
-        if (String(analyzerExit?.status || '') !== 'MATCH_FOUND') {
+        const exitStatus = String(analyzerExit?.status || '');
+        if (exitStatus !== 'EARLY_SELL_READY') {
             return false;
         }
         // Once this exact BUY has settled, later match ticks are informational only
@@ -333,20 +335,19 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // EARLY_SELL_READY command from the Analyzer.
         const bridgeExit = command?.exit || analyzerState?.exit;
         const exit =
-            String(bridgeExit?.status || '') === 'MATCH_FOUND'
+            String(bridgeExit?.status || '') === 'EARLY_SELL_READY'
                 ? {
                     signalId: String(bridgeExit.signalId || commandSignalId || activeSignalId),
                     digit: Number(bridgeExit.digit ?? signal.hotDigit),
                     hotDigit: Number(signal.hotDigit),
-                    quote: Number(bridgeExit.quote),
-                    epoch: Number(bridgeExit.epoch),
-                    status: String(bridgeExit.status || 'MATCH_FOUND'),
-                    exitCode: bridgeExit.exitCode || null,
+                    quote: Number(bridgeExit.quote ?? signal.exitQuote ?? signal.entryQuote ?? signal.lockedQuote),
+                    epoch: Number(bridgeExit.epoch || Date.now()),
+                    status: 'EARLY_SELL_READY',
+                    exitCode: bridgeExit.exitCode || commandKey,
                 }
                 : (this.getAnalyzerExit?.() || null);
-        // Only MATCH_FOUND is a valid Analyzer Match settlement event.
-        // EARLY_SELL_READY must never close a Match contract.
-        if (String(exit?.status || '') !== 'MATCH_FOUND') {
+        // Analyzer EARLY_SELL_READY is the sole settlement trigger.
+        if (String(exit?.status || '') !== 'EARLY_SELL_READY') {
             return;
         }
 
@@ -425,11 +426,11 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                 entryDigit: Number(signal.entryDigit),
                 hotDigit: Number(signal.hotDigit),
                 exit,
-                executionTrigger: String(exit.status || 'MATCH_FOUND'),
+                executionTrigger: String(exit.status || 'EARLY_SELL_READY'),
                 holdUntilAnalyzerExit: false,
                 executionArmed: true,
                 cycleFinished: false,
-                settlementSource: 'MATCH_FOUND',
+                settlementSource: 'EARLY_SELL_READY',
                 analyzerContractId: contractId,
                 derivContractId: contractId,
                 pendingEarlyExit: null,
