@@ -340,7 +340,11 @@ const TrapKidAnalyzerDock = () => {
     const signalMatches = !!activeSignalId && activeSignalId === executionSignalId;
     const hotDigit = Number(details?.analysis?.hotDigit ?? details?.signal?.hotDigit);
     const exitDigit = Number(details?.exit?.digit ?? executionState?.exit?.digit);
-    const exitStatus = String(details?.exit?.status || executionState?.exit?.status || 'IDLE');
+    const exitStatus = String(
+        executionState?.status === 'MATCH_FOUND' || executionState?.status === 'MATCH_SETTLED'
+            ? 'MATCH_FOUND'
+            : details?.exit?.status || executionState?.exit?.status || 'IDLE'
+    );
     const exitValid = ['EARLY_SELL_READY', 'MATCH_FOUND'].includes(exitStatus) && Number.isInteger(exitDigit) && exitDigit === hotDigit;
     const executionContractSignalId = String(
         executionState?.analyzerContractSignalId ||
