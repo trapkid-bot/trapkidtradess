@@ -18,6 +18,12 @@ const AnalyzerCell = ({ data }: { data: any }) => (
         <div style={{ fontSize: 10, wordBreak: 'break-all' }}>
             {data?.analyzer_entry_code || '—'}
         </div>
+        <div style={{ fontSize: 10 }}>
+            Hot digit: {data?.analyzer_hot_digit ?? data?.prediction ?? '—'}
+        </div>
+        <div style={{ fontSize: 10, opacity: 0.7 }}>
+            Exit: {data?.analyzer_exit_status || 'WAITING_FOR_ANALYZER_EARLY_SELL'}
+        </div>
         <div style={{ fontSize: 10, opacity: 0.7 }}>
             {data?.analyzer_execution_status ||
                 (data?.is_sold ? 'ANALYZER_SETTLED' : 'HOLDING_FOR_ANALYZER_EARLY_SELL')}
