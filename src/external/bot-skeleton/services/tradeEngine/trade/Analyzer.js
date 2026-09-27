@@ -173,7 +173,9 @@ export default Engine =>
         getAnalyzerExit() {
             const state = this.getAnalyzerState();
             const exit = state?.exit;
-            const signal = this.analyzerSignal || state?.signal;
+            // Shared Analyzer state is the live source of truth. Prefer it over
+            // an older engine-local signal snapshot during an exit handoff.
+            const signal = state?.signal?.signalId ? state.signal : this.analyzerSignal;
             if (!exit || exit.status !== 'EARLY_SELL_READY' || !signal) return null;
 
             const exitSignalId = String(exit.signalId || '');
@@ -192,6 +194,7 @@ export default Engine =>
             return {
                 signalId,
                 commandKey: String(signal.signalId) + ':' + String(signal.lockedAt),
+                status: 'EARLY_SELL_READY',
                 digit: hotDigit,
                 hotDigit,
                 quote: Number(exit.quote),
