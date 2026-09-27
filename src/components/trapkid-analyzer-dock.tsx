@@ -63,7 +63,7 @@ const TrapKidAnalyzerDock = () => {
                     const remoteExit = data?.exit;
                     const remoteExitHotDigit = Number(signal?.hotDigit ?? signal?.prediction ?? signal?.lockedDigit);
                     const remoteExitReady =
-                        (remoteExit?.status === 'EARLY_SELL_READY' || remoteExit?.status === 'MATCH_FOUND') &&
+                        remoteExit?.status === 'EARLY_SELL_READY' &&
                         Number.isInteger(remoteExitHotDigit) &&
                         Number(remoteExit?.digit) === remoteExitHotDigit &&
                         (!remoteExit?.signalId || String(remoteExit.signalId) === signalKey.split(':')[0]);
@@ -138,8 +138,8 @@ const TrapKidAnalyzerDock = () => {
                             ? null
                             : data?.exit || currentAnalyzerState.exit || null,
                         status:
-                            String(currentAnalyzerState.status || '') === 'ANALYZER_SETTLED'
-                                ? 'ANALYZER_SETTLED'
+                            ['ANALYZER_SETTLED', 'ANALYZER_EARLY_SELL_CONFIRMED'].includes(String(currentAnalyzerState.status || ''))
+                                ? String(currentAnalyzerState.status)
                                 : remoteExitReady
                                   ? 'EARLY_SELL_READY'
                                   : preservedCommandStatus
