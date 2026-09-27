@@ -9,13 +9,12 @@ import { observer as globalObserver } from '../../../utils/observer';
 let delayIndex = 0;
 let purchase_reference;
 
-// Analyzer logical duration remains 1 tick, but the real Deriv position
-// must stay sellable until EARLY_SELL_READY. Deriv has no separate
-// "display duration" field, so use the maximum practical DIGITMATCH tick lifetime as the safety ceiling.
-// DIGITMATCH is a short-duration contract. Use the longest common
-// broker-supported digit duration as the physical ceiling, while the
-// Analyzer still owns the actual exit lifecycle.
-const ANALYZER_PHYSICAL_HOLD_TICKS = 60;
+// ANALYZER-ONLY EXECUTION RULES — these override Builder/local trade rules.
+// Analyzer entryDigit is the ONLY DIGITMATCH purchase barrier.
+// Analyzer hotDigit is the ONLY Analyzer-controlled early-exit digit.
+// A real Deriv contract is requested for exactly 1 tick. We do not silently
+// substitute 10/60 ticks or another physical duration.
+const ANALYZER_PHYSICAL_HOLD_TICKS = 1;
 const ANALYZER_LOGICAL_DURATION = 1;
 const ANALYZER_LOGICAL_DURATION_UNIT = 't';
 
@@ -196,8 +195,8 @@ export default Engine =>
                     contract_type: 'DIGITMATCH',
                     symbol: this.analyzerSignal?.symbol || this.tradeOptions?.symbol,
                     underlying_symbol: this.analyzerSignal?.symbol || this.tradeOptions?.symbol,
-                    barrier: Number(this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
-                    prediction: Number(this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
+                    barrier: Number(this.analyzerSignal?.entryDigit ?? this.tradeOptions?.prediction),
+                    prediction: Number(this.analyzerSignal?.entryDigit ?? this.tradeOptions?.prediction),
                     buy_price: Number(buy.buy_price),
                     payout: Number(buy.payout),
                     currency: buy.currency || this.tradeOptions?.currency || 'USD',
@@ -209,10 +208,7 @@ export default Engine =>
                     analyzer_entry_quote: Number(this.analyzerSignal?.entryQuote ?? this.analyzerSignal?.lockedQuote ?? NaN),
                     analyzer_locked_quote: Number(this.analyzerSignal?.lockedQuote ?? this.analyzerSignal?.entryQuote ?? NaN),
                     analyzer_hot_digit: Number(this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
-                    analyzer_prediction: Number(this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
-                    // Logical DBot contract identity: keep the configured Match
-                    // duration as one tick, even though the real Deriv position
-                    // uses a longer sellable lifetime for the Analyzer lifecycle.
+                    analyzer_prediction: Number(this.analyzerSignal?.entryDigit ?? this.tradeOptions?.prediction),
                     duration: ANALYZER_LOGICAL_DURATION,
                     duration_unit: ANALYZER_LOGICAL_DURATION_UNIT,
                     analyzer_duration: ANALYZER_LOGICAL_DURATION,
@@ -270,7 +266,7 @@ export default Engine =>
                         derivTransactionId: buy.transaction_id ?? null,
                         derivBuyPrice: Number.isFinite(Number(buy.buy_price)) ? Number(buy.buy_price) : null,
                         analyzerEntryCode: this.analyzerCommandKey || null,
-                        analyzerEntryDigit: Number(this.analyzerSignal?.entryDigit ?? this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
+                        analyzerEntryDigit: Number(this.analyzerSignal?.entryDigit ?? this.tradeOptions?.prediction),
                         analyzerEntryQuote: Number.isFinite(Number(this.analyzerSignal?.entryQuote ?? this.analyzerSignal?.lockedQuote))
                             ? Number(this.analyzerSignal?.entryQuote ?? this.analyzerSignal?.lockedQuote)
                             : null,
@@ -287,7 +283,7 @@ export default Engine =>
                         signal: this.analyzerSignal || globalObserver.getState('trapkid_analyzer')?.signal,
                         signalId: this.analyzerSignal?.signalId,
                         commandKey: this.analyzerCommandKey,
-                        entryPrediction: this.tradeOptions.prediction,
+                        entryPrediction: entryDigit,
                         lockedQuote: this.analyzerSignal?.lockedQuote,
                         entrySource: 'ANALYZER_ONLY',
                         exitSource: 'ANALYZER_EARLY_SELL_ONLY',
@@ -369,6 +365,7 @@ export default Engine =>
                 const symbol = String(signal?.symbol || '');
                 const entryDigit = Number(signal?.entryDigit);
                 const hotDigit = Number(signal?.hotDigit);
+                // hotDigit is intentionally read for validation/exit state only; it is NEVER the purchase barrier.
                 const currency = this.tradeOptions?.currency || 'USD';
 
                 if (!signal?.signalId || !symbol || !Number.isFinite(amount) || amount <= 0 ||
@@ -376,12 +373,16 @@ export default Engine =>
                     throw new Error('TRAPKID ANALYZER BUY -> missing stake, Analyzer market, or Analyzer entry digit.');
                 }
 
-                // IMPORTANT:
-                // - Logical DBot/Analyzer duration = 1 tick.
-                // - Physical Deriv expiry = 60-tick safety ceiling; Analyzer still owns the actual exit.
-                // - EARLY_SELL_READY is the only event that closes the real contract.
-                // A real 1-tick Deriv contract can expire before the Analyzer exit;
-                // Analyzer exit because Deriv expires it at the tick boundary.
+                // HARD ANALYZER-ONLY RULES:
+                // 1. Contract type is DIGITMATCH.
+                // 2. Market is Analyzer signal.symbol.
+                // 3. Purchase barrier is Analyzer signal.entryDigit ONLY.
+                // 4. Contract duration is physically 1 tick — no hidden 10/60-tick hold.
+                // 5. Analyzer signal.hotDigit is EXIT intelligence only; never the purchase barrier.
+                // 6. The exact Deriv BUY contract_id is canonical and must be the contract sold.
+                // 7. EARLY_SELL_READY is the only Analyzer-authorized early SELL event.
+                // If the 1-tick contract expires before EARLY_SELL_READY, the broker has closed
+                // the exact contract and no replacement purchase or replacement contract is allowed.
                 const logicalDuration = ANALYZER_LOGICAL_DURATION;
                 const logicalDurationUnit = ANALYZER_LOGICAL_DURATION_UNIT;
                 const physicalHoldDuration = ANALYZER_PHYSICAL_HOLD_TICKS;
@@ -392,7 +393,7 @@ export default Engine =>
                     basis: 'stake',
                     contract_type: 'DIGITMATCH',
                     currency,
-                    duration: physicalHoldDuration,
+                    duration: 1,
                     duration_unit: 't',
                     underlying_symbol: symbol,
                     barrier: String(entryDigit),
@@ -471,7 +472,7 @@ export default Engine =>
                         basis: 'stake',
                         contract_type: 'DIGITMATCH',
                         currency,
-                        duration: physicalHoldDuration,
+                        duration: 1,
                         duration_unit: 't',
                         underlying_symbol: symbol,
                         barrier: String(entryDigit),
