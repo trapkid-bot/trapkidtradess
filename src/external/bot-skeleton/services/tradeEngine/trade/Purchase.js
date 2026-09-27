@@ -11,7 +11,7 @@ let purchase_reference;
 
 export default Engine =>
     class Purchase extends Engine {
-        purchase(contract_type) {
+        async purchase(contract_type) {
             const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
             const analyzerMode =
                 this.isAnalyzerEnabledForTrade?.() ||
@@ -333,7 +333,7 @@ export default Engine =>
                 const proposalRequest = {
                     proposal: 1,
                     amount,
-                    basis: this.tradeOptions?.basis || 'stake',
+                    basis: 'stake',
                     contract_type: 'DIGITMATCH',
                     currency,
                     duration: 1,
