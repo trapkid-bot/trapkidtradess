@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api_base } from '@/external/bot-skeleton';
+import { observer as globalObserver } from '@/external/bot-skeleton/utils/observer';
 import './matches-terminal.scss';
 
 // TrapKid Analyzer ONLY execution gate • COMMAND BUS V5
@@ -108,7 +109,6 @@ const MatchesTerminal = () => {
     const [digit, setDigit] = useState<number | null>(null);
     const [prediction, setPrediction] = useState<number | null>(null);
     const [stake, setStake] = useState(2);
-    const [holdTicks, setHoldTicks] = useState(10);
     const [balance, setBalance] = useState<number | null>(null);
     const [currency, setCurrency] = useState('USD');
     const [accountId, setAccountId] = useState<string | null>(null);
@@ -402,7 +402,7 @@ const MatchesTerminal = () => {
         const nextPayout = Number(p.payout ?? p.payout_amount ?? 0);
         setProposalId(String(p.id));
         setPayout(nextPayout || null);
-        setStatus(`Proposal ready — ${entry.symbol} / MATCH ${entry.prediction} / logical 1 tick / Analyzer hold`);
+        setStatus(`Proposal ready — ${entry.symbol} / MATCH ${entry.prediction} / logical 1 tick / Analyzer lifecycle hold`);
         return { id: String(p.id), ask, payout: nextPayout };
     }, [currency]);
 
@@ -468,6 +468,42 @@ const MatchesTerminal = () => {
             tradeRef.current = nextTrade;
             sellingRef.current = false;
             setTrade(nextTrade);
+
+            globalObserver.setState({
+                trapkid_analyzer: {
+                    ...(globalObserver.getState('trapkid_analyzer') || {}),
+                    status: 'RUNNING',
+                    analyzerStatus: 'ANALYZE_CLICK',
+                    entryReady: true,
+                    executionArmed: true,
+                    executionTrigger: 'ANALYZER_ENTRY',
+                    signalId,
+                    commandKey,
+                    signal,
+                    symbol: entrySymbol,
+                    entryPrediction,
+                    lockedDigit: entryPrediction,
+                    hotDigit: Number(signal?.hotDigit ?? entryPrediction),
+                    entrySource: 'ANALYZER_ONLY',
+                    exitSource: 'ANALYZER_EARLY_SELL_ONLY',
+                    holdUntilAnalyzerExit: true,
+                    derivContractId: String(b.contract_id),
+                    derivTransactionId: b.transaction_id ?? null,
+                    derivBuyPrice: Number(b.buy_price ?? proposal.ask),
+                    analyzerPotentialPayout: Number(b.payout ?? proposal.payout ?? 0),
+                    payout: Number(b.payout ?? proposal.payout ?? 0),
+                    payoutSource: 'DERIV_BUY',
+                    derivBalanceAfterBuy: Number.isFinite(Number(b.balance_after)) ? Number(b.balance_after) : null,
+                    analyzerLogicalDuration: ANALYZER_LOGICAL_DURATION,
+                    analyzerLogicalDurationUnit: ANALYZER_LOGICAL_DURATION_UNIT,
+                    derivPhysicalDuration: ANALYZER_PHYSICAL_HOLD_SECONDS,
+                    derivPhysicalDurationUnit: 's',
+                },
+            });
+            globalObserver.emit(
+                'trapkid.analyzer.updated',
+                globalObserver.getState('trapkid_analyzer') || {}
+            );
             setPrediction(entryPrediction);
             setSymbol(entrySymbol);
             setStatus(`ANALYZER BUY CONFIRMED • ${entrySymbol} • DIGITMATCH ${entryPrediction} • logical 1 tick • holding for Analyzer EARLY_SELL_READY • ${signalId}`);
@@ -484,7 +520,7 @@ const MatchesTerminal = () => {
             setStatus('Analyzer signal received — trade not opened');
             return false;
         }
-    }, [analyzerDetails?.signal, analyzerDetails?.symbol, holdTicks, requestProposal, stake]);
+    }, [analyzerDetails?.signal, analyzerDetails?.symbol, requestProposal, stake]);
 
     const exitOnHit = useCallback(async (active: Trade, quote: number, hitDigit: number) => {
         try {
@@ -493,15 +529,16 @@ const MatchesTerminal = () => {
             // Deriv market tick to trigger it. For the broker-side close,
             // use the Analyzer's exit quote when supplied; otherwise use
             // Deriv's documented market-sell price of 0.
-            const analyzerExitQuote = Number(analyzerDetails?.exit?.quote);
-            const sellPrice = Number.isFinite(analyzerExitQuote) && analyzerExitQuote > 0 ? analyzerExitQuote : 0;
             const response = await sendApiRequest({
                 sell: active.contractId,
-                price: sellPrice,
+                price: 0,
             });
 
             const sold = response?.sell;
-            const soldFor = Number(sold?.sold_for ?? sellPrice);
+            const soldFor = Number(sold?.sold_for);
+            if (!Number.isFinite(soldFor)) {
+                throw new Error('Deriv did not return authoritative sold_for for the same contract.');
+            }
             const pnl = soldFor - active.buyPrice;
 
             setTrades(prev => [
@@ -514,7 +551,33 @@ const MatchesTerminal = () => {
                 ...prev,
             ].slice(0, 20));
 
-            setStatus(`Digit ${hitDigit} appeared — contract sold early at ${formatMoney(soldFor, currency)}`);
+            setStatus('Analyzer EARLY_SELL_READY → SAME DERIV CONTRACT SOLD at ' + formatMoney(soldFor, currency));
+            globalObserver.setState({
+                trapkid_analyzer: {
+                    ...(globalObserver.getState('trapkid_analyzer') || {}),
+                    status: 'ANALYZER_SETTLED',
+                    analyzerStatus: 'EARLY_SELL_READY',
+                    entryReady: false,
+                    executionArmed: false,
+                    executionTrigger: 'ANALYZER_SETTLED',
+                    signalId: active.signalId,
+                    commandKey: active.signalId + ':' + String(analyzerDetails?.signal?.lockedAt || ''),
+                    derivContractId: active.contractId,
+                    derivSellTransactionId: sold.transaction_id ?? null,
+                    derivPayout: soldFor,
+                    payout: soldFor,
+                    profit: pnl,
+                    derivBalanceAfterSell: Number.isFinite(Number(sold.balance_after)) ? Number(sold.balance_after) : null,
+                    holdUntilAnalyzerExit: false,
+                    exit: {
+                        ...(analyzerDetails?.exit || {}),
+                        status: 'EARLY_SELL_READY',
+                        signalId: active.signalId,
+                        digit: hitDigit,
+                    },
+                },
+            });
+            globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer') || {});
             setTrade(null);
             tradeRef.current = null;
             sellingRef.current = false;
@@ -592,7 +655,8 @@ const MatchesTerminal = () => {
             !sellingRef.current &&
             exitReady &&
             Number.isInteger(exitDigit) &&
-            activeSignalId === active.signalId
+            activeSignalId === active.signalId &&
+            exitDigit === Number(active.hotDigit)
         ) {
             sellingRef.current = true;
             void exitOnHit(
