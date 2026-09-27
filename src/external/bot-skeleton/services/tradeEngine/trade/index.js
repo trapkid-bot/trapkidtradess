@@ -275,6 +275,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                 symbol: signal.symbol,
                 prediction: Number(signal.hotDigit),
                 hotDigit: Number(signal.hotDigit),
+                exit,
                 executionTrigger: 'EARLY_SELL_READY',
                 holdUntilAnalyzerExit: false,
                 executionArmed: true,
