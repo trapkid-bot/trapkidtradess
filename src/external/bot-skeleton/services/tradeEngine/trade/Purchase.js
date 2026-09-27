@@ -174,6 +174,9 @@ export default Engine =>
                 this.derivContractId = String(buy.contract_id);
                 this.derivBuy = buy;
                 this.derivBuyTransactionId = buy.transaction_id ?? null;
+                this.isSold = false;
+                this.isExpired = false;
+                this.isSellAvailable = true;
 
                 if (this.analyzerSignal) {
                     this.analyzerPurchaseKey =
