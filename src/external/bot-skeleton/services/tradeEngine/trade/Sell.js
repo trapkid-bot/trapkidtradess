@@ -36,6 +36,17 @@ export default Engine =>
             const contract = this.data?.contract || {};
             const fallbackStake = Number(contract.buy_price ?? this.tradeOptions?.amount ?? 0);
 
+            // Analyzer command has reached the real execution boundary.
+            // There is no local simulation, Builder rule, expiry fallback, or
+            // second approval here: send SELL against the SAME Deriv contract ID.
+            globalObserver.emit(
+                'ui.log',
+                'TRAPKID ANALYZER COMMAND → FORCED REAL DERIV SELL → contract=' +
+                    String(this.derivContractId || this.contractId) +
+                    ' → signal=' + String(analyzerSignal.signalId) +
+                    ' → exit=EARLY_SELL_READY'
+            );
+
             // Analyzer is authoritative for the exit decision. Once the Analyzer
             // verifies EARLY_SELL_READY, execute the real Deriv early-sell request.
             // Deriv is used only for the actual amount returned (sold_for), transaction
@@ -57,7 +68,7 @@ export default Engine =>
                 this.analyzerDerivSellPromise = null;
                 globalObserver.emit(
                     'ui.log.error',
-                    'TRAPKID ANALYZER EXIT → Deriv did not return the early-sell proceeds; SAME contract sell will remain retryable'
+                    'TRAPKID ANALYZER COMMAND → REAL DERIV SELL DID NOT RETURN PROCEEDS; SAME contract sell remains retryable'
                 );
                 return Promise.resolve();
             }
