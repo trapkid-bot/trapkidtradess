@@ -38,6 +38,8 @@ export const analyzerPurchaseReservations = analyzerPurchaseReservationStore;
 export default Engine =>
     class Purchase extends Engine {
         async purchase(contract_type) {
+            let logicalDuration = null;
+            let logicalDurationUnit = null;
             const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
             const analyzerMode =
                 this.isAnalyzerEnabledForTrade?.() ||
@@ -155,10 +157,11 @@ export default Engine =>
                 // entryDigit remains Analyzer entry-code metadata only.
                 this.tradeOptions.prediction = signal.hotDigit;
                 this.tradeOptions.symbol = signal.symbol;
-                // Analyzer supplies the decision; the bot keeps its normal
-                // Analyzer Match mode keeps the position open while the live stream searches.
-                this.tradeOptions.duration = ANALYZER_LOGICAL_DURATION;
-                this.tradeOptions.duration_unit = ANALYZER_LOGICAL_DURATION_UNIT;
+                logicalDuration = signal?.duration ?? signal?.logicalDuration ?? signal?.analyzerDuration ?? null;
+                logicalDurationUnit = signal?.duration_unit ?? signal?.durationUnit ?? signal?.logicalDurationUnit ?? signal?.analyzerDurationUnit ?? null;
+                // Analyzer supplies the decision. Do not inject any DBot duration.
+                // If the Analyzer explicitly supplies duration metadata, preserve it;
+                // otherwise no local/default duration is introduced.
 
                 globalObserver.setState({
                     trapkid_analyzer: {
@@ -400,8 +403,10 @@ export default Engine =>
                 // 6. The exact Deriv BUY contract_id is canonical and must be the contract sold.
                 // 7. The matching hot digit is the Analyzer-authorized exit event.
                 // The exact BUY remains bound to this signal; no replacement contract is created.
-                const logicalDuration = this.tradeOptions?.duration ?? null;
-                const logicalDurationUnit = this.tradeOptions?.duration_unit ?? null;
+                // Duration is Analyzer-owned only. Never read a Builder/default
+                // duration and never manufacture a one-tick value.
+                logicalDuration = signal?.duration ?? signal?.logicalDuration ?? signal?.analyzerDuration ?? null;
+                logicalDurationUnit = signal?.duration_unit ?? signal?.durationUnit ?? signal?.logicalDurationUnit ?? signal?.analyzerDurationUnit ?? null;
 
                 const proposalRequest = {
                     proposal: 1,
@@ -409,8 +414,8 @@ export default Engine =>
                     basis: 'stake',
                     contract_type: 'DIGITMATCH',
                     currency,
-                    ...(this.tradeOptions?.duration != null ? { duration: this.tradeOptions.duration } : {}),
-                    ...(this.tradeOptions?.duration_unit != null ? { duration_unit: this.tradeOptions.duration_unit } : {}),
+                    ...(logicalDuration != null ? { duration: logicalDuration } : {}),
+                    ...(logicalDurationUnit != null ? { duration_unit: logicalDurationUnit } : {}),
                     underlying_symbol: symbol,
                     barrier: String(predictionDigit),
                 };
@@ -471,8 +476,6 @@ export default Engine =>
                         payoutSource: 'DERIV_PROPOSAL',
                         analyzerLogicalDuration: logicalDuration,
                         analyzerLogicalDurationUnit: logicalDurationUnit,
-                        derivPhysicalDuration: physicalHoldDuration,
-                        derivPhysicalDurationUnit: 't',
                     },
                 });
                 globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
@@ -489,8 +492,8 @@ export default Engine =>
                         basis: 'stake',
                         contract_type: 'DIGITMATCH',
                         currency,
-                        duration: this.tradeOptions?.duration,
-                        ...(this.tradeOptions?.duration_unit != null ? { duration_unit: this.tradeOptions.duration_unit } : {}),
+                        ...(logicalDuration != null ? { duration: logicalDuration } : {}),
+                        ...(logicalDurationUnit != null ? { duration_unit: logicalDurationUnit } : {}),
                         underlying_symbol: symbol,
                         barrier: String(predictionDigit),
                     });
@@ -672,9 +675,6 @@ export default Engine =>
             if (this.analyzerSettlementPromise) return this.analyzerSettlementPromise;
 
             this.analyzerSettlementPromise = (async () => {
-                // EARLY_SELL_READY can arrive in the same tick as the BUY.
-                // Use a tight observer loop so local polling does not add a
-                // 100ms delay to an already time-critical 1-tick contract.
                 const maxChecks = 3000;
                 const intervalMs = 10;
 
@@ -683,52 +683,24 @@ export default Engine =>
                     const signal = liveState?.signal?.signalId ? liveState.signal : this.analyzerSignal;
                     const exit = liveState?.exit;
                     const hotDigit = Number(signal?.hotDigit);
-                    const ready =
+                    const matchFound =
                         String(signal?.signalId || '') === String(signalKey || '').split(':')[0] &&
-                        exit?.status === 'EARLY_SELL_READY' &&
+                        exit?.status === 'MATCH_FOUND' &&
                         String(exit?.signalId || signal?.signalId || '') === String(signal?.signalId || '') &&
                         Number.isInteger(hotDigit) &&
                         Number(exit?.digit) === hotDigit;
 
-                    if (ready && !this.isSold) {
-                        globalObserver.setState({
-                            trapkid_analyzer: {
-                                ...liveState,
-                                status: 'EARLY_EXIT_EXECUTING',
-                                analyzerExecutionStatus: 'EARLY_EXIT_EXECUTING',
-                                analyzerContractId: exactContractId,
-                                derivContractId: exactContractId,
-                                analyzerExitStatus: 'EARLY_SELL_READY',
-                                analyzerExitDigit: hotDigit,
-                                executionTrigger: 'EARLY_SELL_READY',
-                                holdUntilAnalyzerExit: false,
-                                exit: {
-                                    ...exit,
-                                    status: 'EARLY_SELL_READY',
-                                    signalId: String(signal.signalId),
-                                    digit: hotDigit,
-                                },
-                            },
-                        });
-                        globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
-
+                    if (matchFound && !this.isSold) {
                         const sold = await this.sellAtMarket('ANALYZER_EARLY_SELL');
                         if (sold) return true;
-
-                        // Keep watching. A failed attempt must never fall back
-                        // to a different digit or automatic expiry settlement.
-                        await new Promise(resolve => setTimeout(resolve, intervalMs));
-                        continue;
                     }
 
-                    // Analyzer remains the sole exit authority. We deliberately
-                    // do not use proposal_open_contract won/lost/expired here.
                     await new Promise(resolve => setTimeout(resolve, intervalMs));
                 }
 
                 globalObserver.emit(
                     'ui.log.error',
-                    'TRAPKID ANALYZER WATCHER → timed out waiting for hot digit=' +
+                    'TRAPKID ANALYZER WATCHER → timed out waiting for MATCH_FOUND hot digit=' +
                         String(this.analyzerSignal?.hotDigit ?? '') +
                         ' on SAME CONTRACT=' + exactContractId
                 );
