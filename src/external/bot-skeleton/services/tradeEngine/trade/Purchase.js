@@ -198,7 +198,13 @@ export default Engine =>
                     analyzer_command_key: this.analyzerCommandKey || null,
                     analyzer_hot_digit: Number(this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
                     analyzer_prediction: Number(this.analyzerSignal?.hotDigit ?? this.tradeOptions?.prediction),
+                    // Logical DBot contract identity: keep the configured Match
+                    // duration as one tick, even though the real Deriv position
+                    // uses a longer sellable lifetime for the Analyzer lifecycle.
+                    duration: ANALYZER_LOGICAL_DURATION,
+                    duration_unit: ANALYZER_LOGICAL_DURATION_UNIT,
                     analyzer_duration: ANALYZER_LOGICAL_DURATION,
+
                     analyzer_duration_unit: ANALYZER_LOGICAL_DURATION_UNIT,
                     deriv_physical_duration: ANALYZER_HOLD_SECONDS,
                     deriv_physical_duration_unit: 's',
