@@ -83,7 +83,9 @@ export default Engine =>
                 // hotDigit is separate Analyzer exit intelligence and must not
                 // overwrite the entry digit.
                 entryDigit: lockedEntryDigit,
-                prediction: lockedEntryDigit,
+                // Analyzer hotDigit is the canonical DIGITMATCH prediction.
+                // entryDigit remains the separate locked entry-code field.
+                prediction: hotDigit,
                 lockedEntryDigit,
                 lockedDigit: Number.isInteger(Number(signal.lockedDigit))
                     ? Number(signal.lockedDigit)
@@ -137,7 +139,9 @@ export default Engine =>
             // The hot digit remains the only authorized exit digit.
 
             this.tradeOptions.symbol = signal.symbol;
-            this.tradeOptions.prediction = signal.entryDigit;
+            // The Analyzer hot digit is the canonical DIGITMATCH prediction.
+            // Keep entryDigit separate as the locked entry-code field.
+            this.tradeOptions.prediction = signal.hotDigit;
             this.analyzerSignal = signal;
             this.analyzerCommandKey = String(signal.signalId) + ':' + String(signal.lockedAt);
 
@@ -150,7 +154,7 @@ export default Engine =>
                     signalId: signal.signalId,
                     commandKey: this.analyzerCommandKey,
                     lockedDigit: signal.lockedDigit,
-                    prediction: signal.prediction,
+                    prediction: signal.hotDigit,
                     hotDigit: signal.hotDigit,
                     lockedAt: signal.lockedAt,
                     expiresAt: signal.expiresAt,
