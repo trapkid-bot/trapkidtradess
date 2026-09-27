@@ -35,14 +35,15 @@ export default Engine =>
                 // The only valid entry trigger is an explicit READY Analyzer command.
                 const entryCommandAuthorized =
                     analyzerStateGate.executionArmed === true &&
-                    analyzerStateGate.executionTrigger === 'ANALYZER_ENTRY_COMMAND' &&
                     analyzerStateGate.entryReady === true &&
-                    String(analyzerStateGate.analyzerStatus || '').toUpperCase() === 'READY';
+                    ['ANALYZER_ENTRY', 'ANALYZER_ENTRY_COMMAND'].includes(
+                        String(analyzerStateGate.executionTrigger || '')
+                    );
 
                 if (!entryCommandAuthorized) {
                     globalObserver.emit(
                         'ui.log',
-                        'TRAPKID ANALYZER BUY BLOCKED → waiting for explicit READY entry command.'
+                        'TRAPKID ANALYZER BUY BLOCKED → Analyze entry command is not armed.'
                     );
                     return Promise.resolve();
                 }
