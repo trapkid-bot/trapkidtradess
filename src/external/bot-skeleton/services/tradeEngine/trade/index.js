@@ -244,6 +244,13 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // BUY opens one match position. The live Analyzer stream owns the
         // exit: the exact hot digit appearing creates MATCH_FOUND.
         const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
+        // STRICT MATCH FLOW: EARLY_SELL_READY is informational only. It must
+        // never enter the sell path. Only the Analyzer live-stream MATCH_FOUND
+        // event is allowed to settle the already-purchased contract.
+        const analyzerExit = command?.exit || analyzerState?.exit;
+        if (String(analyzerExit?.status || '') !== 'MATCH_FOUND') {
+            return false;
+        }
         // Once this exact BUY has settled, later match ticks are informational only
         // and must never reopen the cycle.
         if (String(analyzerState.status || '') === 'ANALYZER_SETTLED' || this.derivSettlement) {
@@ -399,7 +406,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                     pendingEarlyExit: exit,
                     analyzerExitStatus: String(exit.status || 'MATCH_FOUND'),
                     analyzerExitDigit: Number(signal.hotDigit),
-                    executionTrigger: 'ANALYZER_EARLY_SELL_READY',
+                    executionTrigger: 'MATCH_FOUND',
                     holdUntilAnalyzerExit: false,
                 },
             });
@@ -429,7 +436,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
                 analyzerContractId: contractId,
                 derivContractId: contractId,
                 pendingEarlyExit: null,
-                analyzerExitStatus: 'EARLY_SELL_READY',
+                analyzerExitStatus: 'MATCH_FOUND',
                 analyzerExitDigit: Number(signal.hotDigit),
             },
         });
@@ -443,7 +450,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             if (!sold) {
                 globalObserver.emit(
                     'ui.log.error',
-                    'TRAPKID ANALYZER → EARLY_SELL_READY was not confirmed on the SAME CONTRACT=' + contractId
+                    'TRAPKID ANALYZER → MATCH_FOUND was not confirmed on the SAME CONTRACT=' + contractId
                 );
             }
             return sold;
