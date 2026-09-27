@@ -96,6 +96,31 @@ export default function MobileTransactionCards({ transaction }: { transaction: T
             <div className={`${PARENT_CLASS}__card__row`}>
                 <CardColumn title='Ref. ID' label={transaction?.transaction_ids?.buy} />
             </div>
+            {(transaction as any)?.analyzer_source === 'ANALYZER_ONLY' && (
+                <>
+                    <div className={`${PARENT_CLASS}__card__row`}>
+                        <CardColumn
+                            title='Analyzer Entry Code'
+                            label={(transaction as any)?.analyzer_entry_code || (transaction as any)?.analyzer_command_key || '—'}
+                        />
+                    </div>
+                    <div className={`${PARENT_CLASS}__card__row`}>
+                        <CardColumn
+                            title='Lifecycle'
+                            label={
+                                (transaction as any)?.analyzer_execution_status ||
+                                ((transaction as any)?.is_sold ? 'ANALYZER_SETTLED' : 'HOLDING_FOR_ANALYZER_EARLY_SELL')
+                            }
+                        />
+                    </div>
+                    <div className={`${PARENT_CLASS}__card__row`}>
+                        <CardColumn
+                            title='Deriv Contract ID'
+                            label={(transaction as any)?.analyzer_contract_id || (transaction as any)?.deriv_contract_id || (transaction as any)?.contract_id || '—'}
+                        />
+                    </div>
+                </>
+            )}
             <div className={`${PARENT_CLASS}__card__row`}>
                 <CardColumn
                     title='Timestamp'
