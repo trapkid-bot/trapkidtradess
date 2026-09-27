@@ -274,8 +274,25 @@ export default Engine =>
                     }
                 }
 
+                if (proposalResponse?.error) {
+                    globalObserver.emit(
+                        'ui.log.error',
+                        'TRAPKID DERIV PROPOSAL → ' +
+                            (proposalResponse.error.message ||
+                                proposalResponse.error.code ||
+                                'Deriv rejected the DIGITMATCH proposal')
+                    );
+                    return null;
+                }
+
                 const proposal = proposalResponse?.proposal;
-                if (!proposal) return null;
+                if (!proposal) {
+                    globalObserver.emit(
+                        'ui.log.error',
+                        'TRAPKID DERIV PROPOSAL → no proposal response from the authenticated Deriv connection.'
+                    );
+                    return null;
+                }
 
                 const potentialPayout = Number(proposal.payout);
                 const askPrice = Number(proposal.ask_price);
@@ -310,6 +327,14 @@ export default Engine =>
                         'ui.log.error',
                         'TRAPKID DERIV FINANCIAL BUY → ' +
                             (buyResponse.error.message || buyResponse.error.code || 'rejected')
+                    );
+                    return null;
+                }
+
+                if (!buyResponse) {
+                    globalObserver.emit(
+                        'ui.log.error',
+                        'TRAPKID DERIV FINANCIAL BUY → no response from the authenticated Deriv connection.'
                     );
                     return null;
                 }
