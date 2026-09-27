@@ -418,12 +418,11 @@ export default Engine =>
                     );
                 }
 
-                // The purchased DIGITMATCH contract now belongs to Deriv until
-                // automatic settlement. Poll only this exact contract so the
-                // final win/loss/payout is recorded against the actual BUY ID.
-                if (analyzerMode && this.contractId) {
-                    void this.monitorAnalyzerSettlement(String(this.contractId), purchasedSignalKey);
-                }
+                // Analyzer EARLY_SELL_READY owns the exit. Do not start an
+                // automatic settlement watcher here: broker expiry could close the
+                // contract on a non-hot digit before the Analyzer exit command.
+                // Sell.js records the final financial state only after the same
+                // BUY contract is sold on the Analyzer hot digit.
 
                 if (this.is_proposal_subscription_required) {
                     this.renewProposalsOnPurchase();
