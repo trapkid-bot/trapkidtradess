@@ -97,6 +97,25 @@ const TrapKidAnalyzerDock = () => {
                     const currentAnalyzerState = globalObserver.getState('trapkid_analyzer') || {};
                     const commandBoundToSignal =
                         signalKey && String(currentAnalyzerState.commandKey || '') === signalKey;
+                    const activeContractSignalKey =
+                        currentAnalyzerState?.analyzerContractSignalId
+                            ? String(currentAnalyzerState.analyzerContractSignalId) + ':' + String(currentAnalyzerState?.signal?.lockedAt ?? '')
+                            : currentAnalyzerState?.analyzerBuySignalId
+                              ? String(currentAnalyzerState.analyzerBuySignalId) + ':' + String(currentAnalyzerState?.signal?.lockedAt ?? '')
+                              : currentAnalyzerState?.signal?.signalId && Number.isFinite(Number(currentAnalyzerState?.signal?.lockedAt))
+                                ? String(currentAnalyzerState.signal.signalId) + ':' + String(currentAnalyzerState.signal.lockedAt)
+                                : '';
+                    const activeContractOpen =
+                        !!currentAnalyzerState?.analyzerContractId &&
+                        !['ANALYZER_EARLY_SELL_CONFIRMED', 'ANALYZER_SETTLED'].includes(
+                            String(currentAnalyzerState.status || '')
+                        ) &&
+                        currentAnalyzerState?.isSold !== true;
+                    const preserveActiveExecution =
+                        isNewSignal &&
+                        activeContractOpen &&
+                        !!activeContractSignalKey &&
+                        activeContractSignalKey !== signalKey;
                     const preservedCommandStatus =
                         commandBoundToSignal &&
                         [
@@ -124,30 +143,45 @@ const TrapKidAnalyzerDock = () => {
                         connected: Boolean(data?.connected),
                         connecting: Boolean(data?.connecting),
                         historyLoaded: Boolean(data?.historyLoaded),
-                        symbol: data?.symbol || signal?.symbol || currentAnalyzerState.symbol || null,
-                        analyzerStatus,
-                        entryReady,
+                        symbol: preserveActiveExecution
+                            ? (currentAnalyzerState.symbol || data?.symbol || signal?.symbol || null)
+                            : (data?.symbol || signal?.symbol || currentAnalyzerState.symbol || null),
+                        analyzerStatus: preserveActiveExecution
+                            ? (currentAnalyzerState.analyzerStatus || analyzerStatus)
+                            : analyzerStatus,
+                        entryReady: preserveActiveExecution ? false : entryReady,
                         serverTime: data?.serverTime,
                         currency: data?.currency || currentAnalyzerState.currency || 'USD',
                         balance: data?.balance ?? currentAnalyzerState.balance,
                         analyzerBalance: data?.analyzerBalance ?? currentAnalyzerState.analyzerBalance,
                         lastTick: data?.lastTick || currentAnalyzerState.lastTick || null,
                         analysis: data?.analysis || currentAnalyzerState.analysis || null,
-                        signal: signal || null,
-                        exit: (isNewSignal || initialSignalIsFresh)
-                            ? null
-                            : data?.exit || currentAnalyzerState.exit || null,
+                        signal: preserveActiveExecution ? currentAnalyzerState.signal : (signal || null),
+                        exit: preserveActiveExecution
+                            ? (currentAnalyzerState.exit || null)
+                            : (isNewSignal || initialSignalIsFresh)
+                              ? null
+                              : data?.exit || currentAnalyzerState.exit || null,
                         status:
                             ['ANALYZER_SETTLED', 'ANALYZER_EARLY_SELL_CONFIRMED'].includes(String(currentAnalyzerState.status || ''))
                                 ? String(currentAnalyzerState.status)
-                                : remoteExitReady
-                                  ? 'EARLY_SELL_READY'
-                                  : preservedCommandStatus
-                                    ? currentAnalyzerState.status
-                                    : signalKey
-                                      ? 'CONNECTED'
-                                      : 'CONNECTED_WAITING',
+                                : preserveActiveExecution
+                                  ? String(currentAnalyzerState.status || 'WAITING_FOR_EARLY_SELL_READY')
+                                  : remoteExitReady
+                                    ? 'EARLY_SELL_READY'
+                                    : preservedCommandStatus
+                                      ? currentAnalyzerState.status
+                                      : signalKey
+                                        ? 'CONNECTED'
+                                        : 'CONNECTED_WAITING',
                         ...(commandBoundToSignal ? { commandKey: signalKey } : {}),
+                        ...(preserveActiveExecution
+                            ? {
+                                pendingAnalyzerSignal: signal,
+                                pendingAnalyzerSignalKey: signalKey,
+                                pendingAnalyzerCommandKey: signalKey,
+                            }
+                            : {}),
                         lastSeen: now,
                         // Mirror the Analyzer exit command into shared execution state
                         // immediately so TradeEngine can act on the exact signal without
@@ -171,7 +205,7 @@ const TrapKidAnalyzerDock = () => {
                     // Never carry the previous cycle's Deriv contract/settlement
                     // fields into the new signal; doing so makes the LINK badge
                     // display an old contract while the engine is trading a new one.
-                    if (isNewSignal || initialSignalIsFresh) {
+                    if ((isNewSignal || initialSignalIsFresh) && !preserveActiveExecution) {
                         mergedAnalyzerState.derivProposalId = null;
                         mergedAnalyzerState.derivProposalAskPrice = null;
                         mergedAnalyzerState.derivContractId = null;
@@ -274,7 +308,7 @@ const TrapKidAnalyzerDock = () => {
                     if (
                         signalKey &&
                         entryReady &&
-                        String(globalObserver.getState('trapkid_analyzer')?.commandKey || '') !== signalKey
+                        analyzerSignalKeyRef.current !== signalKey
                     ) {
                         analyzerSignalKeyRef.current = signalKey;
 
@@ -290,19 +324,30 @@ const TrapKidAnalyzerDock = () => {
                             analyzer: data,
                         };
 
-                        globalObserver.setState({
-                            trapkid_analyzer: {
-                                ...(globalObserver.getState('trapkid_analyzer') || {}),
-                                ...data,
-                                status: 'COMMAND_RECEIVED',
-                                analyzerStatus: 'ANALYZE_CLICK',
-                                entryReady: true,
-                                executionArmed: true,
-                                executionTrigger: 'ANALYZER_ENTRY',
-                                commandKey: signalKey,
-                                lastSeen: now,
-                            },
-                        });
+                        if (!preserveActiveExecution) {
+                            globalObserver.setState({
+                                trapkid_analyzer: {
+                                    ...(globalObserver.getState('trapkid_analyzer') || {}),
+                                    ...data,
+                                    status: 'COMMAND_RECEIVED',
+                                    analyzerStatus: 'ANALYZE_CLICK',
+                                    entryReady: true,
+                                    executionArmed: true,
+                                    executionTrigger: 'ANALYZER_ENTRY',
+                                    commandKey: signalKey,
+                                    lastSeen: now,
+                                },
+                            });
+                        } else {
+                            globalObserver.setState({
+                                trapkid_analyzer: {
+                                    ...(globalObserver.getState('trapkid_analyzer') || {}),
+                                    pendingAnalyzerSignal: signal,
+                                    pendingAnalyzerSignalKey: signalKey,
+                                    pendingAnalyzerCommandKey: signalKey,
+                                },
+                            });
+                        }
                         globalObserver.emit('trapkid.analyzer.command', command);
                         globalObserver.emit(
                             'trapkid.analyzer.updated',
