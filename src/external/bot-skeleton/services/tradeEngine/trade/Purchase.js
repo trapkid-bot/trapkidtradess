@@ -22,12 +22,12 @@ export default Engine =>
     class Purchase extends Engine {
         async purchase(contract_type) {
             const analyzerState = globalObserver.getState('trapkid_analyzer') || {};
-            // This TradeEngine is permanently Analyzer-only. Legacy Builder status
-            // flags are not allowed to activate a purchase.
             const analyzerMode =
-                this.analyzerOnly === true ||
                 this.isAnalyzerEnabledForTrade?.() ||
-                !!this.analyzerSignal;
+                !!this.analyzerSignal ||
+                ['ANALYZER_PURCHASE_AUTHORIZED', 'ANALYZER_PURCHASE_BOUND', 'WAITING_FOR_ANALYZER_EXIT', 'EARLY_EXIT_COMMAND_RECEIVED', 'ANALYZER_EXECUTION', 'RUNNING'].includes(
+                    String(analyzerState.status || '')
+                );
 
             if (analyzerMode) {
                 const analyzerStateGate = globalObserver.getState('trapkid_analyzer') || {};
@@ -157,35 +157,12 @@ export default Engine =>
             // Analyzer direct BUY does not depend on the Builder Redux purchase
             // scope. Never dispatch SELL/START here: those legacy state transitions
             // can interfere with the Analyzer-owned execution lifecycle.
-            if (this.analyzerOnly && !analyzerMode) {
-                globalObserver.emit(
-                    'ui.log.error',
-                    'TRAPKID ANALYZER BUY BLOCKED → legacy Builder purchase path is disabled.'
-                );
-                return Promise.resolve();
-            }
             if (!analyzerMode && this.store.getState().scope !== BEFORE_PURCHASE) {
                 return Promise.resolve();
             }
 
 
             const onSuccess = response => {
-                const purchasedSignalKey = this.analyzerSignal
-                    ? String(this.analyzerSignal.signalId) + ':' + String(this.analyzerSignal.lockedAt)
-                    : '';
-                if (analyzerMode) {
-                    const ownerState = globalObserver.getState('trapkid_analyzer') || {};
-                    if (
-                        String(ownerState.executionOwnerKey || '') !== purchasedSignalKey ||
-                        String(ownerState.executionOwnerToken || '') !== String(this.analyzerExecutionOwnerToken)
-                    ) {
-                        globalObserver.emit(
-                            'ui.log.error',
-                            'TRAPKID ANALYZER BUY IGNORED → stale/non-owner engine response.'
-                        );
-                        return;
-                    }
-                }
                 // Don't unnecessarily send a forget request for a purchased contract.
                 const { buy } = response;
 
@@ -299,9 +276,6 @@ export default Engine =>
                         // stale bridge/UI field later overwrites derivContractId.
                         analyzerBuyContractId: String(buy.contract_id),
                         analyzerBuySignalId: this.analyzerSignal?.signalId || null,
-                        executionOwnerKey: purchasedSignalKey,
-                        executionOwnerToken: this.analyzerExecutionOwnerToken,
-                        executionOwnerSignalId: this.analyzerSignal?.signalId || null,
                         analyzerContractSignalId: this.analyzerSignal?.signalId || null,
                         analyzerPotentialPayout: Number.isFinite(Number(buy.payout)) ? Number(buy.payout) : null,
                         payout: Number.isFinite(Number(buy.payout)) ? Number(buy.payout) : null,
