@@ -35,8 +35,8 @@ export const analyzerPurchaseReservations = analyzerPurchaseReservationStore;
 // ANALYZER MATCH MODE: keep the purchased position open while the live
 // Analyzer stream searches for the exact hot digit. The same contract is
 // closed as soon as that digit appears.
-const ANALYZER_PHYSICAL_HOLD_TICKS = 10;
-const ANALYZER_LOGICAL_DURATION = 10;
+const ANALYZER_PHYSICAL_HOLD_TICKS = 1;
+const ANALYZER_LOGICAL_DURATION = 1;
 const ANALYZER_LOGICAL_DURATION_UNIT = 't';
 
 export default Engine =>
