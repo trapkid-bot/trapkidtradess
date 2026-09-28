@@ -331,19 +331,14 @@ const MatchesTerminal = () => {
                         if (message.balance.loginid) setAccountId(message.balance.loginid);
                     }
 
+                    // Analyzer owns the contract lifecycle. Broker
+                    // proposal_open_contract messages must never mark an Analyzer
+                    // position closed or settled, and must never use the next market
+                    // tick as the exit decision.
+                    // Deriv is used only for account/balance and financial quote data
+                    // in Analyzer mode.
                     if (message?.msg_type === 'proposal_open_contract' && message.proposal_open_contract) {
-                        const open = message.proposal_open_contract;
-                        if (tradeRef.current?.contractId === String(open.contract_id)) {
-                            const bid = Number(open.bid_price);
-                            if (Number.isFinite(bid)) {
-                                setTrade(prev => prev ? { ...prev, bidPrice: bid } : prev);
-                                tradeRef.current = { ...tradeRef.current, bidPrice: bid };
-                            }
-                            if (open.is_sold || open.status === 'sold' || open.is_expired) {
-                                tradeRef.current = null;
-                                sellingRef.current = false;
-                            }
-                        }
+                        return;
                     }
                 });
                 authSubscription.current = sub;
