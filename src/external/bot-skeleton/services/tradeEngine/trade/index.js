@@ -82,8 +82,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         this.resolveAnalyzerCycle = null;
 
         // Register only after all Analyzer handlers have been assigned.
-        // Registering undefined handlers causes the Observer to throw
-        // "t is not a function" when the Analyzer bridge emits an event.
+        // The explicit Analyzer command/exit events are the execution boundary.
         this.observe();
 
         // Replay an already-published Analyzer exit state. Analyzer READY can
@@ -753,25 +752,17 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         ) {
             globalObserver.unregister('trapkid.analyzer.command', this.analyzerCommandObserver);
         }
-        if (
-            this.analyzerStateExitObserver &&
-            globalObserver.isRegistered('trapkid.analyzer.updated')
-        ) {
-            globalObserver.unregister('trapkid.analyzer.updated', this.analyzerStateExitObserver);
-        }
         this.analyzerExitObserver = null;
         this.analyzerStateExitObserver = null;
         this.disposeTotalObserver?.();
     }
 
     observe() {
-        // Analyzer-only observers are the timing bridge. There are no Deriv
-        // tick/settlement observers here, but the explicit Analyzer command
-        // and EARLY_SELL_READY events must be registered immediately so an
-        // exit that arrives during/just after the 1-tick BUY is not missed.
+        // Analyzer-only observers are the execution bridge. There are no Deriv
+        // tick/settlement observers here. Analyzer command and EARLY_SELL_READY
+        // events are the only execution lifecycle inputs.
         globalObserver.register('trapkid.analyzer.command', this.analyzerCommandObserver);
         globalObserver.register('trapkid.analyzer.exit', this.analyzerExitObserver);
-        globalObserver.register('trapkid.analyzer.updated', this.analyzerStateExitObserver);
     }
 
 }
