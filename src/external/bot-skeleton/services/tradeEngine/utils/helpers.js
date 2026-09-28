@@ -30,9 +30,26 @@ const getAnalyzerTradeDuration = trade_option => {
             signal?.analyzerDurationUnit ??
             null;
 
+        if (Number.isFinite(Number(analyzerDuration)) && Number(analyzerDuration) > 0) {
+            return {
+                duration: Number(analyzerDuration),
+                duration_unit: analyzerDurationUnit ?? 't',
+            };
+        }
+
+        // Quote-only fallback: derive the proposal window from the Analyzer lock.
+        // This value never controls Analyzer settlement.
+        const lockWindowMs = Number(signal?.expiresAt) - Number(signal?.lockedAt);
+        if (Number.isFinite(lockWindowMs) && lockWindowMs >= 1000) {
+            return {
+                duration: Math.max(1, Math.round(lockWindowMs / 1000)),
+                duration_unit: 's',
+            };
+        }
+
         return {
-            duration: analyzerDuration ?? 1,
-            duration_unit: analyzerDurationUnit ?? 't',
+            duration: trade_option?.duration,
+            duration_unit: trade_option?.duration_unit,
         };
     }
 
