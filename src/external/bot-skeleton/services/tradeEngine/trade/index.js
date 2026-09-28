@@ -452,7 +452,13 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         try {
             // This settles the Analyzer-owned local contract. Deriv is not
             // called here; its proposal was financial quote data only.
-            const sold = await this.sellAtMarket('ANALYZER_EARLY_SELL');
+            const sold = await this.sellAnalyzerEarlyExit({
+                ...command,
+                signal,
+                exit,
+                commandKey,
+                signalId: activeSignalId,
+            });
             if (!sold) {
                 globalObserver.emit(
                     'ui.log.error',
