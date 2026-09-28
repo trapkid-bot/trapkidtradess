@@ -85,6 +85,22 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // Registering undefined handlers causes the Observer to throw
         // "t is not a function" when the Analyzer bridge emits an event.
         this.observe();
+
+        // Replay an already-published Analyzer exit state. Analyzer READY can
+        // legitimately arrive before this TradeEngine instance finishes
+        // constructing; the state itself remains authoritative and is therefore
+        // replayed once so the engine cannot permanently miss settlement.
+        queueMicrotask(() => {
+            const state = globalObserver.getState('trapkid_analyzer') || {};
+            if (
+                state?.exit?.status === 'EARLY_SELL_READY' ||
+                state?.analyzerExitStatus === 'EARLY_SELL_READY' ||
+                state?.executionTrigger === 'EARLY_SELL_READY' ||
+                state?.status === 'EARLY_SELL_READY'
+            ) {
+                this.analyzerStateExitObserver(state);
+            }
+        });
     }
 
     onAnalyzerCommand = async command => {
