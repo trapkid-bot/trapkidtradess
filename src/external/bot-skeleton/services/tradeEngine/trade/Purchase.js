@@ -622,17 +622,60 @@ export default Engine =>
                 );
 
                 const postPurchaseState = globalObserver.getState('trapkid_analyzer') || {};
-                const readyExit = postPurchaseState.pendingEarlyExit?.status === 'EARLY_SELL_READY'
-                    ? postPurchaseState.pendingEarlyExit
-                    : postPurchaseState.exit;
-                if (readyExit?.status === 'EARLY_SELL_READY' && !this.isSold) {
+                const postPurchaseSignal = postPurchaseState.signal || this.analyzerSignal;
+                const postPurchaseExitReady =
+                    postPurchaseState.pendingEarlyExit?.status === 'EARLY_SELL_READY' ||
+                    postPurchaseState.exit?.status === 'EARLY_SELL_READY' ||
+                    postPurchaseState.analyzerExitStatus === 'EARLY_SELL_READY' ||
+                    postPurchaseState.executionTrigger === 'EARLY_SELL_READY' ||
+                    postPurchaseState.status === 'EARLY_SELL_READY';
+                const readyExit = postPurchaseExitReady
+                    ? {
+                        ...(postPurchaseState.pendingEarlyExit?.status === 'EARLY_SELL_READY'
+                            ? postPurchaseState.pendingEarlyExit
+                            : postPurchaseState.exit || {}),
+                        status: 'EARLY_SELL_READY',
+                        signalId: String(
+                            postPurchaseState.exit?.signalId ||
+                            postPurchaseState.pendingEarlyExit?.signalId ||
+                            postPurchaseSignal?.signalId ||
+                            ''
+                        ),
+                        digit: Number(
+                            postPurchaseState.exit?.digit ??
+                            postPurchaseState.pendingEarlyExit?.digit ??
+                            postPurchaseSignal?.hotDigit
+                        ),
+                        hotDigit: Number(postPurchaseSignal?.hotDigit),
+                        quote: Number(
+                            postPurchaseState.exit?.quote ??
+                            postPurchaseState.pendingEarlyExit?.quote ??
+                            postPurchaseSignal?.exitQuote ??
+                            postPurchaseSignal?.entryQuote ??
+                            postPurchaseSignal?.lockedQuote
+                        ),
+                        epoch: Number(
+                            postPurchaseState.exit?.epoch ??
+                            postPurchaseState.pendingEarlyExit?.epoch ??
+                            postPurchaseSignal?.lockedAt ??
+                            Date.now()
+                        ),
+                    }
+                    : null;
+
+                if (
+                    readyExit?.status === 'EARLY_SELL_READY' &&
+                    readyExit.signalId === String(postPurchaseSignal?.signalId || '') &&
+                    Number(readyExit.digit) === Number(postPurchaseSignal?.hotDigit) &&
+                    !this.isSold
+                ) {
                     queueMicrotask(() => {
                         void this.onAnalyzerEarlyExit?.({
                             source: 'TRAPKID_ANALYZER_POST_PURCHASE',
                             command: 'ANALYZER_EARLY_EXIT',
                             commandKey: postPurchaseState.commandKey || this.analyzerCommandKey,
-                            signalId: postPurchaseState.signalId || this.analyzerSignal?.signalId,
-                            signal: postPurchaseState.signal || this.analyzerSignal,
+                            signalId: postPurchaseState.signalId || postPurchaseSignal?.signalId,
+                            signal: postPurchaseSignal,
                             exit: readyExit,
                             receivedAt: Date.now(),
                         });
