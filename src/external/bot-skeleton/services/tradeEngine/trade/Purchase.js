@@ -157,8 +157,29 @@ export default Engine =>
                 // entryDigit remains Analyzer entry-code metadata only.
                 this.tradeOptions.prediction = signal.hotDigit;
                 this.tradeOptions.symbol = signal.symbol;
-                logicalDuration = signal?.duration ?? signal?.logicalDuration ?? signal?.analyzerDuration ?? 1;
-                logicalDurationUnit = signal?.duration_unit ?? signal?.durationUnit ?? signal?.logicalDurationUnit ?? signal?.analyzerDurationUnit ?? 't';
+                const explicitDuration = signal?.duration ?? signal?.logicalDuration ?? signal?.analyzerDuration;
+                const explicitDurationUnit =
+                    signal?.duration_unit ??
+                    signal?.durationUnit ??
+                    signal?.logicalDurationUnit ??
+                    signal?.analyzerDurationUnit;
+
+                if (Number.isFinite(Number(explicitDuration)) && Number(explicitDuration) > 0) {
+                    logicalDuration = Number(explicitDuration);
+                    logicalDurationUnit = explicitDurationUnit || 't';
+                } else {
+                    // Financial quote only: when Analyzer does not provide a duration,
+                    // derive the proposal window from the same Analyzer lock instead
+                    // of hardcoding the next tick as the trade lifecycle.
+                    const lockWindowMs = Number(signal?.expiresAt) - Number(signal?.lockedAt);
+                    if (Number.isFinite(lockWindowMs) && lockWindowMs >= 1000) {
+                        logicalDuration = Math.max(1, Math.round(lockWindowMs / 1000));
+                        logicalDurationUnit = 's';
+                    } else {
+                        logicalDuration = 1;
+                        logicalDurationUnit = 't';
+                    }
+                }
                 // Preserve the established Analyzer DIGITMATCH execution value when
                 // the bridge does not include duration metadata: 1 tick.
 
