@@ -62,11 +62,40 @@ const TrapKidAnalyzerDock = () => {
                     const analyzerStatus = String(data?.status || signal?.status || '').toUpperCase();
                     const remoteExit = data?.exit;
                     const remoteExitHotDigit = Number(signal?.hotDigit ?? signal?.prediction ?? signal?.lockedDigit);
+                    const remoteExitStatus = String(
+                        remoteExit?.status ||
+                        data?.analyzerExitStatus ||
+                        data?.executionTrigger ||
+                        data?.status ||
+                        ''
+                    );
                     const remoteExitReady =
-                        remoteExit?.status === 'EARLY_SELL_READY' &&
+                        remoteExitStatus === 'EARLY_SELL_READY' &&
                         Number.isInteger(remoteExitHotDigit) &&
-                        Number(remoteExit?.digit) === remoteExitHotDigit &&
-                        (!remoteExit?.signalId || String(remoteExit.signalId) === signalKey.split(':')[0]);
+                        (
+                            remoteExit?.digit === undefined ||
+                            Number(remoteExit?.digit) === remoteExitHotDigit
+                        ) &&
+                        (
+                            !remoteExit?.signalId ||
+                            String(remoteExit.signalId) === signalKey.split(':')[0]
+                        );
+                    const normalizedRemoteExit = remoteExitReady
+                        ? {
+                            ...(remoteExit || {}),
+                            status: 'EARLY_SELL_READY',
+                            signalId: String(remoteExit?.signalId || signalId),
+                            digit: Number(remoteExit?.digit ?? remoteExitHotDigit),
+                            hotDigit: remoteExitHotDigit,
+                            quote: Number(
+                                remoteExit?.quote ??
+                                signal?.exitQuote ??
+                                signal?.entryQuote ??
+                                signal?.lockedQuote
+                            ),
+                            epoch: Number(remoteExit?.epoch || signal?.lockedAt || Date.now()),
+                        }
+                        : null;
                     const explicitReady =
                         data?.entryReady === true ||
                         signal?.entryReady === true ||
@@ -161,7 +190,7 @@ const TrapKidAnalyzerDock = () => {
                             ? (currentAnalyzerState.exit || null)
                             : (isNewSignal || initialSignalIsFresh)
                               ? null
-                              : data?.exit || currentAnalyzerState.exit || null,
+                              : normalizedRemoteExit || data?.exit || currentAnalyzerState.exit || null,
                         status:
                             ['ANALYZER_SETTLED', 'ANALYZER_EARLY_SELL_CONFIRMED'].includes(String(currentAnalyzerState.status || ''))
                                 ? String(currentAnalyzerState.status)
@@ -239,20 +268,23 @@ const TrapKidAnalyzerDock = () => {
                         mergedAnalyzerState.exit = null;
                     }
 
-                    const rawExitForPublish = data?.exit;
+                    const rawExitForPublish = normalizedRemoteExit || data?.exit;
                     const exitPublishKey =
-                        rawExitForPublish?.status === 'EARLY_SELL_READY'
-                            ? String(rawExitForPublish.signalId || signalId) + ':' +
-                              String(rawExitForPublish.epoch || rawExitForPublish.quote || '')
+                        remoteExitReady
+                            ? String(signalId) + ':EARLY_SELL_READY'
                             : String(rawExitForPublish?.status || 'IDLE');
                     const publishKey = [
                         Boolean(data?.connected),
                         signalKey,
                         String(data?.symbol || ''),
                         String(signal?.hotDigit ?? ''),
+                        remoteExitStatus,
+                        String(rawExitForPublish?.digit ?? ''),
                         exitPublishKey,
                         String(currentAnalyzerState.commandKey || ''),
                         String(currentAnalyzerState.status || ''),
+                        String(currentAnalyzerState.analyzerExitStatus || ''),
+                        String(currentAnalyzerState.executionTrigger || ''),
                     ].join('|');
 
                     globalObserver.setState({ trapkid_analyzer: mergedAnalyzerState });
@@ -272,13 +304,15 @@ const TrapKidAnalyzerDock = () => {
                         analyzerExitKeyRef.current = null;
                     }
 
-                    const rawExit = data?.exit;
+                    const rawExit = normalizedRemoteExit || data?.exit;
                     const rawExitSignalId = String(rawExit?.signalId || '');
 
                     // The Analyzer endpoint may omit signalId on its exit object.
                     // On the first poll of a NEW signal, do not inherit an old
                     // EARLY_SELL_READY state. Subsequent polls may deliver the
-                    // exit for this already-known signal.
+                    // exit for this already-known signal. When the endpoint exposes
+                    // only an authoritative READY status, use the normalized exit
+                    // synthesized above from that same Analyzer signal.
                     const exit =
                         isNewSignal
                             ? null
@@ -293,8 +327,11 @@ const TrapKidAnalyzerDock = () => {
                         ? exitSignalId + ':' + String(exit.epoch || exit.quote || '')
                         : '';
 
-                    if (exitKey && analyzerExitKeyRef.current !== exitKey) {
-                        analyzerExitKeyRef.current = exitKey;
+                    if (
+                        (exitKey || remoteExitReady) &&
+                        analyzerExitKeyRef.current !== (exitKey || signalId + ':EARLY_SELL_READY')
+                    ) {
+                        analyzerExitKeyRef.current = exitKey || signalId + ':EARLY_SELL_READY';
                         const exitCommand = {
                             source: 'TRAPKID_ANALYZER_HTTP',
                             command: 'ANALYZER_EARLY_EXIT',
