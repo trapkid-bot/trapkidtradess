@@ -21,6 +21,7 @@ const TrapKidAnalyzerDock = () => {
     const drag = React.useRef<{ dx: number; dy: number } | null>(null);
     const analyzerSignalKeyRef = React.useRef<string | null>(null);
     const analyzerExitKeyRef = React.useRef<string | null>(null);
+    const analyzerExitRetryAtRef = React.useRef(0);
     const mountedAtRef = React.useRef(Date.now());
 
     React.useEffect(() => {
@@ -302,6 +303,7 @@ const TrapKidAnalyzerDock = () => {
                     // from blocking the newly locked signal.
                     if (isNewSignal) {
                         analyzerExitKeyRef.current = null;
+                        analyzerExitRetryAtRef.current = 0;
                     }
 
                     const rawExit = normalizedRemoteExit || data?.exit;
@@ -327,22 +329,49 @@ const TrapKidAnalyzerDock = () => {
                         ? exitSignalId + ':' + String(exit.epoch || exit.quote || '')
                         : '';
 
-                    if (
-                        (exitKey || remoteExitReady) &&
-                        analyzerExitKeyRef.current !== (exitKey || signalId + ':EARLY_SELL_READY')
-                    ) {
-                        analyzerExitKeyRef.current = exitKey || signalId + ':EARLY_SELL_READY';
+                    const retryExitKey = exitKey || (remoteExitReady ? signalId + ':EARLY_SELL_READY' : '');
+                    const analyzerStateForExitRetry = globalObserver.getState('trapkid_analyzer') || {};
+                    const analyzerAlreadySettled = [
+                        'ANALYZER_EARLY_SELL_CONFIRMED',
+                        'ANALYZER_SETTLED',
+                    ].includes(String(analyzerStateForExitRetry.status || ''));
+                    const retryDue =
+                        remoteExitReady &&
+                        retryExitKey &&
+                        retryExitKey !== analyzerExitKeyRef.current &&
+                        !analyzerAlreadySettled;
+                    const periodicRetryDue =
+                        remoteExitReady &&
+                        retryExitKey &&
+                        retryExitKey === analyzerExitKeyRef.current &&
+                        !analyzerAlreadySettled &&
+                        now - analyzerExitRetryAtRef.current >= 500;
+
+                    if (retryDue || periodicRetryDue) {
+                        analyzerExitKeyRef.current = retryExitKey;
+                        analyzerExitRetryAtRef.current = now;
                         const exitCommand = {
                             source: 'TRAPKID_ANALYZER_HTTP',
                             command: 'ANALYZER_EARLY_EXIT',
                             commandKey: signalId
                                 ? signalId + ':' + String(signal.lockedAt || '')
                                 : '',
-                            signalId: exitSignalId,
+                            signalId: exitSignalId || signalId,
                             signal,
-                            exit,
+                            exit: normalizedRemoteExit || {
+                                status: 'EARLY_SELL_READY',
+                                signalId,
+                                digit: remoteExitHotDigit,
+                                hotDigit: remoteExitHotDigit,
+                                quote: Number(signal?.exitQuote ?? signal?.entryQuote ?? signal?.lockedQuote),
+                                epoch: Number(signal?.lockedAt || now),
+                            },
                             receivedAt: now,
                         };
+                        // EARLY_SELL_READY is the Analyzer command. Retry it
+                        // until the exact local contract reports confirmed
+                        // Analyzer settlement; global exit locking prevents
+                        // duplicate settlement attempts from racing.
                         globalObserver.emit('trapkid.analyzer.exit', exitCommand);
                         globalObserver.emit(
                             'trapkid.analyzer.updated',
