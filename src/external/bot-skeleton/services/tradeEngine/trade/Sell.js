@@ -202,12 +202,15 @@ export default Engine =>
                 ' → payout=' + payout
             );
 
-            if (this.afterPromise) {
-                this.afterPromise();
-                this.afterPromise = null;
+            // Analyzer settlement is a local lifecycle transition.
+            // Do not dispatch the legacy Redux SELL action: Analyzer mode does not
+            // use the Builder DURING_PURCHASE scope.
+            if (this.resolveAnalyzerCycle) {
+                const resolve = this.resolveAnalyzerCycle;
+                this.resolveAnalyzerCycle = null;
+                queueMicrotask(() => resolve(true));
             }
 
-            this.store.dispatch(sell());
             return true;
         }
 
