@@ -141,15 +141,15 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
         // The Analyzer command is itself the execution trigger.
         // Do not queue it behind the old DBot Run gate.
         this.analyzerExecutionStarted = true;
-        if (!this.analyzerCyclePromise || this.analyzerCyclePromise === Promise.resolve()) {
+        if (!this.resolveAnalyzerCycle) {
             this.analyzerCyclePromise = new Promise(resolve => {
                 this.resolveAnalyzerCycle = resolve;
             });
         }
 
-        const currentState = globalObserver.getState('trapkid_analyzer') || {};
-        if (currentState.purchaseConsumedKey === activeKey || currentState.purchaseInFlightKey === activeKey || this.contractId) return;
-
+        // Bind the exact command signal into the shared Analyzer state BEFORE
+        // any preparation/quote work. A queued command must never temporarily
+        // read the previous contract's signal from the bridge.
         this.analyzerSignal = {
             ...signal,
             signalId: String(signal.signalId),
@@ -158,6 +158,27 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             prediction: hotDigit,
         };
         this.analyzerCommandKey = activeKey;
+        globalObserver.setState({
+            trapkid_analyzer: {
+                ...(globalObserver.getState('trapkid_analyzer') || {}),
+                signal: this.analyzerSignal,
+                signalId: this.analyzerSignal.signalId,
+                commandKey: activeKey,
+                symbol: this.analyzerSignal.symbol,
+                entryPrediction: hotDigit,
+                lockedDigit: this.analyzerSignal.lockedDigit,
+                hotDigit,
+                entrySource: 'ANALYZER_ONLY',
+                exitSource: 'ANALYZER_EXIT_SIGNAL_ONLY',
+                executionArmed: true,
+                entryReady: true,
+                executionTrigger: 'ANALYZER_ENTRY_COMMAND',
+                holdUntilAnalyzerExit: true,
+            },
+        });
+
+        const currentState = globalObserver.getState('trapkid_analyzer') || {};
+        if (currentState.purchaseConsumedKey === activeKey || currentState.purchaseInFlightKey === activeKey || this.contractId) return;
 
         try {
             await this.prepareAnalyzerPrediction();
