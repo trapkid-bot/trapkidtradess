@@ -640,16 +640,29 @@ export default class RunPanelStore {
         }
 
         this.setHasOpenContract(false);
-        observer.setState({
-            trapkid_analyzer: {
+
+        const analyzerState = observer.getState('trapkid_analyzer') || {};
+        const analyzerSettled = [
+            'ANALYZER_EARLY_SELL_CONFIRMED',
+            'ANALYZER_SETTLED',
+        ].includes(String(analyzerState.status || ''));
+
+        // Do not overwrite the Analyzer's confirmed local settlement with the
+        // generic DBot "waiting" state when the Analyzer run finishes.
+        if (!analyzerSettled) {
+            observer.setState({
+                trapkid_analyzer: {
+                    ...analyzerState,
+                    status: 'WAITING_FOR_ANALYZER',
+                },
+            });
+            observer.emit('trapkid.analyzer.updated', {
                 ...(observer.getState('trapkid_analyzer') || {}),
                 status: 'WAITING_FOR_ANALYZER',
-            },
-        });
-        observer.emit('trapkid.analyzer.updated', {
-            ...(observer.getState('trapkid_analyzer') || {}),
-            status: 'WAITING_FOR_ANALYZER',
-        });
+            });
+        } else {
+            observer.emit('trapkid.analyzer.updated', analyzerState);
+        }
 
         summary_card.clearContractUpdateConfigValues();
 
