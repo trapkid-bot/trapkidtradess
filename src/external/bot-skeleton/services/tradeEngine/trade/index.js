@@ -12,6 +12,10 @@ import Sell from './Sell';
 import Total from './Total';
 import Analyzer from './Analyzer';
 
+const analyzerExitHandlingStore =
+    globalThis.__TRAPKID_ANALYZER_EXIT_HANDLING__ ||
+    (globalThis.__TRAPKID_ANALYZER_EXIT_HANDLING__ = new Set());
+
 export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(class {}))))) {
     constructor($scope) {
         super();
@@ -330,8 +334,12 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
 
         const commandKey = String(signal.signalId) + ':' + String(signal.lockedAt);
 
-        // Lock this exact EXIT before publishing lifecycle state. This prevents
-        // the state-bridge observer from issuing a second SELL for the same signal.
+        // Lock this exact EXIT globally for the signal. Multiple TradeEngine
+        // instances can temporarily coexist during UI/run-panel transitions; a
+        // per-instance flag is not sufficient to prevent re-entrancy.
+        const exitHandlingKey = activeSignalKey;
+        if (analyzerExitHandlingStore.has(exitHandlingKey)) return false;
+        analyzerExitHandlingStore.add(exitHandlingKey);
         this.analyzerExitHandling = true;
 
         // IMPORTANT: once the event has identified the exact signal and the
@@ -347,7 +355,9 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             analyzerState?.analyzerContractId ||
             analyzerState?.analyzerBuyContractId ||
             this.analyzerContractId ||
-            this.derivBuy?.contract_id ||
+            this.contractId ||
+            this.analyzerCommandKey ||
+            signal?.signalId ||
             ''
         );
 
@@ -372,6 +382,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             });
             globalObserver.emit('trapkid.analyzer.updated', globalObserver.getState('trapkid_analyzer'));
             this.analyzerExitHandling = false;
+            analyzerExitHandlingStore.delete(exitHandlingKey);
             return false;
         }
 
@@ -415,6 +426,7 @@ export default class TradeEngine extends Balance(Purchase(Sell(Analyzer(Total(cl
             return sold;
         } finally {
             this.analyzerExitHandling = false;
+            analyzerExitHandlingStore.delete(exitHandlingKey);
         }
     }
 
