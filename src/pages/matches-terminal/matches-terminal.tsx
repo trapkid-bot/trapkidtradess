@@ -32,9 +32,6 @@ type Trade = {
 const ANALYZER_API = (process.env.NEXT_PUBLIC_ANALYZER_API_URL || 'https://copper-philosophy-smart-competition.trycloudflare.com').trim();
 const ANALYZER_WS = (process.env.NEXT_PUBLIC_ANALYZER_WS_URL || ANALYZER_API.replace(/^http/i, 'ws')).trim();
 const ANALYZER_EXECUTION_VERSION = 'ANALYZER-COMMAND-BUS-V5';
-const ANALYZER_EXECUTION_DURATION = 1;
-const ANALYZER_EXECUTION_DURATION_UNIT = 't';
-
 const lastDigit = (quote: number, pipSize = 2) => {
     const fixed = Number(quote).toFixed(Math.max(0, pipSize));
     return Number(fixed.replace(/\D/g, '').slice(-1));
@@ -403,7 +400,7 @@ const MatchesTerminal = () => {
                 buyPrice: Number.isFinite(Number(buyPrice)) ? Number(buyPrice) : 0,
                 bidPrice: Number.isFinite(Number(state.derivBuyPrice)) ? Number(state.derivBuyPrice) : 0,
                 openedAt: Number(state.analyzerBoundAt || Date.now()),
-                holdTicks: ANALYZER_EXECUTION_DURATION,
+                holdTicks: 0,
                 entryDigit: Number.isInteger(Number(signal.entryDigit)) ? Number(signal.entryDigit) : prediction,
                 hotDigit: Number.isInteger(Number(signal.hotDigit)) ? Number(signal.hotDigit) : prediction,
                 lockedDigit: Number.isInteger(Number(signal.lockedDigit)) ? Number(signal.lockedDigit) : prediction,
@@ -582,7 +579,7 @@ const MatchesTerminal = () => {
                     {trade ? (
                         <div className='tk-active'>
                             <div className='active-title'><span className='pulse' /> ANALYZER COMMAND ACTIVE</div>
-                            <div className='active-main'>{trade.symbol} • DIGITMATCH <b>{trade.hotDigit ?? trade.lockedDigit}</b> • 1 TICK EXECUTION</div>
+                            <div className='active-main'>{trade.symbol} • DIGITMATCH <b>{trade.hotDigit ?? trade.lockedDigit}</b> • ANALYZER CONTROLLED</div>
                             <div className='active-meta'>Entry digit: {trade.entryDigit ?? '—'} • Locked entry quote: {analyzerDetails?.signal?.entryQuote ?? analyzerDetails?.signal?.lockedQuote ?? '—'}</div>
                             <div className='active-meta'>MATCH OPEN • waiting for hot digit {trade.hotDigit ?? '—'} • Signal: {trade.signalId}</div>
                         </div>
