@@ -47,7 +47,7 @@ const ContractStageText: React.FC<TContractStageText> = ({ contract_stage }) => 
         String(analyzerState?.executionTrigger || '') === 'EARLY_SELL_READY';
 
     if (analyzerTriggerReady) {
-        return <Localize i18n_default_text='Analyzer hot digit matched — executing 1 tick contract' />;
+        return <Localize i18n_default_text='Analyzer EARLY_SELL_READY — settling Analyzer-owned contract' />;
     }
 
     if (analyzerWaiting && (
